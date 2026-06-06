@@ -52,6 +52,22 @@ class LearningRepositoryTest {
     }
 
     @Test
+    fun importCreatesVerbFormGrammarCardsForRegularDomainVerbs() = runTest {
+        val fixture = RepoFixture()
+        val jsonl = """
+            {"russian":"\u043f\u0438\u0441\u0430\u0442\u044c","lemma":"\u043f\u0438\u0441\u0430\u0442\u044c","pos":"verb","translation":"to write","aspect":"IPF","aktionsart":"activity","aktionsartConfidence":"high","domainFreqRank":1,"exampleSentence":"\u041e\u043d\u0430 \u043f\u0438\u0441\u0430\u043b\u0430 \u043f\u0438\u0441\u044c\u043c\u043e."}
+        """.trimIndent()
+
+        fixture.repository.importJsonLines(jsonl)
+
+        val note = fixture.notes.getByLemma("\u043f\u0438\u0441\u0430\u0442\u044c")
+        val verbForms = fixture.cards.cards.filter { it.noteId == note?.id && it.cardType == CardType.VERB_FORM }
+        assertTrue(verbForms.any { it.gramContextCue == "PAST_F" })
+        assertTrue(verbForms.any { it.gramContextCue == "PRES_1PL" })
+        assertTrue(verbForms.all { it.queue == Queue.GRAMMAR })
+    }
+
+    @Test
     fun reviewLogsAndIncrementsEncounters() = runTest {
         val fixture = RepoFixture()
         fixture.repository.seedIfEmpty()
@@ -342,6 +358,10 @@ class LearningRepositoryTest {
         override suspend fun count(): Int = notes.size
         override fun observeAll(): Flow<List<Note>> = flowOf(notes)
         override suspend fun getAll(): List<Note> = notes.toList()
+        override suspend fun search(query: String, limit: Int): List<Note> =
+            notes.filter {
+                it.russian.contains(query, true) || it.lemma.contains(query, true) || it.translation.contains(query, true)
+            }.take(limit)
         override suspend fun update(note: Note) {
             notes.replaceAll { if (it.id == note.id) note else it }
         }
@@ -374,6 +394,10 @@ class LearningRepositoryTest {
             cards.filter { it.queue == Queue.GRAMMAR && it.cardType == CardType.CASE_FILL && it.gramCase == gramCase && it.gramGender == gramGender && it.gramNumber == gramNumber }
                 .sortedWith(compareBy<Card> { it.due }.thenBy { it.id })
                 .take(limit)
+        override suspend fun getVerbFormCards(formKey: String, limit: Int): List<Card> =
+            cards.filter { it.queue == Queue.GRAMMAR && it.cardType == CardType.VERB_FORM && it.gramContextCue == formKey }
+                .sortedWith(compareBy<Card> { it.due }.thenBy { it.id })
+                .take(limit)
         override suspend fun getGrammarDrillCards(limit: Int): List<Card> =
             cards.filter { it.queue == Queue.GRAMMAR }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
         override suspend fun getCardsForNote(noteId: Long): List<Card> = cards.filter { it.noteId == noteId }
@@ -402,6 +426,10 @@ class LearningRepositoryTest {
 
         override suspend fun countSince(since: Long): Int = logs.count { it.reviewDatetime >= since }
         override suspend fun countAll(): Int = logs.size
+        override suspend fun deleteLatestForCard(cardId: Long) {
+            val last = logs.filter { it.cardId == cardId }.maxByOrNull { it.id } ?: return
+            logs.remove(last)
+        }
         override suspend fun reviewDayBuckets(tzOffset: Long, dayMillis: Long): List<Long> =
             logs.map { (it.reviewDatetime + tzOffset) / dayMillis }.distinct().sortedDescending()
         override suspend fun nounCategoryRatings(gramCase: String, gramGender: String, gramNumber: String, limit: Int): List<Rating> =
@@ -418,6 +446,14 @@ class LearningRepositoryTest {
                     val card = cards.cards.firstOrNull { it.id == log.cardId }
                     val note = card?.let { notes.notes.firstOrNull { note -> note.id == it.noteId } }
                     note?.aktionsart == aktionsart && note.aspect == aspect && card.gramContextCue == contextCue
+                }
+                .take(limit)
+                .map { it.rating }
+        override suspend fun verbFormCategoryRatings(formKey: String, limit: Int): List<Rating> =
+            logs.sortedByDescending { it.reviewDatetime }
+                .filter { log ->
+                    val card = cards.cards.firstOrNull { it.id == log.cardId }
+                    card?.cardType == CardType.VERB_FORM && card.gramContextCue == formKey
                 }
                 .take(limit)
                 .map { it.rating }

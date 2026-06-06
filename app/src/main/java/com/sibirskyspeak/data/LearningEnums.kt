@@ -6,6 +6,7 @@ enum class CardType {
     CLOZE,
     AUDIO_TO_RU,
     CASE_FILL,
+    VERB_FORM,
     ASPECT_SELECT
 }
 

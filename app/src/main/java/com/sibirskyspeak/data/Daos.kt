@@ -50,6 +50,9 @@ interface CardDao {
     @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR' AND cardType = 'CASE_FILL' AND gramCase = :gramCase AND gramGender = :gramGender AND gramNumber = :gramNumber ORDER BY due ASC, id ASC LIMIT :limit")
     suspend fun getCaseDrillCards(gramCase: String, gramGender: String, gramNumber: String, limit: Int): List<Card>
 
+    @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR' AND cardType = 'VERB_FORM' AND gramContextCue = :formKey ORDER BY due ASC, id ASC LIMIT :limit")
+    suspend fun getVerbFormCards(formKey: String, limit: Int): List<Card>
+
     @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR' ORDER BY due ASC, id ASC LIMIT :limit")
     suspend fun getGrammarDrillCards(limit: Int): List<Card>
 
@@ -89,6 +92,18 @@ interface NoteDao {
     @Query("SELECT * FROM notes ORDER BY COALESCE(domainFreqRank, generalFreqRank, 2147483647), russian")
     fun observeAll(): Flow<List<Note>>
 
+    @Query(
+        """
+        SELECT * FROM notes
+        WHERE russian LIKE '%' || :query || '%'
+           OR lemma LIKE '%' || :query || '%'
+           OR translation LIKE '%' || :query || '%'
+        ORDER BY COALESCE(domainFreqRank, generalFreqRank, 2147483647), russian
+        LIMIT :limit
+        """
+    )
+    suspend fun search(query: String, limit: Int = 50): List<Note>
+
     @Query("SELECT * FROM notes")
     suspend fun getAll(): List<Note>
 
@@ -106,6 +121,11 @@ interface ReviewLogDao {
 
     @Query("SELECT COUNT(*) FROM review_logs")
     suspend fun countAll(): Int
+
+    // Removes the most recent log row for a card. Used by the undo path to roll
+    // back a review (the matching Card row is restored separately from a snapshot).
+    @Query("DELETE FROM review_logs WHERE id = (SELECT MAX(id) FROM review_logs WHERE cardId = :cardId)")
+    suspend fun deleteLatestForCard(cardId: Long)
 
     // Distinct local-day buckets that have at least one review, newest first.
     // Used for streak and active-day stats without loading every log row.
@@ -130,6 +150,15 @@ interface ReviewLogDao {
         LIMIT :limit
     """)
     suspend fun aspectCategoryRatings(aktionsart: String, aspect: String, contextCue: String, limit: Int = 30): List<Rating>
+
+    @Query("""
+        SELECT rl.rating FROM review_logs rl
+        JOIN cards c ON rl.cardId = c.id
+        WHERE c.cardType = 'VERB_FORM' AND c.gramContextCue = :formKey
+        ORDER BY rl.reviewDatetime DESC
+        LIMIT :limit
+    """)
+    suspend fun verbFormCategoryRatings(formKey: String, limit: Int = 30): List<Rating>
 }
 
 @Dao

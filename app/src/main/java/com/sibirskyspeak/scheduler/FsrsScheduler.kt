@@ -12,7 +12,7 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 class FsrsScheduler(
-    private val desiredRetention: Double = 0.9,
+    private val desiredRetentionProvider: () -> Double = { 0.9 },
     private val maximumIntervalDays: Int = 36_500,
     private val weights: DoubleArray = DEFAULT_WEIGHTS
 ) : Scheduler {
@@ -114,6 +114,7 @@ class FsrsScheduler(
             exp(weights[14] * (1.0 - retrievability))
 
     private fun interval(stability: Double): Int {
+        val desiredRetention = desiredRetentionProvider().coerceIn(0.80, 0.97)
         val raw = stability / factor() * (desiredRetention.pow(-1.0 / decay()) - 1.0)
         return raw.roundToInt().coerceIn(1, maximumIntervalDays)
     }

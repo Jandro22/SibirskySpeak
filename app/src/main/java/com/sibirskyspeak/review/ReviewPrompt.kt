@@ -74,6 +74,18 @@ fun buildPrompt(
             answerMode = AnswerMode.RUSSIAN_TYPED,
             intervalPreview = intervalPreview
         )
+        CardType.VERB_FORM -> {
+            val drill = verbFormDrill(card, note)
+            ReviewPrompt(
+                card = card,
+                note = note,
+                prompt = drill.prompt,
+                expectedAnswer = drill.answer,
+                answerMode = AnswerMode.RUSSIAN_TYPED,
+                intervalPreview = intervalPreview,
+                explanation = drill.explanation
+            )
+        }
         CardType.ASPECT_SELECT -> {
             val cue = card.gramContextCue ?: "NO_CUE"
             val selfForm = RussianForms.pastMasculine(note.lemma) ?: note.russian
@@ -99,6 +111,40 @@ fun buildPrompt(
 }
 
 private data class ClozeDrill(val prompt: String, val answer: String)
+
+private data class VerbFormDrill(val prompt: String, val answer: String, val explanation: String)
+
+private fun verbFormDrill(card: Card, note: Note): VerbFormDrill {
+    val key = card.gramContextCue ?: "PAST_M"
+    val answer = RussianForms.verbForm(note.lemma, key) ?: RussianForms.pastMasculine(note.lemma) ?: note.russian
+    val blanked = note.exampleSentence?.blankAny(listOf(answer, note.russian, note.lemma))
+    return VerbFormDrill(
+        prompt = buildString {
+            append("Make \"${note.translation}\" ${key.verbFormLabel()}.")
+            if (blanked != null) {
+                append("\n")
+                append(blanked)
+            }
+        },
+        answer = answer,
+        explanation = "${key.verbFormLabel().replaceFirstChar { it.uppercase() }} of ${note.lemma}."
+    )
+}
+
+private fun String.verbFormLabel(): String =
+    when (this) {
+        "PRES_1SG" -> "present 1st person singular"
+        "PRES_2SG" -> "present 2nd person singular"
+        "PRES_3SG" -> "present 3rd person singular"
+        "PRES_1PL" -> "present 1st person plural"
+        "PRES_2PL" -> "present 2nd person plural"
+        "PRES_3PL" -> "present 3rd person plural"
+        "PAST_M" -> "past masculine singular"
+        "PAST_F" -> "past feminine singular"
+        "PAST_N" -> "past neuter singular"
+        "PAST_PL" -> "past plural"
+        else -> lowercase().replace('_', ' ')
+    }
 
 private fun String.clozeVocabularyAnswer(note: Note): ClozeDrill? {
     val candidates = RussianForms.surfaceForms(note) + listOf(note.russian, note.lemma)

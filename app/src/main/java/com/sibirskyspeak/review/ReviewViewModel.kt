@@ -2,13 +2,17 @@ package com.sibirskyspeak.review
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sibirskyspeak.data.Achievement
 import com.sibirskyspeak.data.DashboardStats
 import com.sibirskyspeak.data.DailyPlan
 import com.sibirskyspeak.data.LearningRepository
+import com.sibirskyspeak.data.Note
 import com.sibirskyspeak.data.Rating
 import com.sibirskyspeak.data.ReaderRecommendation
 import com.sibirskyspeak.data.ReaderToken
 import com.sibirskyspeak.data.SessionPlan
+import com.sibirskyspeak.data.SettingsStore
+import com.sibirskyspeak.data.WordStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -49,11 +53,27 @@ data class ReviewUiState(
     val statusMessage: String? = null,
     val sessionStep: SessionStep = SessionStep.REVIEWS,
     val ratingInProgress: Boolean = false,
-    val autoRatedAgain: Boolean = false
+    val autoRatedAgain: Boolean = false,
+    val canUndo: Boolean = false,
+    // Settings mirror (persisted in SettingsStore; surfaced for the Settings UI).
+    val dailyGoalSetting: Int = SettingsStore.DEFAULT_DAILY_GOAL,
+    val sessionSizeSetting: Int = SettingsStore.DEFAULT_SESSION_SIZE,
+    val retentionSetting: Double = SettingsStore.DEFAULT_RETENTION,
+    val reminderEnabled: Boolean = true,
+    val reminderHour: Int = SettingsStore.DEFAULT_REMINDER_HOUR,
+    val readerFontScale: Float = 1.0f,
+    // Deck search.
+    val searchQuery: String = "",
+    val searchResults: List<Note> = emptyList(),
+    // Furthest token the user has reached in the open reader text ("continue reading").
+    val readerProgressIndex: Int = 0,
+    // Achievements unlocked since the user last looked (for the celebratory toast).
+    val newlyUnlocked: List<Achievement> = emptyList()
 )
 
 class ReviewViewModel(
-    private val repository: LearningRepository
+    private val repository: LearningRepository,
+    private val settings: SettingsStore
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(ReviewUiState())
     val state: StateFlow<ReviewUiState> = mutableState.asStateFlow()
@@ -63,6 +83,57 @@ class ReviewViewModel(
             repository.seedIfEmpty()
             repository.syncBootstrapReaderTexts()
             loadSession()
+        }
+    }
+
+    // --- Settings -----------------------------------------------------------
+
+    fun setDailyGoal(value: Int) {
+        settings.dailyGoal = value
+        mutableState.value = mutableState.value.copy(dailyGoalSetting = settings.dailyGoal)
+        viewModelScope.launch { loadSession() }
+    }
+
+    fun setSessionSize(value: Int) {
+        settings.sessionSize = value
+        mutableState.value = mutableState.value.copy(sessionSizeSetting = settings.sessionSize)
+        viewModelScope.launch { loadSession() }
+    }
+
+    fun setRetention(value: Double) {
+        settings.desiredRetention = value
+        mutableState.value = mutableState.value.copy(retentionSetting = settings.desiredRetention)
+    }
+
+    fun setReminderEnabled(value: Boolean) {
+        settings.reminderEnabled = value
+        mutableState.value = mutableState.value.copy(reminderEnabled = value)
+    }
+
+    fun setReminderHour(value: Int) {
+        settings.reminderHour = value
+        mutableState.value = mutableState.value.copy(reminderHour = settings.reminderHour)
+    }
+
+    fun setReaderFontScale(value: Float) {
+        settings.readerFontScale = value
+        mutableState.value = mutableState.value.copy(readerFontScale = settings.readerFontScale)
+    }
+
+    fun dismissNewlyUnlocked() {
+        mutableState.value = mutableState.value.copy(newlyUnlocked = emptyList())
+    }
+
+    // --- Deck search --------------------------------------------------------
+
+    fun setSearchQuery(value: String) {
+        mutableState.value = mutableState.value.copy(searchQuery = value)
+        viewModelScope.launch {
+            val results = repository.searchNotes(value)
+            // Guard against out-of-order responses: only apply if query still current.
+            if (mutableState.value.searchQuery == value) {
+                mutableState.value = mutableState.value.copy(searchResults = results)
+            }
         }
     }
 
@@ -138,6 +209,67 @@ class ReviewViewModel(
         viewModelScope.launch { loadSession() }
     }
 
+    /**
+     * Roll back the last committed review and re-present that card. Works both for
+     * explicit ratings and for the silent auto-AGAIN on a missed answer.
+     */
+    fun undoLastReview() {
+        if (mutableState.value.ratingInProgress) return
+        viewModelScope.launch {
+            val restored = repository.undoLastReview() ?: return@launch
+            loadSession(status = "Undid last review")
+            // Surface the restored card again, fresh, regardless of queue order.
+            val prompt = repository.promptForCard(restored)
+            if (prompt != null) {
+                mutableState.value = mutableState.value.copy(
+                    prompt = prompt,
+                    revealed = false,
+                    typedAnswer = "",
+                    isAnswerCorrect = null,
+                    answerMatch = null,
+                    answerFeedback = null,
+                    autoRatedAgain = false
+                )
+            }
+        }
+    }
+
+    /**
+     * "I actually knew this" escape hatch after a typed answer was auto-failed.
+     * Rolls back the silent AGAIN and reopens the rating buttons so the learner
+     * can grade their true recall.
+     */
+    fun overrideKnewIt() {
+        if (!mutableState.value.autoRatedAgain) return
+        viewModelScope.launch {
+            repository.undoLastReview()
+            mutableState.value = mutableState.value.copy(
+                autoRatedAgain = false,
+                revealed = true,
+                isAnswerCorrect = true,
+                answerMatch = AnswerMatch.EXACT,
+                ratingInProgress = false
+            )
+        }
+    }
+
+    fun markVisibleWords(tokens: List<String>, status: WordStatus) {
+        if (tokens.isEmpty()) return
+        val recommendation = mutableState.value.currentReaderRecommendation() ?: return
+        viewModelScope.launch {
+            val count = repository.setWordStatusBatch(tokens, status)
+            val refreshedTexts = repository.readerTexts()
+            val selected = refreshedTexts.firstOrNull { it.text.id == recommendation.text.id } ?: recommendation
+            mutableState.value = mutableState.value.copy(
+                allReaderTexts = refreshedTexts,
+                readerRecommendation = refreshedTexts.minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTargetUi(it.coverage) }.thenByDescending { it.coverage }),
+                readerTokens = repository.readerTokens(selected.text),
+                selectedToken = null,
+                statusMessage = "Marked $count words ${status.name.lowercase()}"
+            )
+        }
+    }
+
     fun lookupReaderToken(token: String) {
         val recommendation = mutableState.value.currentReaderRecommendation() ?: return
         val normalized = mutableState.value.readerTokens.firstOrNull { it.surface == token }?.normalized
@@ -188,9 +320,18 @@ class ReviewViewModel(
                 selectedReaderTextId = id,
                 readerTokens = repository.readerTokens(recommendation.text),
                 selectedToken = null,
-                lookupResult = null
+                lookupResult = null,
+                readerProgressIndex = settings.readerProgress(id)
             )
         }
+    }
+
+    /** Record the furthest token index the learner has reached, for "continue reading". */
+    fun recordReaderProgress(tokenIndex: Int) {
+        val id = mutableState.value.selectedReaderTextId ?: return
+        if (tokenIndex <= mutableState.value.readerProgressIndex) return
+        settings.setReaderProgress(id, tokenIndex)
+        mutableState.value = mutableState.value.copy(readerProgressIndex = tokenIndex)
     }
 
     fun closeReaderText() {
@@ -252,9 +393,14 @@ class ReviewViewModel(
         val plan = repository.sessionPlan()
         val step = keepStep
         val allReaders = repository.readerTexts()
-        val selectedReader = mutableState.value.selectedReaderTextId?.let { id ->
+        val current = mutableState.value
+        val selectedReader = current.selectedReaderTextId?.let { id ->
             allReaders.firstOrNull { it.text.id == id }
         } ?: plan.readerRecommendation
+        // Detect achievements unlocked since last seen, for the celebratory toast.
+        val unlockedIds = plan.gamification.achievements.filter { it.unlocked }.map { it.id }.toSet()
+        val freshIds = settings.newlyUnlocked(unlockedIds)
+        val freshAchievements = plan.gamification.achievements.filter { it.id in freshIds }
         mutableState.value = ReviewUiState(
             prompt = promptForStep(step, plan),
             reviewedToday = repository.reviewedToday(),
@@ -264,13 +410,24 @@ class ReviewViewModel(
             allReaderTexts = allReaders,
             readerTokens = selectedReader?.text?.let { repository.readerTokens(it) }.orEmpty(),
             dashboardStats = plan.dashboardStats,
-            importText = mutableState.value.importText,
-            exportText = mutableState.value.exportText,
-            readerTitle = mutableState.value.readerTitle,
-            readerBody = mutableState.value.readerBody,
-            selectedReaderTextId = mutableState.value.selectedReaderTextId,
+            importText = current.importText,
+            exportText = current.exportText,
+            readerTitle = current.readerTitle,
+            readerBody = current.readerBody,
+            selectedReaderTextId = current.selectedReaderTextId,
             statusMessage = status,
-            sessionStep = step
+            sessionStep = step,
+            canUndo = repository.canUndo(),
+            dailyGoalSetting = settings.dailyGoal,
+            sessionSizeSetting = settings.sessionSize,
+            retentionSetting = settings.desiredRetention,
+            reminderEnabled = settings.reminderEnabled,
+            reminderHour = settings.reminderHour,
+            readerFontScale = settings.readerFontScale,
+            searchQuery = current.searchQuery,
+            searchResults = current.searchResults,
+            readerProgressIndex = current.selectedReaderTextId?.let { settings.readerProgress(it) } ?: 0,
+            newlyUnlocked = if (freshAchievements.isNotEmpty()) freshAchievements else current.newlyUnlocked
         )
     }
 

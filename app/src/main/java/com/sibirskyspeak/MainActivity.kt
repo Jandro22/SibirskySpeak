@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -87,7 +88,9 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -97,6 +100,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -137,6 +141,7 @@ import com.sibirskyspeak.data.Achievement
 import com.sibirskyspeak.data.GamificationStats
 import com.sibirskyspeak.data.ReaderStatus
 import com.sibirskyspeak.data.ReaderToken
+import com.sibirskyspeak.data.SettingsStore
 import com.sibirskyspeak.data.WordStatus
 import com.sibirskyspeak.review.AnswerMode
 import com.sibirskyspeak.review.AnswerMatch
@@ -148,7 +153,8 @@ import com.sibirskyspeak.review.SessionStep
 
 class MainActivity : ComponentActivity() {
     private val reviewViewModel: ReviewViewModel by viewModels {
-        ReviewViewModelFactory((application as SibirskySpeakApp).repository)
+        val app = application as SibirskySpeakApp
+        ReviewViewModelFactory(app.repository, app.settings)
     }
 
     private val notificationPermission =
@@ -254,6 +260,7 @@ private val MainTabs = listOf(SessionStep.REVIEWS, SessionStep.READER, SessionSt
 private fun ReviewScreen(viewModel: ReviewViewModel) {
     val state by viewModel.state.collectAsState()
     val tts = rememberRussianTts()
+    val context = LocalContext.current
     var studyActive by rememberSaveable { mutableStateOf(false) }
     BackHandler(enabled = studyActive) { studyActive = false }
 
@@ -331,7 +338,9 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             onRate = viewModel::rate,
                             onContinue = viewModel::continueAfterRating,
                             onSpeak = { p -> tts.speak(p.note.russian) },
-                            onExit = { studyActive = false }
+                            onExit = { studyActive = false },
+                            onUndo = viewModel::undoLastReview,
+                            onKnewIt = viewModel::overrideKnewIt
                         )
                         SessionStep.REVIEWS -> PracticeScreen(
                             state = state,
@@ -342,7 +351,9 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             state = state,
                             onLookup = viewModel::lookupReaderToken,
                             onOpen = viewModel::openReaderText,
-                            onClose = viewModel::closeReaderText
+                            onClose = viewModel::closeReaderText,
+                            onMarkVisible = viewModel::markVisibleWords,
+                            onProgress = viewModel::recordReaderProgress
                         )
                         SessionStep.DASHBOARD -> DashboardPanel(state)
                         SessionStep.IMPORT -> ImportExportPanel(
@@ -353,7 +364,20 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             onFullBackup = viewModel::exportFullState,
                             onTitle = viewModel::setReaderTitle,
                             onBody = viewModel::setReaderBody,
-                            onAdd = viewModel::addReaderText
+                            onAdd = viewModel::addReaderText,
+                            onDailyGoal = viewModel::setDailyGoal,
+                            onSessionSize = viewModel::setSessionSize,
+                            onRetention = viewModel::setRetention,
+                            onReminderEnabled = { enabled ->
+                                viewModel.setReminderEnabled(enabled)
+                                Reminders.schedule(context)
+                            },
+                            onReminderHour = { hour ->
+                                viewModel.setReminderHour(hour)
+                                Reminders.schedule(context)
+                            },
+                            onFontScale = viewModel::setReaderFontScale,
+                            onSearch = viewModel::setSearchQuery
                         )
                         else -> PracticeScreen(
                             state = state,
@@ -380,6 +404,59 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             onSetStatus = viewModel::setReaderWordStatus,
                             onClearSelection = viewModel::clearSelectedToken
                         )
+                    }
+                }
+            }
+            AchievementUnlockOverlay(
+                achievements = state.newlyUnlocked,
+                onDismiss = viewModel::dismissNewlyUnlocked,
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
+        }
+    }
+}
+
+@Composable
+private fun AchievementUnlockOverlay(
+    achievements: List<Achievement>,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val achievement = achievements.firstOrNull()
+    AnimatedVisibility(
+        visible = achievement != null,
+        modifier = modifier,
+        enter = slideInVertically(spring(stiffness = Spring.StiffnessMediumLow)) { -it } + fadeIn(tween(180)),
+        exit = slideOutVertically(tween(200)) { -it } + fadeOut(tween(140))
+    ) {
+        // Auto-dismiss after a few seconds; tapping dismisses immediately.
+        achievement?.let { a ->
+            LaunchedEffect(a.id) {
+                kotlinx.coroutines.delay(3500)
+                onDismiss()
+            }
+            Box(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onDismiss),
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                ) {
+                    Row(
+                        Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Icon(Icons.Filled.EmojiEvents, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(34.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Achievement unlocked!", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.SemiBold)
+                            Text(a.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                            Text(a.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f))
+                        }
+                        if (achievements.size > 1) {
+                            Text("+${achievements.size - 1}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                        }
                     }
                 }
             }
@@ -562,7 +639,9 @@ private fun StudySessionScreen(
     onRate: (Rating) -> Unit,
     onContinue: () -> Unit,
     onSpeak: (ReviewPrompt) -> Unit,
-    onExit: () -> Unit
+    onExit: () -> Unit,
+    onUndo: () -> Unit,
+    onKnewIt: () -> Unit
 ) {
     val sessionSize = state.sessionPlan?.reviewQueue?.size ?: 0
     val position = (state.reviewedToday).coerceAtMost(sessionSize)
@@ -580,7 +659,12 @@ private fun StudySessionScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            OutlinedButton(onClick = onExit) { Text("Exit") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (state.canUndo) {
+                    TextButton(onClick = onUndo, enabled = !state.ratingInProgress) { Text("Undo") }
+                }
+                OutlinedButton(onClick = onExit) { Text("Exit") }
+            }
         }
         if (sessionSize > 0) {
             val p = (position.toFloat() / sessionSize).coerceIn(0f, 1f)
@@ -614,7 +698,8 @@ private fun StudySessionScreen(
                     onReveal = onReveal,
                     onRate = onRate,
                     onContinue = onContinue,
-                    onSpeak = { onSpeak(prompt) }
+                    onSpeak = { onSpeak(prompt) },
+                    onKnewIt = onKnewIt
                 )
             }
         }
@@ -631,7 +716,8 @@ private fun ReviewContent(
     onReveal: () -> Unit,
     onRate: (Rating) -> Unit,
     onContinue: () -> Unit,
-    onSpeak: () -> Unit
+    onSpeak: () -> Unit,
+    onKnewIt: () -> Unit
 ) {
     SectionCard(emphasis = true) {
         Text(reviewTaskTitle(prompt), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -703,13 +789,13 @@ private fun ReviewContent(
             enter = fadeIn(tween(200)) + slideInVertically(spring(stiffness = Spring.StiffnessMediumLow)) { it / 6 },
             exit = fadeOut(tween(120))
         ) {
-            RevealPanel(state, prompt, onRate, onContinue)
+            RevealPanel(state, prompt, onRate, onContinue, onKnewIt)
         }
     }
 }
 
 @Composable
-private fun RevealPanel(state: ReviewUiState, prompt: ReviewPrompt, onRate: (Rating) -> Unit, onContinue: () -> Unit) {
+private fun RevealPanel(state: ReviewUiState, prompt: ReviewPrompt, onRate: (Rating) -> Unit, onContinue: () -> Unit, onKnewIt: () -> Unit) {
     val haptics = LocalHapticFeedback.current
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ResultBanner(state, prompt)
@@ -718,15 +804,24 @@ private fun RevealPanel(state: ReviewUiState, prompt: ReviewPrompt, onRate: (Rat
         }
         if (state.autoRatedAgain) {
             StatusBanner("Marked Again automatically because the answer was missed.")
-            Button(
-                onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onContinue()
-                },
-                enabled = !state.ratingInProgress,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(if (state.ratingInProgress) "Saving..." else "Next Card", fontWeight = FontWeight.SemiBold)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onKnewIt,
+                    enabled = !state.ratingInProgress,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("I knew it")
+                }
+                Button(
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onContinue()
+                    },
+                    enabled = !state.ratingInProgress,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(if (state.ratingInProgress) "Saving..." else "Next Card", fontWeight = FontWeight.SemiBold)
+                }
             }
             return
         }
@@ -806,13 +901,15 @@ private fun ReaderPanel(
     state: ReviewUiState,
     onLookup: (String) -> Unit,
     onOpen: (Long) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onMarkVisible: (List<String>, WordStatus) -> Unit,
+    onProgress: (Int) -> Unit
 ) {
     val selected = state.selectedReaderTextId?.let { id -> state.allReaderTexts.firstOrNull { it.text.id == id } }
     if (selected == null) {
         ReaderBookshelf(state, onOpen)
     } else {
-        ReaderTextScreen(state, selected, onLookup, onClose)
+        ReaderTextScreen(state, selected, onLookup, onClose, onMarkVisible, onProgress)
     }
 }
 
@@ -942,7 +1039,9 @@ private fun ReaderTextScreen(
     state: ReviewUiState,
     selected: ReaderRecommendation,
     onLookup: (String) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onMarkVisible: (List<String>, WordStatus) -> Unit,
+    onProgress: (Int) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(
@@ -970,13 +1069,27 @@ private fun ReaderTextScreen(
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                state.readerTokens.forEach { token ->
+                state.readerTokens.forEachIndexed { index, token ->
                     ReaderWord(
                         token = token,
                         selected = state.selectedToken?.normalized == token.normalized,
                         enabled = !state.readerLookupInProgress,
-                        onClick = { onLookup(token.surface) }
+                        fontScale = state.readerFontScale,
+                        onClick = {
+                            onProgress(index)
+                            onLookup(token.surface)
+                        }
                     )
+                }
+            }
+        }
+        if (state.readerTokens.isNotEmpty()) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { onMarkVisible(state.readerTokens.map { it.surface }, WordStatus.LEARNING) }) {
+                    Text("Mark Visible Learning")
+                }
+                OutlinedButton(onClick = { onMarkVisible(state.readerTokens.map { it.surface }, WordStatus.KNOWN) }) {
+                    Text("Mark Visible Known")
                 }
             }
         }
@@ -994,6 +1107,7 @@ private fun ReaderWord(
     token: ReaderToken,
     selected: Boolean,
     enabled: Boolean,
+    fontScale: Float,
     onClick: () -> Unit
 ) {
     val accent = token.status.statusHighlight()
@@ -1015,7 +1129,7 @@ private fun ReaderWord(
             .then(borderMod)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 3.dp, vertical = 2.dp),
-        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 20.sp, lineHeight = 32.sp),
+        style = MaterialTheme.typography.bodyLarge.copy(fontSize = (20 * fontScale).sp, lineHeight = (32 * fontScale).sp),
         color = MaterialTheme.colorScheme.onSurface
     )
 }
@@ -1399,17 +1513,121 @@ private fun ImportExportPanel(
     onFullBackup: () -> Unit,
     onTitle: (String) -> Unit,
     onBody: (String) -> Unit,
-    onAdd: () -> Unit
+    onAdd: () -> Unit,
+    onDailyGoal: (Int) -> Unit,
+    onSessionSize: (Int) -> Unit,
+    onRetention: (Double) -> Unit,
+    onReminderEnabled: (Boolean) -> Unit,
+    onReminderHour: (Int) -> Unit,
+    onFontScale: (Float) -> Unit,
+    onSearch: (String) -> Unit
 ) {
+    val context = LocalContext.current
+    // Save the exported JSON Lines to a user-chosen file via the system picker.
+    val saveLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null && state.exportText.isNotBlank()) {
+            runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { it.write(state.exportText.toByteArray()) }
+            }
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         SectionCard {
             Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Text(
-                "Manage your local deck data and reader library.",
+                "Tune your study pace, reminders, and reader, then manage your local data.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+        SectionCard {
+            Text("Study Pace", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(12.dp))
+            SettingSlider(
+                label = "Daily goal",
+                valueLabel = "${state.dailyGoalSetting} cards",
+                value = state.dailyGoalSetting.toFloat(),
+                range = SettingsStore.MIN_DAILY_GOAL.toFloat()..SettingsStore.MAX_DAILY_GOAL.toFloat(),
+                onChange = { onDailyGoal(it.toInt()) }
+            )
+            Spacer(Modifier.height(10.dp))
+            SettingSlider(
+                label = "Cards per session",
+                valueLabel = "${state.sessionSizeSetting}",
+                value = state.sessionSizeSetting.toFloat(),
+                range = SettingsStore.MIN_SESSION_SIZE.toFloat()..SettingsStore.MAX_SESSION_SIZE.toFloat(),
+                onChange = { onSessionSize(it.toInt()) }
+            )
+            Spacer(Modifier.height(10.dp))
+            SettingSlider(
+                label = "Target retention",
+                valueLabel = "${(state.retentionSetting * 100).toInt()}%",
+                value = state.retentionSetting.toFloat(),
+                range = SettingsStore.MIN_RETENTION.toFloat()..SettingsStore.MAX_RETENTION.toFloat(),
+                onChange = { onRetention(it.toDouble()) }
+            )
+            Text(
+                "Higher retention means shorter intervals and more reviews.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        SectionCard {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Daily reminder", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Switch(checked = state.reminderEnabled, onCheckedChange = onReminderEnabled)
+            }
+            if (state.reminderEnabled) {
+                Spacer(Modifier.height(10.dp))
+                SettingSlider(
+                    label = "Reminder time",
+                    valueLabel = "%02d:00".format(state.reminderHour),
+                    value = state.reminderHour.toFloat(),
+                    range = 0f..23f,
+                    onChange = { onReminderHour(it.toInt()) }
+                )
+            }
+        }
+        SectionCard {
+            Text("Reader", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(12.dp))
+            SettingSlider(
+                label = "Text size",
+                valueLabel = "${(state.readerFontScale * 100).toInt()}%",
+                value = state.readerFontScale,
+                range = SettingsStore.MIN_FONT_SCALE..SettingsStore.MAX_FONT_SCALE,
+                onChange = onFontScale
+            )
+        }
+        SectionCard {
+            Text("Search Deck", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = state.searchQuery,
+                onValueChange = onSearch,
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+                singleLine = true,
+                label = { Text("Russian, lemma, or meaning") }
+            )
+            if (state.searchQuery.isNotBlank()) {
+                Spacer(Modifier.height(10.dp))
+                if (state.searchResults.isEmpty()) {
+                    Text("No matches.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        state.searchResults.take(20).forEach { note ->
+                            Column {
+                                Text(note.russian, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text(note.translation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
         }
         SectionCard {
             Text("Add Reader Text", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -1435,12 +1653,32 @@ private fun ImportExportPanel(
                 Button(onClick = onImport) { Text("Import") }
                 OutlinedButton(onClick = onExport) { Text("Export") }
                 OutlinedButton(onClick = onFullBackup) { Text("Full Backup") }
+                if (state.exportText.isNotBlank()) {
+                    OutlinedButton(onClick = { saveLauncher.launch("sibirskyspeak-export.jsonl") }) { Text("Save to File") }
+                }
             }
             if (state.exportText.isNotBlank()) {
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(value = state.exportText, onValueChange = {}, modifier = Modifier.fillMaxWidth(), minLines = 6, shape = MaterialTheme.shapes.small, label = { Text("Exported JSON Lines") })
             }
         }
+    }
+}
+
+@Composable
+private fun SettingSlider(
+    label: String,
+    valueLabel: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    onChange: (Float) -> Unit
+) {
+    Column {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Text(valueLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+        }
+        Slider(value = value.coerceIn(range.start, range.endInclusive), onValueChange = onChange, valueRange = range)
     }
 }
 
@@ -1842,6 +2080,7 @@ private fun reviewTaskTitle(prompt: ReviewPrompt): String =
         CardType.CLOZE -> "Fill in the missing Russian word"
         CardType.AUDIO_TO_RU -> "Listen and type the Russian"
         CardType.CASE_FILL -> "Choose the right Russian form"
+        CardType.VERB_FORM -> "Conjugate this Russian verb"
         CardType.ASPECT_SELECT -> "Pick the verb form that fits"
     }
 
@@ -1852,6 +2091,7 @@ private fun reviewTaskHelp(prompt: ReviewPrompt): String =
         CardType.CLOZE -> "Use the sentence context and type the missing Russian word."
         CardType.AUDIO_TO_RU -> "Tap Hear Russian, then type what you hear."
         CardType.CASE_FILL -> "Use the sentence and case label to type the inflected form."
+        CardType.VERB_FORM -> "Use the grammar label to type the conjugated verb form."
         CardType.ASPECT_SELECT -> "Choose the form that matches whether the action is bounded or ongoing."
     }
 
@@ -1867,7 +2107,7 @@ private fun reviewContext(prompt: ReviewPrompt): String? =
     when (prompt.card.cardType) {
         CardType.RU_TO_MEANING -> prompt.note.exampleSentence?.let { "Example: $it" }
         CardType.MEANING_TO_RU -> null
-        CardType.CLOZE, CardType.CASE_FILL, CardType.ASPECT_SELECT -> prompt.note.exampleTranslation?.let { "Meaning: $it" }
+        CardType.CLOZE, CardType.CASE_FILL, CardType.VERB_FORM, CardType.ASPECT_SELECT -> prompt.note.exampleTranslation?.let { "Meaning: $it" }
         CardType.AUDIO_TO_RU -> null
     }
 

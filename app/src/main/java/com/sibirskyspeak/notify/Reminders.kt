@@ -19,6 +19,7 @@ import androidx.work.WorkerParameters
 import com.sibirskyspeak.MainActivity
 import com.sibirskyspeak.R
 import com.sibirskyspeak.SibirskySpeakApp
+import com.sibirskyspeak.data.SettingsStore
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
@@ -26,9 +27,6 @@ object Reminders {
     const val CHANNEL_ID = "daily_reminders"
     private const val WORK_NAME = "daily_reminder"
     private const val NOTIFICATION_ID = 4201
-
-    /** Default hour of day (24h, local) for the daily nudge. */
-    private const val REMINDER_HOUR = 19
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -42,10 +40,18 @@ object Reminders {
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
-    /** Schedule (or refresh) the recurring daily reminder, first fire at REMINDER_HOUR. */
+    /**
+     * Schedule (or refresh) the recurring daily reminder at the user's chosen hour.
+     * If reminders are disabled in settings, cancels any pending work instead.
+     */
     fun schedule(context: Context) {
+        val settings = SettingsStore(context)
+        if (!settings.reminderEnabled) {
+            WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+            return
+        }
         val request = PeriodicWorkRequestBuilder<DailyReminderWorker>(1, TimeUnit.DAYS)
-            .setInitialDelay(millisUntilNextReminder(), TimeUnit.MILLISECONDS)
+            .setInitialDelay(millisUntilNextReminder(settings.reminderHour), TimeUnit.MILLISECONDS)
             .build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             WORK_NAME,
@@ -54,10 +60,10 @@ object Reminders {
         )
     }
 
-    private fun millisUntilNextReminder(): Long {
+    private fun millisUntilNextReminder(reminderHour: Int): Long {
         val now = Calendar.getInstance()
         val next = (now.clone() as Calendar).apply {
-            set(Calendar.HOUR_OF_DAY, REMINDER_HOUR)
+            set(Calendar.HOUR_OF_DAY, reminderHour)
             set(Calendar.MINUTE, 0)
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)

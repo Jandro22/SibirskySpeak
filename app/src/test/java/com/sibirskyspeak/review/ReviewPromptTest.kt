@@ -105,6 +105,30 @@ class ReviewPromptTest {
     }
 
     @Test
+    fun verbFormUsesCardGrammarCueForExpectedConjugation() {
+        val card = Card(
+            noteId = 1,
+            cardType = CardType.VERB_FORM,
+            queue = Queue.GRAMMAR,
+            gramContextCue = "PAST_F"
+        )
+        val note = Note(
+            id = 1,
+            russian = "\u043f\u0438\u0441\u0430\u0442\u044c",
+            lemma = "\u043f\u0438\u0441\u0430\u0442\u044c",
+            translation = "to write",
+            partOfSpeech = "verb",
+            exampleSentence = "\u041e\u043d\u0430 \u043f\u0438\u0441\u0430\u043b\u0430 \u043f\u0438\u0441\u044c\u043c\u043e."
+        )
+
+        val prompt = buildPrompt(card, note, emptyMap())
+
+        assertEquals("\u043f\u0438\u0441\u0430\u043b\u0430", prompt.expectedAnswer)
+        assertTrue(prompt.prompt.contains("past feminine singular"))
+        assertTrue(prompt.prompt.contains("___"))
+    }
+
+    @Test
     fun clozeBlanksLemmaWhenDisplayFormDiffersFromSentenceText() {
         val card = Card(noteId = 1, cardType = CardType.CLOZE, queue = Queue.VOCAB)
         val note = Note(
@@ -158,7 +182,8 @@ class ReviewPromptTest {
             buildPrompt(Card(noteId = 1, cardType = CardType.MEANING_TO_RU, queue = Queue.VOCAB), note, emptyMap()),
             buildPrompt(Card(noteId = 1, cardType = CardType.CLOZE, queue = Queue.VOCAB), note, emptyMap()),
             buildPrompt(Card(noteId = 1, cardType = CardType.AUDIO_TO_RU, queue = Queue.VOCAB), note, emptyMap()),
-            buildPrompt(Card(noteId = 1, cardType = CardType.CASE_FILL, queue = Queue.GRAMMAR, gramCase = "GEN", gramNumber = "SG"), note, emptyMap())
+            buildPrompt(Card(noteId = 1, cardType = CardType.CASE_FILL, queue = Queue.GRAMMAR, gramCase = "GEN", gramNumber = "SG"), note, emptyMap()),
+            buildPrompt(Card(noteId = 1, cardType = CardType.VERB_FORM, queue = Queue.GRAMMAR, gramContextCue = "PAST_M"), note.copy(partOfSpeech = "verb"), emptyMap())
         )
 
         prompts.forEach { prompt ->
@@ -172,5 +197,6 @@ class ReviewPromptTest {
         assertEquals(AnswerMode.RUSSIAN_TYPED, prompts[2].answerMode)
         assertEquals(AnswerMode.AUDIO_ONLY, prompts[3].answerMode)
         assertEquals(AnswerMode.RUSSIAN_TYPED, prompts[4].answerMode)
+        assertEquals(AnswerMode.RUSSIAN_TYPED, prompts[5].answerMode)
     }
 }

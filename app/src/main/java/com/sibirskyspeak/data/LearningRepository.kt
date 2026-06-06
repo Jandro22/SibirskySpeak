@@ -21,6 +21,8 @@ data class CategoryKey(
     val label: String
         get() = if (kind == "case") {
             listOfNotNull(gramCase, gramGender, gramNumber).joinToString(" ")
+        } else if (kind == "verb_form") {
+            contextCue.orEmpty()
         } else {
             listOfNotNull(aktionsart, aspect, contextCue).joinToString(" ")
         }
@@ -139,6 +141,19 @@ data class GamificationStats(
     }
 }
 
+/** User-tunable study pacing levers, read live on each session build. */
+data class LearningConfig(
+    val dailyGoal: Int = 20,
+    val sessionSize: Int = 25
+)
+
+/** A captured pre-review snapshot, enough to roll one review back. */
+private data class UndoSnapshot(
+    val card: Card,
+    val noteId: Long,
+    val priorEncounterCount: Int
+)
+
 class LearningRepository(
     private val noteDao: NoteDao,
     private val cardDao: CardDao,
@@ -151,8 +166,13 @@ class LearningRepository(
     // Runs a block inside a single DB transaction. Seeding inserts ~10k notes
     // and their cards; without this each insert auto-commits, making first
     // launch slow. Defaults to running the block directly (used by tests).
-    private val transactionRunner: (suspend (suspend () -> Unit) -> Unit)? = null
+    private val transactionRunner: (suspend (suspend () -> Unit) -> Unit)? = null,
+    private val config: () -> LearningConfig = { LearningConfig() }
 ) {
+    // Holds the most recent review so the user can undo a misclick or typo. Kept
+    // in memory only: undo is a within-session affordance, not durable history.
+    @Volatile private var lastUndo: UndoSnapshot? = null
+
     fun observeNotes(): Flow<List<Note>> = noteDao.observeAll()
 
     // --- In-memory caches ---------------------------------------------------
@@ -589,7 +609,7 @@ class LearningRepository(
         val allTexts = readerTexts()
         return SessionPlan(
             ruleSummary = ruleSummaryFor(daily.openBlockedWith),
-            reviewQueue = sessionCards(now, 25).mapNotNull { promptFor(it, now) },
+            reviewQueue = sessionCards(now, config().sessionSize).mapNotNull { promptFor(it, now) },
             blockedGrammar = blocked,
             interleavedGrammar = interleavedGrammarPrompts(blocked.map { it.card.id }.toSet(), now),
             readerRecommendation = allTexts.minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTarget(it.coverage) }.thenByDescending { it.coverage }),
@@ -600,6 +620,7 @@ class LearningRepository(
     }
 
     suspend fun gamificationStats(now: Long = System.currentTimeMillis()): GamificationStats {
+        val dailyGoal = config().dailyGoal
         val tzOffset = java.util.TimeZone.getDefault().getOffset(now).toLong()
         val days = reviewLogDao.reviewDayBuckets(tzOffset, DAY_MILLIS)
         val daySet = days.toHashSet()
@@ -642,7 +663,7 @@ class LearningRepository(
             // --- Getting started ---
             achievement("first_review", "Liftoff", "Do your first review", totalReviews >= 1),
             achievement("first_words", "First Words", "Know 10 words", knownWords >= 10),
-            achievement("goal_met", "On Target", "Hit a daily goal", reviewedToday >= DAILY_GOAL || activeDays >= 1),
+            achievement("goal_met", "On Target", "Hit a daily goal", reviewedToday >= dailyGoal || activeDays >= 1),
             // --- Words known ---
             achievement("words_50", "Getting Going", "Know 50 words", knownWords >= 50),
             achievement("wordsmith", "Wordsmith", "Know 100 words", knownWords >= 100),
@@ -684,8 +705,8 @@ class LearningRepository(
             achievement("days_50", "Committed", "50 active days", activeDays >= 50),
             achievement("days_100", "Devoted", "100 active days", activeDays >= 100),
             // --- Daily intensity ---
-            achievement("goal_double", "Overachiever", "Double the daily goal", reviewedToday >= DAILY_GOAL * 2),
-            achievement("goal_triple", "Marathon", "Triple the daily goal", reviewedToday >= DAILY_GOAL * 3)
+            achievement("goal_double", "Overachiever", "Double the daily goal", reviewedToday >= dailyGoal * 2),
+            achievement("goal_triple", "Marathon", "Triple the daily goal", reviewedToday >= dailyGoal * 3)
         )
 
         return GamificationStats(
@@ -698,7 +719,7 @@ class LearningRepository(
             currentStreak = currentStreak,
             longestStreak = longestStreak,
             reviewedToday = reviewedToday,
-            dailyGoal = DAILY_GOAL,
+            dailyGoal = dailyGoal,
             activeDays = days.size,
             last7Days = last7,
             achievements = achievements
@@ -728,19 +749,64 @@ class LearningRepository(
     suspend fun nextPrompt(now: Long = System.currentTimeMillis()): ReviewPrompt? =
         sessionPlan(now).reviewQueue.firstOrNull()
 
+    /** Build a review prompt for a specific card (used to re-present after undo). */
+    suspend fun promptForCard(card: Card, now: Long = System.currentTimeMillis()): ReviewPrompt? =
+        promptFor(card, now)
+
     suspend fun grammarDrillPrompts(now: Long = System.currentTimeMillis(), limit: Int = 10): List<ReviewPrompt> {
         val plan = sessionPlan(now)
         return (plan.blockedGrammar + plan.interleavedGrammar).take(limit)
     }
 
     suspend fun review(card: Card, rating: Rating, now: Long = System.currentTimeMillis()) {
+        val note = noteDao.getById(card.noteId)
+        // Snapshot the live card + encounter count before mutating, for undo.
+        lastUndo = UndoSnapshot(card = card, noteId = card.noteId, priorEncounterCount = note?.encounterCount ?: 0)
         val (updatedCard, log) = scheduler.review(card, rating, now)
         cardDao.update(updatedCard)
         reviewLogDao.insert(log)
-        noteDao.getById(card.noteId)?.let { noteDao.update(it.copy(encounterCount = it.encounterCount + 1)) }
+        note?.let { noteDao.update(it.copy(encounterCount = it.encounterCount + 1)) }
         invalidateNoteState()
         graduateEligibleCategories()
         graduateVocabByEncounters()
+    }
+
+    /** True if there is a review that can be rolled back this session. */
+    fun canUndo(): Boolean = lastUndo != null
+
+    /**
+     * Roll back the most recent [review]: restore the card's pre-review SRS state,
+     * delete the log row it produced, and restore the note's encounter count.
+     * Returns the restored card so the caller can re-present it, or null if there
+     * was nothing to undo. A category may have graduated on the way in; we don't
+     * un-graduate, which is harmless (graduation re-checks accuracy each session).
+     */
+    suspend fun undoLastReview(): Card? {
+        val snapshot = lastUndo ?: return null
+        lastUndo = null
+        reviewLogDao.deleteLatestForCard(snapshot.card.id)
+        cardDao.update(snapshot.card)
+        noteDao.getById(snapshot.noteId)?.let {
+            noteDao.update(it.copy(encounterCount = snapshot.priorEncounterCount))
+        }
+        invalidateNoteState()
+        return snapshot.card
+    }
+
+    suspend fun searchNotes(query: String, limit: Int = 50): List<Note> {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return emptyList()
+        return noteDao.search(trimmed, limit)
+    }
+
+    /** Mark a batch of reader surface tokens with one status in a single pass. */
+    suspend fun setWordStatusBatch(tokens: Collection<String>, status: WordStatus): Int {
+        var changed = 0
+        tokens.distinctBy { normalizeToken(it) }.forEach { token ->
+            setWordStatus(token, status)
+            changed += 1
+        }
+        return changed
     }
 
     suspend fun readerRecommendation(): ReaderRecommendation? =
@@ -842,13 +908,13 @@ class LearningRepository(
 
     private suspend fun blockedGrammarPrompts(plan: DailyPlan, now: Long): List<ReviewPrompt> {
         val category = plan.openBlockedWith ?: return emptyList()
-        val cards = if (category.kind == "case") {
-            cardDao.getCaseDrillCards(category.gramCase.orEmpty(), category.gramGender.orEmpty(), category.gramNumber.orEmpty(), 5)
-        } else {
-            cardDao.getAspectCards().filter { card ->
-                val note = noteDao.getById(card.noteId)
-                note?.aktionsart == category.aktionsart && note?.aspect == category.aspect && card.gramContextCue == category.contextCue
-            }.take(5)
+        val cards = when (category.kind) {
+            "case" -> cardDao.getCaseDrillCards(category.gramCase.orEmpty(), category.gramGender.orEmpty(), category.gramNumber.orEmpty(), 5)
+            "verb_form" -> cardDao.getVerbFormCards(category.contextCue.orEmpty(), 5)
+            else -> cardDao.getAspectCards().filter { card ->
+                    val note = noteDao.getById(card.noteId)
+                    note?.aktionsart == category.aktionsart && note?.aspect == category.aspect && card.gramContextCue == category.contextCue
+                }.take(5)
         }
         return cards.mapNotNull { promptFor(it, now) }
     }
@@ -869,6 +935,7 @@ class LearningRepository(
         // on the curated domain corpus, so general notes get no CASE_FILL cards.
         val isGeneral = note.tags.contains("general")
         if (!isGeneral) caseCards(note).forEach(::add)
+        if (!isGeneral) verbFormCards(note).forEach(::add)
         // ASPECT_SELECT requires a verified Aktionsart (design F8): the drill's
         // whole point is reasoning from inherent temporal structure, so a verb
         // without Aktionsart never produces a half-formed aspect card.
@@ -879,8 +946,8 @@ class LearningRepository(
             note.aspectPartner != null &&
             !note.aspect.isNullOrBlank()
         if (isAspectDrillable) {
-            add(Card(noteId = note.id, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, gramContextCue = "NO_CUE"))
-            add(Card(noteId = note.id, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, gramContextCue = "HAS_CUE"))
+            add(Card(noteId = note.id, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, due = 0L, gramContextCue = "NO_CUE"))
+            add(Card(noteId = note.id, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, due = 0L, gramContextCue = "HAS_CUE"))
         }
     }
 
@@ -915,6 +982,20 @@ class LearningRepository(
             .toList()
     }
 
+    private fun verbFormCards(note: Note): List<Card> {
+        if (!note.partOfSpeech.equals("verb", ignoreCase = true)) return emptyList()
+        return RussianForms.verbForms(note.lemma).keys
+            .filter { key -> key in VERB_FORM_KEYS }
+            .map { key ->
+                Card(
+                    noteId = note.id,
+                    cardType = CardType.VERB_FORM,
+                    queue = Queue.GRAMMAR,
+                    gramContextCue = key
+                )
+            }
+    }
+
     private suspend fun accuracyCategories(): List<CategoryKey> {
         val cards = cardDao.getAllGrammarCards()
         val nounKeys = cards
@@ -938,7 +1019,15 @@ class LearningRepository(
                 val ratings = reviewLogDao.aspectCategoryRatings(key.first, key.second, key.third, MIN_ACCURACY_SAMPLE)
                 CategoryKey("aspect", aktionsart = key.first, aspect = key.second, contextCue = key.third, accuracy = ratings.accuracyOrNull(), sampleSize = ratings.size)
             }
-        return nounKeys + aspectKeys
+        val verbFormKeys = cards
+            .filter { it.cardType == CardType.VERB_FORM && it.gramContextCue != null }
+            .map { it.gramContextCue.orEmpty() }
+            .distinct()
+            .map { key ->
+                val ratings = reviewLogDao.verbFormCategoryRatings(key, MIN_ACCURACY_SAMPLE)
+                CategoryKey("verb_form", contextCue = key, accuracy = ratings.accuracyOrNull(), sampleSize = ratings.size)
+            }
+        return nounKeys + aspectKeys + verbFormKeys
     }
 
     private suspend fun graduateEligibleCategories() {
@@ -955,6 +1044,11 @@ class LearningRepository(
                     val note = noteDao.getById(card.noteId)
                     note?.aktionsart == category.aktionsart && note?.aspect == category.aspect && card.gramContextCue == category.contextCue
                 }
+                .filter { it.state != CardState.GRADUATED }
+                .forEach { cardDao.update(it.copy(state = CardState.GRADUATED)) }
+        }
+        categories.filter { it.kind == "verb_form" }.forEach { category ->
+            cardDao.getVerbFormCards(category.contextCue.orEmpty(), Int.MAX_VALUE)
                 .filter { it.state != CardState.GRADUATED }
                 .forEach { cardDao.update(it.copy(state = CardState.GRADUATED)) }
         }
@@ -1076,6 +1170,7 @@ class LearningRepository(
     private fun ruleSummaryFor(category: CategoryKey?): String =
         when (category?.kind) {
             "case" -> "Case drill: identify the required case from the carrier sentence, produce the inflected form, then check gender and number."
+            "verb_form" -> "Verb form drill: identify the requested person, number, tense, or gender, then produce that conjugated Russian form."
             "aspect" -> "Aspect drill: start from Aktionsart, then decide whether the context supplies a boundary, duration, or completion cue."
             else -> "Brief rule: answer from production first; use reveal only after committing to a form."
         }
@@ -1103,5 +1198,6 @@ class LearningRepository(
         private const val XP_PER_LEVEL_STEP = 100
         private val CASES = setOf("NOM", "ACC", "GEN", "DAT", "INS", "PREP")
         private val NUMBERS = setOf("SG", "PL")
+        private val VERB_FORM_KEYS = setOf("PRES_1SG", "PRES_2SG", "PRES_3SG", "PRES_1PL", "PRES_2PL", "PRES_3PL", "PAST_M", "PAST_F", "PAST_N", "PAST_PL")
     }
 }
