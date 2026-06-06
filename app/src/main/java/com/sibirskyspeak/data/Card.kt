@@ -35,5 +35,8 @@ data class Card(
     val gramGender: String? = null,
     val gramNumber: String? = null,
     val gramContextCue: String? = null,
-    val consecutiveCorrect: Int = 0
+    val consecutiveCorrect: Int = 0,
+    // User-suspended cards are skipped by every queue. Lets a learner permanently
+    // retire a bad auto-generated card without deleting the note it belongs to.
+    val suspended: Boolean = false
 )

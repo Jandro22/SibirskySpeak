@@ -56,19 +56,24 @@ class FsrsScheduler(
     }
 
     private fun nextCard(card: Card, rating: Rating, now: Long, elapsedDays: Int): Card {
-        val nextDifficulty = if (card.state == CardState.NEW || card.difficulty <= 0.0) {
+        // Guard against non-finite / non-positive prior state. A NaN or Infinity
+        // (e.g. from a hand-edited backup or a divide-by-zero in older data) would
+        // otherwise propagate and pin the card's due date to garbage forever. We
+        // fall back to the fresh-card priors so the card simply re-learns cleanly.
+        val nextDifficulty = if (card.state == CardState.NEW || !card.difficulty.isFinite() || card.difficulty <= 0.0) {
             initDifficulty(rating)
         } else {
             nextDifficulty(card.difficulty, rating)
         }
 
-        val currentStability = card.stability.takeIf { it > 0.0 } ?: initStability(rating)
+        val currentStability = card.stability.takeIf { it.isFinite() && it > 0.0 } ?: initStability(rating)
         val nextStability = when {
             card.state == CardState.NEW -> initStability(rating)
             elapsedDays == 0 -> sameDayStability(currentStability, rating)
             rating == Rating.AGAIN -> forgettingStability(nextDifficulty, currentStability, retrievability(elapsedDays, currentStability))
             else -> recallStability(nextDifficulty, currentStability, retrievability(elapsedDays, currentStability), rating)
-        }.coerceAtLeast(MIN_STABILITY)
+        }.let { if (it.isFinite()) it else initStability(rating) }
+            .coerceIn(MIN_STABILITY, maximumIntervalDays.toDouble())
 
         val scheduledDays = scheduledDays(nextStability, rating, card.state)
         return card.copy(
@@ -125,7 +130,7 @@ class FsrsScheduler(
     private fun interval(stability: Double): Int {
         val desiredRetention = desiredRetentionProvider().coerceIn(0.80, 0.97)
         val raw = stability / factor() * (desiredRetention.pow(-1.0 / decay()) - 1.0)
-        return raw.roundToInt().coerceIn(1, maximumIntervalDays)
+        return (if (raw.isFinite()) raw.roundToInt() else 1).coerceIn(1, maximumIntervalDays)
     }
 
     private fun decay(): Double = weights[20]
@@ -181,7 +186,7 @@ class FsrsScheduler(
         return max(0, ((now - previous) / DAY_MILLIS).toInt())
     }
 
-    private fun Double.clampDifficulty(): Double = coerceIn(1.0, 10.0)
+    private fun Double.clampDifficulty(): Double = if (isFinite()) coerceIn(1.0, 10.0) else 5.0
 
     companion object {
         private const val DAY_MILLIS = 86_400_000L

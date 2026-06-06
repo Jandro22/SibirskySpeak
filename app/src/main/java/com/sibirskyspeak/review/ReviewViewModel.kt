@@ -18,6 +18,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+/** Minimum gap between automatic full-state backups (~once per active day). */
+private const val BACKUP_INTERVAL_MS = 20L * 60 * 60 * 1000
+
 enum class SessionStep {
     REVIEWS,
     RULE,
@@ -81,9 +84,27 @@ class ReviewViewModel(
 
     init {
         viewModelScope.launch {
-            repository.seedIfEmpty()
-            repository.syncBootstrapReaderTexts()
-            loadSession()
+            // Never let a startup error (bad import, transient DB issue) leave the
+            // app stuck on a blank screen with no feedback.
+            runCatching {
+                repository.seedIfEmpty()
+                repository.syncBootstrapReaderTexts()
+                loadSession()
+            }.onFailure { error ->
+                mutableState.value = mutableState.value.copy(
+                    statusMessage = "Couldn't load your session: ${error.message ?: "unknown error"}"
+                )
+            }
+            maybeBackup()
+        }
+    }
+
+    /** Write a full-state backup at most once per day, on a background dispatcher. */
+    private fun maybeBackup() {
+        val now = System.currentTimeMillis()
+        if (now - settings.lastBackupAt < BACKUP_INTERVAL_MS) return
+        viewModelScope.launch {
+            runCatching { if (repository.backupNow()) settings.lastBackupAt = now }
         }
     }
 
@@ -246,6 +267,17 @@ class ReviewViewModel(
      * Rolls back the silent AGAIN and reopens the rating buttons so the learner
      * can grade their true recall.
      */
+    /** Retire the current card permanently (bad auto-generated content). */
+    fun suspendCurrentCard() {
+        val prompt = mutableState.value.prompt ?: return
+        if (mutableState.value.ratingInProgress) return
+        viewModelScope.launch {
+            runCatching { repository.suspendCard(prompt.card) }
+                .onSuccess { loadSession(status = "Card suspended — it won't come back.") }
+                .onFailure { mutableState.value = mutableState.value.copy(statusMessage = it.message ?: "Could not suspend card") }
+        }
+    }
+
     fun overrideKnewIt() {
         if (!mutableState.value.autoRatedAgain) return
         viewModelScope.launch {

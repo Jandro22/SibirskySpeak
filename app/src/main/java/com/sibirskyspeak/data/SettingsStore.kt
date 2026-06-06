@@ -45,6 +45,11 @@ class SettingsStore(context: Context) {
         get() = prefs.getFloat(KEY_READER_FONT_SCALE, 1.0f).coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE)
         set(value) = prefs.edit().putFloat(KEY_READER_FONT_SCALE, value.coerceIn(MIN_FONT_SCALE, MAX_FONT_SCALE)).apply()
 
+    /** Epoch millis of the last successful full-state backup (0 if never). */
+    var lastBackupAt: Long
+        get() = prefs.getLong(KEY_LAST_BACKUP_AT, 0L)
+        set(value) = prefs.edit().putLong(KEY_LAST_BACKUP_AT, value).apply()
+
     /** Snapshot of achievement ids already seen-unlocked, for first-unlock notifications. */
     var unlockedAchievementIds: Set<String>
         get() = prefs.getStringSet(KEY_UNLOCKED_ACHIEVEMENTS, emptySet())?.toSet() ?: emptySet()
@@ -85,6 +90,7 @@ class SettingsStore(context: Context) {
         private const val KEY_READER_FONT_SCALE = "reader_font_scale"
         private const val KEY_UNLOCKED_ACHIEVEMENTS = "unlocked_achievements"
         private const val KEY_ACH_SEEDED = "achievements_seeded"
+        private const val KEY_LAST_BACKUP_AT = "last_backup_at"
 
         const val DEFAULT_DAILY_GOAL = 20
         const val DEFAULT_SESSION_SIZE = 25

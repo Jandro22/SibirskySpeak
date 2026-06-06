@@ -4,6 +4,12 @@ from pathlib import Path
 import pytest
 
 from sibirsky_preprocess import main
+from build_bootstrap import (
+    BAD_EXAMPLE_MARKERS,
+    adjective_rows,
+    noun_rows,
+    verb_rows,
+)
 
 
 def test_rank_domain_and_build_notes(tmp_path: Path):
@@ -69,3 +75,15 @@ def test_validate_notes_fails_when_verified_aktionsart_is_required(tmp_path: Pat
             "2",
             "--require-verified-aktionsart",
         ])
+
+
+def test_bootstrap_examples_do_not_use_placeholder_templates():
+    rows = noun_rows() + adjective_rows(start_rank=1000) + verb_rows(start_rank=2000)
+    examples = [row["exampleSentence"] for row in rows]
+
+    assert not [
+        example
+        for example in examples
+        if any(marker in example for marker in BAD_EXAMPLE_MARKERS)
+    ]
+    assert len(set(examples)) > len(examples) * 0.55

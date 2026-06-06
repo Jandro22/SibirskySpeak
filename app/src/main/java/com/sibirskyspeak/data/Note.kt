@@ -1,9 +1,19 @@
 package com.sibirskyspeak.data
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "notes")
+@Entity(
+    tableName = "notes",
+    indices = [
+        Index("lemma"),
+        Index("status"),
+        Index("encounterCount"),
+        Index("domainFreqRank"),
+        Index("generalFreqRank")
+    ]
+)
 data class Note(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val russian: String,

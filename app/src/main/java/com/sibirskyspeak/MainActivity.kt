@@ -56,11 +56,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -68,6 +71,7 @@ import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -78,6 +82,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -340,12 +345,17 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             onSpeak = { p -> tts.speak(p.note.russian) },
                             onExit = { studyActive = false },
                             onUndo = viewModel::undoLastReview,
-                            onKnewIt = viewModel::overrideKnewIt
+                            onKnewIt = viewModel::overrideKnewIt,
+                            onSuspend = viewModel::suspendCurrentCard
                         )
                         SessionStep.REVIEWS -> PracticeScreen(
                             state = state,
                             onStart = { studyActive = true },
-                            onRead = { viewModel.setSessionStep(SessionStep.READER) }
+                            onRead = { viewModel.setSessionStep(SessionStep.READER) },
+                            onOpenReader = { id ->
+                                viewModel.setSessionStep(SessionStep.READER)
+                                viewModel.openReaderText(id)
+                            }
                         )
                         SessionStep.READER -> ReaderPanel(
                             state = state,
@@ -383,7 +393,11 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                         else -> PracticeScreen(
                             state = state,
                             onStart = { studyActive = true },
-                            onRead = { viewModel.setSessionStep(SessionStep.READER) }
+                            onRead = { viewModel.setSessionStep(SessionStep.READER) },
+                            onOpenReader = { id ->
+                                viewModel.setSessionStep(SessionStep.READER)
+                                viewModel.openReaderText(id)
+                            }
                         )
                     }
                 }
@@ -511,23 +525,31 @@ private fun MainBottomBar(selected: SessionStep, onSelect: (SessionStep) -> Unit
 private fun PracticeScreen(
     state: ReviewUiState,
     onStart: () -> Unit,
-    onRead: () -> Unit
+    onRead: () -> Unit,
+    onOpenReader: (Long) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        DailyPlanPanel(state, onStart, onRead)
-        ReadingSuggestion(state, onRead)
+        DailyPlanPanel(state, onStart, onRead, onOpenReader)
+        PracticeFocusPanel(state)
+        ReadingSuggestion(state, onOpenReader)
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: () -> Unit) {
+private fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: () -> Unit, onOpenReader: (Long) -> Unit) {
     val plan = state.dailyPlan ?: return
-    val sessionSize = state.sessionPlan?.reviewQueue?.size ?: 0
-    val remaining = (sessionSize - state.reviewedToday).coerceAtLeast(0)
+    val prompts = state.sessionPlan?.reviewQueue.orEmpty()
+    val sessionSize = prompts.size
     val backlog = plan.dueVocab + plan.dueGrammar
     val reader = state.readerRecommendation
-    val progress = if (sessionSize == 0) 1f else (state.reviewedToday.toFloat() / sessionSize).coerceIn(0f, 1f)
+    val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
+    val dailyGoal = game.dailyGoal.coerceAtLeast(1)
+    val progress = (state.reviewedToday.toFloat() / dailyGoal).coerceIn(0f, 1f)
+    val goalRemaining = (dailyGoal - state.reviewedToday).coerceAtLeast(0)
+    val newCount = prompts.count { it.card.state.name == "NEW" }
+    val grammarCount = prompts.count { it.card.queue.name == "GRAMMAR" }
+    val focus = plan.grammarFocus.firstOrNull()?.label?.takeIf { it.isNotBlank() }
 
     HeroCard {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -544,14 +566,15 @@ private fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: ()
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimary
                     )
-                    Text("today", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f))
+                    Text("goal", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f))
                 }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Today's Plan", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                Text("Today's Practice", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
                 Text(
                     when {
-                        sessionSize > 0 -> "$remaining of $sessionSize cards left in this session."
+                        sessionSize > 0 && goalRemaining > 0 -> "$sessionSize cards are ready. $goalRemaining more reviews hit today's goal."
+                        sessionSize > 0 -> "$sessionSize cards are ready if you want to keep the streak warm."
                         reader != null -> "All caught up. Read the recommended text for fresh exposure."
                         else -> "You're caught up. Add a reader text or import notes for new material."
                     },
@@ -563,8 +586,22 @@ private fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: ()
         Spacer(Modifier.height(16.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             HeroPill(animatedInt(state.reviewedToday).toString(), "done today")
-            HeroPill(sessionSize.toString(), "session")
+            HeroPill(dailyGoal.toString(), "daily goal")
+            HeroPill(sessionSize.toString(), "ready now")
+            if (prompts.isNotEmpty()) HeroPill(newCount.toString(), "new cards")
+            if (grammarCount > 0) HeroPill(grammarCount.toString(), "grammar")
             if (reader != null) HeroPill("${(reader.coverage * 100).toInt()}%", "reader fit")
+        }
+        if (focus != null || plan.triageMode) {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                listOfNotNull(
+                    focus?.let { "Focus: $it" },
+                    if (plan.triageMode) "Triage mode is prioritizing older due cards." else null
+                ).joinToString("  "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f)
+            )
         }
         Spacer(Modifier.height(18.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -579,10 +616,10 @@ private fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: ()
             ) {
                 Icon(Icons.Filled.School, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(if (sessionSize > 0) "Start Practice" else "All Clear", fontWeight = FontWeight.SemiBold)
+                Text(if (sessionSize > 0) "Start ${sessionSize}-Card Session" else "All Clear", fontWeight = FontWeight.SemiBold)
             }
             OutlinedButton(
-                onClick = onRead,
+                onClick = { reader?.let { onOpenReader(it.text.id) } ?: onRead() },
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f))
             ) {
@@ -602,28 +639,148 @@ private fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: ()
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ReadingSuggestion(state: ReviewUiState, onRead: () -> Unit) {
+private fun PracticeFocusPanel(state: ReviewUiState) {
+    val plan = state.dailyPlan ?: return
+    val prompts = state.sessionPlan?.reviewQueue.orEmpty()
+    val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
+    val vocabCount = prompts.count { it.card.queue.name == "VOCAB" }
+    val grammarCount = prompts.count { it.card.queue.name == "GRAMMAR" }
+    val newCount = prompts.count { it.card.state.name == "NEW" }
+    val dueCount = prompts.size - newCount
+
+    SectionCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Session Mix", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    if (prompts.isEmpty()) "No review cards are waiting right now." else "A quick scan of what practice will ask from you.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (game.currentStreak > 0) {
+                StatusTag("${game.currentStreak} day streak")
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            PracticeMetricTile("Due", dueCount.toString(), Icons.Filled.Bolt, MaterialTheme.colorScheme.primaryContainer)
+            PracticeMetricTile("New", newCount.toString(), Icons.Filled.School, MaterialTheme.colorScheme.secondaryContainer)
+            PracticeMetricTile("Vocab", vocabCount.toString(), Icons.Filled.AutoStories, MaterialTheme.colorScheme.surfaceVariant)
+            PracticeMetricTile("Grammar", grammarCount.toString(), Icons.Filled.Insights, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f))
+        }
+        if (plan.grammarFocus.isNotEmpty() || plan.triageMode) {
+            Spacer(Modifier.height(16.dp))
+            Text("Focus", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                plan.grammarFocus.take(3).forEach { focus ->
+                    if (focus.label.isNotBlank()) PracticeFocusChip(focus.label, focus.accuracy)
+                }
+                if (plan.triageMode) PracticeFocusChip("Older due cards first", null)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PracticeMetricTile(label: String, value: String, icon: ImageVector, container: Color) {
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = container,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(19.dp), tint = MaterialTheme.colorScheme.primary)
+            Column {
+                Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PracticeFocusChip(label: String, accuracy: Double?) {
+    val suffix = accuracy?.let { " ${(it * 100).toInt()}%" }.orEmpty()
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.28f))
+    ) {
+        Text(
+            "$label$suffix",
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun ReadingSuggestion(state: ReviewUiState, onOpenReader: (Long) -> Unit) {
     val reader = state.readerRecommendation ?: return
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             CoverageRing(reader.coverage, Modifier.size(56.dp))
             Column(Modifier.weight(1f)) {
-                Text("Up Next: Reading", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Up Next: Reading", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                    ReaderStatusChip(reader.status)
+                }
                 Text(reader.text.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "${(reader.coverage * 100).toInt()}% of the words match material you've already seen.",
+                    "${formatCount(reader.knownTokens)} of ${formatCount(reader.totalTokens)} tokens match material you've already seen.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
+        Spacer(Modifier.height(12.dp))
+        LinearProgressIndicator(
+            progress = { reader.coverage.toFloat().coerceIn(0f, 1f) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(99.dp)),
+            color = MaterialTheme.colorScheme.secondary,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant
+        )
         Spacer(Modifier.height(14.dp))
-        Button(onClick = onRead, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = { onOpenReader(reader.text.id) }, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text("Open Reader")
         }
+    }
+}
+
+@Composable
+private fun ReaderStatusChip(status: ReaderStatus) {
+    val (label, color) = when (status) {
+        ReaderStatus.TOO_HARD -> "hard" to MaterialTheme.colorScheme.error.copy(alpha = 0.14f)
+        ReaderStatus.PRODUCTIVE -> "good fit" to MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+        ReaderStatus.EASY -> "easy" to MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f)
+    }
+    Surface(shape = MaterialTheme.shapes.small, color = color) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }
 
@@ -642,43 +799,78 @@ private fun StudySessionScreen(
     onSpeak: (ReviewPrompt) -> Unit,
     onExit: () -> Unit,
     onUndo: () -> Unit,
-    onKnewIt: () -> Unit
+    onKnewIt: () -> Unit,
+    onSuspend: () -> Unit
 ) {
     val sessionSize = state.sessionPlan?.reviewQueue?.size ?: 0
-    val position = (state.reviewedToday).coerceAtMost(sessionSize)
+    val prompt = state.prompt
+    val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
+    val dailyGoal = game.dailyGoal.coerceAtLeast(1)
+    val goalProgress = (state.reviewedToday.toFloat() / dailyGoal).coerceIn(0f, 1f)
+    val animatedGoalProgress by animateFloatAsState(
+        targetValue = goalProgress,
+        animationSpec = tween(650, easing = FastOutSlowInEasing),
+        label = "practice-goal-progress"
+    )
+    val headerMessage = when {
+        prompt == null -> "Session complete."
+        state.revealed -> "Check the answer, then rate your recall."
+        prompt.answerMode == AnswerMode.AUDIO_ONLY -> "Listen first, then type what you heard."
+        sessionSize > 0 -> "$sessionSize cards ready now. ${state.reviewedToday}/$dailyGoal reviews today."
+        else -> "Answer, check, then rate recall."
+    }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Row(
+        Surface(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+            tonalElevation = 1.dp
         ) {
-            Column {
-                Text("Practice", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text(
-                    if (sessionSize > 0) "Card ${(position + 1).coerceAtMost(sessionSize)} of $sessionSize" else "Answer, check, then rate recall.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Practice", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            PracticeStageChip(if (state.revealed) "Rate" else "Answer")
+                        }
+                        Text(
+                            headerMessage,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (prompt != null) {
+                            TextButton(onClick = onSuspend, enabled = !state.ratingInProgress) {
+                                Text("Suspend", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                        if (state.canUndo) {
+                            IconButton(onClick = onUndo, enabled = !state.ratingInProgress) {
+                                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo last review")
+                            }
+                        }
+                        IconButton(onClick = onExit) {
+                            Icon(Icons.Filled.Close, contentDescription = "Exit practice")
+                        }
+                    }
+                }
+                LinearProgressIndicator(
+                    progress = { animatedGoalProgress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(99.dp)),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (state.canUndo) {
-                    TextButton(onClick = onUndo, enabled = !state.ratingInProgress) { Text("Undo") }
-                }
-                OutlinedButton(onClick = onExit) { Text("Exit") }
-            }
         }
-        if (sessionSize > 0) {
-            val p = (position.toFloat() / sessionSize).coerceIn(0f, 1f)
-            val animated by animateFloatAsState(p, spring(stiffness = Spring.StiffnessLow), label = "session-progress")
-            LinearProgressIndicator(
-                progress = { animated },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(99.dp))
-            )
-        }
-        val prompt = state.prompt
         AnimatedContent(
             targetState = prompt?.card?.id ?: -1L,
             transitionSpec = {
@@ -707,6 +899,42 @@ private fun StudySessionScreen(
     }
 }
 
+@Composable
+private fun PracticeStageChip(label: String) {
+    val isRating = label == "Rate"
+    val container by animateColorAsState(
+        targetValue = if (isRating) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+        animationSpec = tween(260),
+        label = "stage-chip-container"
+    )
+    val content by animateColorAsState(
+        targetValue = if (isRating) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.primary,
+        animationSpec = tween(260),
+        label = "stage-chip-content"
+    )
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = container,
+        contentColor = content
+    ) {
+        AnimatedContent(
+            targetState = label,
+            transitionSpec = {
+                (fadeIn(tween(160)) + slideInVertically(tween(180)) { it / 2 })
+                    .togetherWith(fadeOut(tween(100)) + slideOutVertically(tween(120)) { -it / 2 })
+            },
+            label = "stage-chip-label"
+        ) { text ->
+            Text(
+                text,
+                modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun ReviewContent(
@@ -720,38 +948,57 @@ private fun ReviewContent(
     onSpeak: () -> Unit,
     onKnewIt: () -> Unit
 ) {
+    var keyboardMode by rememberSaveable(prompt.card.id) { mutableStateOf(prompt.answerMode == AnswerMode.ENGLISH) }
     SectionCard(emphasis = true) {
-        Text(reviewTaskTitle(prompt), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(4.dp))
-        Text(reviewTaskHelp(prompt), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(12.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatusTag(if (prompt.card.queue.name == "VOCAB") "Vocabulary" else "Grammar")
-            AssistChip(
-                onClick = onSpeak,
-                label = { Text("Hear Russian") },
-                leadingIcon = { Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    leadingIconContentColor = MaterialTheme.colorScheme.primary,
-                    labelColor = MaterialTheme.colorScheme.onSurface
-                )
-            )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(reviewTaskTitle(prompt), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(reviewTaskHelp(prompt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.width(10.dp))
+            StatusTag(if (prompt.card.queue.name == "VOCAB") "Vocab" else "Grammar")
         }
         Spacer(Modifier.height(18.dp))
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = MaterialTheme.colorScheme.surface,
             shape = MaterialTheme.shapes.medium,
-            tonalElevation = 1.dp
+            tonalElevation = 1.dp,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
         ) {
-            Column(Modifier.padding(16.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatusTag(
+                        when (prompt.answerMode) {
+                            AnswerMode.ENGLISH -> "English"
+                            AnswerMode.RUSSIAN_TYPED -> "Russian"
+                            AnswerMode.AUDIO_ONLY -> "Listening"
+                            AnswerMode.CHOICE -> "Choice"
+                        }
+                    )
+                    AssistChip(
+                        onClick = onSpeak,
+                        label = { Text("Hear Russian") },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            leadingIconContentColor = MaterialTheme.colorScheme.primary,
+                            labelColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    )
+                }
                 Text(
                     prompt.prompt.ifBlank { "Listen and type what you hear" },
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold
                 )
+                if (prompt.answerMode == AnswerMode.AUDIO_ONLY) {
+                    AudioPracticeButton(onClick = onSpeak)
+                }
                 reviewContext(prompt)?.let {
-                    Spacer(Modifier.height(8.dp))
                     Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -759,31 +1006,75 @@ private fun ReviewContent(
         Spacer(Modifier.height(18.dp))
         if (prompt.answerMode == AnswerMode.CHOICE) {
             if (!state.revealed) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     prompt.choices.forEach { choice ->
-                        Button(onClick = { onChoice(choice) }) { Text(choice) }
+                        ChoiceAnswerButton(choice = choice, onClick = { onChoice(choice) })
                     }
                 }
             }
         } else if (!state.revealed) {
-            LetterTileBank(
-                expected = prompt.expectedAnswer,
-                cardId = prompt.card.id,
-                hint = answerHint(prompt),
-                onChange = onAnswerChanged
-            )
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+            ) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    InputModeToggle(
+                        keyboardMode = keyboardMode,
+                        onKeyboard = {
+                            if (!keyboardMode) {
+                                keyboardMode = true
+                                onAnswerChanged("")
+                            }
+                        },
+                        onTiles = {
+                            if (keyboardMode) {
+                                keyboardMode = false
+                                onAnswerChanged("")
+                            }
+                        }
+                    )
+                    AnimatedContent(
+                        targetState = keyboardMode,
+                        transitionSpec = {
+                            (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { if (targetState) -it / 8 else it / 8 })
+                                .togetherWith(fadeOut(tween(120)) + slideOutHorizontally(tween(180)) { if (targetState) it / 8 else -it / 8 })
+                                .using(SizeTransform(clip = false))
+                        },
+                        label = "answer-mode"
+                    ) { useKeyboard ->
+                        if (useKeyboard) {
+                            KeyboardAnswerInput(
+                                value = state.typedAnswer,
+                                prompt = prompt,
+                                onChange = onAnswerChanged,
+                                onDone = onReveal
+                            )
+                        } else {
+                            LetterTileBank(
+                                expected = prompt.expectedAnswer,
+                                cardId = prompt.card.id,
+                                hint = answerHint(prompt),
+                                onChange = onAnswerChanged
+                            )
+                        }
+                    }
+                }
+            }
         }
         Spacer(Modifier.height(8.dp))
         AnimatedVisibility(
-            visible = !state.revealed,
+            visible = !state.revealed && prompt.answerMode != AnswerMode.CHOICE,
             enter = fadeIn(tween(180)) + slideInVertically(tween(200)) { it / 8 },
             exit = fadeOut(tween(120)) + slideOutVertically(tween(140)) { it / 8 }
         ) {
-            Button(onClick = onReveal, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Check Answer", fontWeight = FontWeight.SemiBold)
-            }
+            val hasAnswer = state.typedAnswer.isNotBlank()
+            PrimaryPracticeButton(
+                hasAnswer = hasAnswer,
+                onClick = onReveal,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
         AnimatedVisibility(
             visible = state.revealed,
@@ -793,6 +1084,190 @@ private fun ReviewContent(
             RevealPanel(state, prompt, onRate, onContinue, onKnewIt)
         }
     }
+}
+
+@Composable
+private fun AudioPracticeButton(onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        label = "audio-button-scale"
+    )
+    Button(
+        onClick = onClick,
+        interactionSource = interaction,
+        modifier = Modifier
+            .fillMaxWidth()
+            .scale(scale),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+        ),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 14.dp)
+    ) {
+        Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("Play Russian", fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun ChoiceAnswerButton(choice: String, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.985f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessHigh),
+        label = "choice-scale"
+    )
+    OutlinedButton(
+        onClick = onClick,
+        interactionSource = interaction,
+        modifier = Modifier
+            .fillMaxWidth()
+            .scale(scale),
+        shape = MaterialTheme.shapes.small,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = if (pressed) 0.7f else 0.35f)),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 14.dp)
+    ) {
+        Text(choice, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun PrimaryPracticeButton(
+    hasAnswer: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.98f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        label = "primary-practice-scale"
+    )
+    val container by animateColorAsState(
+        targetValue = if (hasAnswer) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
+        animationSpec = tween(220),
+        label = "primary-practice-container"
+    )
+    val content by animateColorAsState(
+        targetValue = if (hasAnswer) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
+        animationSpec = tween(220),
+        label = "primary-practice-content"
+    )
+    Button(
+        onClick = onClick,
+        interactionSource = interaction,
+        modifier = modifier.scale(scale),
+        colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = content),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 14.dp)
+    ) {
+        AnimatedContent(
+            targetState = hasAnswer,
+            transitionSpec = {
+                (fadeIn(tween(140)) + scaleIn(tween(160), initialScale = 0.92f))
+                    .togetherWith(fadeOut(tween(100)) + scaleOut(tween(120), targetScale = 0.92f))
+            },
+            label = "primary-practice-label"
+        ) { ready ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                Icon(if (ready) Icons.Filled.CheckCircle else Icons.Filled.School, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (ready) "Check Answer" else "Show Answer", fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun InputModeToggle(
+    keyboardMode: Boolean,
+    onKeyboard: () -> Unit,
+    onTiles: () -> Unit
+) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        InputModeButton(
+            label = "Tiles",
+            selected = !keyboardMode,
+            modifier = Modifier.weight(1f),
+            onClick = onTiles
+        )
+        InputModeButton(
+            label = "Keyboard",
+            selected = keyboardMode,
+            modifier = Modifier.weight(1f),
+            onClick = onKeyboard
+        )
+    }
+}
+
+@Composable
+private fun InputModeButton(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessHigh),
+        label = "input-mode-scale"
+    )
+    if (selected) {
+        Button(
+            onClick = onClick,
+            interactionSource = interaction,
+            modifier = modifier.scale(scale),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 10.dp, horizontal = 8.dp)
+        ) {
+            Text(label, fontWeight = FontWeight.SemiBold)
+        }
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            interactionSource = interaction,
+            modifier = modifier.scale(scale),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.36f)),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 10.dp, horizontal = 8.dp)
+        ) {
+            Text(label, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun KeyboardAnswerInput(
+    value: String,
+    prompt: ReviewPrompt,
+    onChange: (String) -> Unit,
+    onDone: () -> Unit
+) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        shape = MaterialTheme.shapes.small,
+        label = { Text(answerHint(prompt)) },
+        keyboardOptions = KeyboardOptions(
+            capitalization = if (prompt.answerMode == AnswerMode.ENGLISH) KeyboardCapitalization.Sentences else KeyboardCapitalization.None,
+            keyboardType = KeyboardType.Text,
+            imeAction = ImeAction.Done
+        ),
+        keyboardActions = KeyboardActions(
+            onDone = {
+                keyboard?.hide()
+                onDone()
+            }
+        )
+    )
 }
 
 @Composable
@@ -826,29 +1301,84 @@ private fun RevealPanel(state: ReviewUiState, prompt: ReviewPrompt, onRate: (Rat
             }
             return
         }
-        Text("How well did you recall it?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Rating.entries.forEach { rating ->
-                val accent = rating.accent()
-                Button(
-                    onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onRate(rating)
-                    },
-                    enabled = !state.ratingInProgress,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp, horizontal = 4.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.White)
-                ) {
-                    Text(
-                        if (state.ratingInProgress) "..." else rating.shortLabel(prompt.intervalPreview[rating] ?: 0),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Center,
-                        maxLines = 2
-                    )
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("How well did you recall it?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("Use the interval as a preview of when this card returns.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Rating.entries.chunked(2).forEach { row ->
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { rating ->
+                        RatingButton(
+                            rating = rating,
+                            intervalDays = prompt.intervalPreview[rating] ?: 0,
+                            saving = state.ratingInProgress,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(72.dp),
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onRate(rating)
+                            }
+                        )
+                    }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun RatingButton(
+    rating: Rating,
+    intervalDays: Int,
+    saving: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessHigh),
+        label = "rating-button-scale"
+    )
+    val container by animateColorAsState(
+        targetValue = rating.accent(),
+        animationSpec = tween(200),
+        label = "rating-button-color"
+    )
+    Button(
+        onClick = onClick,
+        enabled = !saving,
+        interactionSource = interaction,
+        modifier = modifier.scale(scale),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 10.dp, horizontal = 10.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = Color.White)
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text(
+                if (saving) "Saving..." else rating.name.lowercase().replaceFirstChar { it.titlecase() },
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
+            Text(
+                rating.recallCaption(),
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                color = Color.White.copy(alpha = 0.9f)
+            )
+            Text(
+                "Next ${formatDays(intervalDays)}",
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                color = Color.White.copy(alpha = 0.82f)
+            )
         }
     }
 }
@@ -884,7 +1414,14 @@ private fun ResultBanner(state: ReviewUiState, prompt: ReviewPrompt) {
             )
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title, style = MaterialTheme.typography.labelLarge, color = color, fontWeight = FontWeight.SemiBold)
-                Text(prompt.expectedAnswer, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                SelectionContainer {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(prompt.expectedAnswer, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        if (state.typedAnswer.isNotBlank()) {
+                            Text("You answered: ${state.typedAnswer}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
                 state.answerFeedback?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -918,15 +1455,24 @@ private fun ReaderPanel(
 @Composable
 private fun ReaderBookshelf(state: ReviewUiState, onOpen: (Long) -> Unit) {
     val texts = state.allReaderTexts.sortedWith(compareByDescending<ReaderRecommendation> { it.coverage }.thenBy { it.text.title })
+    val recommended = state.readerRecommendation
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         SectionCard {
-            Text("Bookshelf", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "Pick a text to read. Coverage is the share of words you've actually reviewed or encountered.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Icon(Icons.Filled.AutoStories, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(38.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Bookshelf", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Pick a text by coverage, length, and difficulty fit.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            if (recommended != null) {
+                Spacer(Modifier.height(14.dp))
+                ReaderRecommendationCard(recommended, onOpen)
+            }
         }
         if (texts.isEmpty()) {
             SectionCard {
@@ -946,9 +1492,46 @@ private fun ReaderBookshelf(state: ReviewUiState, onOpen: (Long) -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
                     texts.forEachIndexed { index, item ->
-                        BookCover(item = item, index = index, onOpen = onOpen)
+                        BookCover(
+                            item = item,
+                            index = index,
+                            recommended = item.text.id == state.readerRecommendation?.text?.id,
+                            onOpen = onOpen
+                        )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReaderRecommendationCard(item: ReaderRecommendation, onOpen: (Long) -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onOpen(item.text.id) },
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            CoverageRing(item.coverage, Modifier.size(52.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Best next read", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    ReaderStatusChip(item.status)
+                }
+                Text(item.text.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "${formatCount(item.knownTokens)} / ${formatCount(item.totalTokens)} familiar tokens",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
@@ -966,7 +1549,7 @@ private val BookPalette = listOf(
 )
 
 @Composable
-private fun BookCover(item: ReaderRecommendation, index: Int, onOpen: (Long) -> Unit) {
+private fun BookCover(item: ReaderRecommendation, index: Int, recommended: Boolean, onOpen: (Long) -> Unit) {
     val base = BookPalette[index % BookPalette.size]
     val deep = lerp(base, Color.Black, 0.28f)
     val spine = lerp(base, Color.Black, 0.5f)
@@ -974,6 +1557,11 @@ private fun BookCover(item: ReaderRecommendation, index: Int, onOpen: (Long) -> 
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.95f else 1f, spring(stiffness = Spring.StiffnessMedium), label = "book-scale")
     val pct = (item.coverage * 100).toInt()
+    val statusLabel = when (item.status) {
+        ReaderStatus.TOO_HARD -> "Hard"
+        ReaderStatus.PRODUCTIVE -> "Good fit"
+        ReaderStatus.EASY -> "Easy"
+    }
     Box(
         modifier = Modifier
             .width(152.dp)
@@ -1012,7 +1600,7 @@ private fun BookCover(item: ReaderRecommendation, index: Int, onOpen: (Long) -> 
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "${item.totalTokens} words",
+                    formatCount(item.totalTokens),
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White.copy(alpha = 0.85f)
                 )
@@ -1030,6 +1618,20 @@ private fun BookCover(item: ReaderRecommendation, index: Int, onOpen: (Long) -> 
                     )
                 }
             }
+            Spacer(Modifier.height(6.dp))
+            Text(statusLabel, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.82f), fontWeight = FontWeight.SemiBold)
+        }
+        if (recommended) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(10.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.White.copy(alpha = 0.24f))
+                    .padding(horizontal = 9.dp, vertical = 4.dp)
+            ) {
+                Text("Next", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
+            }
         }
     }
 }
@@ -1044,20 +1646,20 @@ private fun ReaderTextScreen(
     onMarkVisible: (List<String>, WordStatus) -> Unit,
     onProgress: (Int) -> Unit
 ) {
+    val tokenCount = state.readerTokens.size.coerceAtLeast(1)
+    val progress = (state.readerProgressIndex.toFloat() / tokenCount).coerceIn(0f, 1f)
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = tween(650, easing = FastOutSlowInEasing),
+        label = "reader-progress"
+    )
+    val knownCount = state.readerTokens.count { it.status == WordStatus.KNOWN || it.status == WordStatus.IGNORED }
+    val learningCount = state.readerTokens.count { it.status == WordStatus.LEARNING }
+    val newTokens = state.readerTokens
+        .filter { it.status == WordStatus.NEW }
+        .distinctBy { it.normalized }
+        .map { it.surface }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(selected.text.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text("Tap a word to look it up, then mark how well you know it.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            OutlinedButton(onClick = onClose) { Text("Shelf") }
-        }
-        WordLegend()
-        // Paper-like reading surface: words flow as real text, not buttons.
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.medium,
@@ -1065,15 +1667,58 @@ private fun ReaderTextScreen(
             tonalElevation = 1.dp,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
         ) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(selected.text.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            ReaderStatusChip(selected.status)
+                        }
+                        Text("Tap any word for meaning, status, and examples.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    OutlinedButton(onClick = onClose) { Text("Shelf") }
+                }
+                LinearProgressIndicator(
+                    progress = { animatedProgress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(99.dp)),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ReaderMetricChip("${(selected.coverage * 100).toInt()}%", "coverage")
+                    ReaderMetricChip(formatCount(state.readerProgressIndex.coerceAtMost(state.readerTokens.size)), "reached")
+                    ReaderMetricChip(formatCount(knownCount), "known")
+                    if (learningCount > 0) ReaderMetricChip(formatCount(learningCount), "learning")
+                    if (newTokens.isNotEmpty()) ReaderMetricChip(formatCount(newTokens.size), "new")
+                }
+            }
+        }
+        WordLegend()
+        // Paper-like reading surface: words flow as real text, not buttons.
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
+            tonalElevation = 1.dp,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+        ) {
             FlowRow(
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 22.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 state.readerTokens.forEachIndexed { index, token ->
                     ReaderWord(
                         token = token,
                         selected = state.selectedToken?.normalized == token.normalized,
+                        reached = index <= state.readerProgressIndex,
                         enabled = !state.readerLookupInProgress,
                         fontScale = state.readerFontScale,
                         onClick = {
@@ -1084,15 +1729,48 @@ private fun ReaderTextScreen(
                 }
             }
         }
-        if (state.readerTokens.isNotEmpty()) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { onMarkVisible(state.readerTokens.map { it.surface }, WordStatus.LEARNING) }) {
-                    Text("Mark Visible Learning")
-                }
-                OutlinedButton(onClick = { onMarkVisible(state.readerTokens.map { it.surface }, WordStatus.KNOWN) }) {
-                    Text("Mark Visible Known")
+        if (newTokens.isNotEmpty()) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
+            ) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("New words in this text", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${formatCount(newTokens.size)} unique new words are highlighted. Batch-mark them after a pass, or tap individual words as you read.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { onMarkVisible(newTokens, WordStatus.LEARNING) }) {
+                            Text("Mark All Learning")
+                        }
+                        Button(onClick = { onMarkVisible(newTokens, WordStatus.KNOWN) }) {
+                            Text("Mark All Known")
+                        }
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ReaderMetricChip(value: String, label: String) {
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Text(value, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -1107,16 +1785,24 @@ private fun WordStatus.statusHighlight(): Color = when (this) {
 private fun ReaderWord(
     token: ReaderToken,
     selected: Boolean,
+    reached: Boolean,
     enabled: Boolean,
     fontScale: Float,
     onClick: () -> Unit
 ) {
     val accent = token.status.statusHighlight()
-    val background = when {
+    val targetBackground = when {
         selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
         accent != Color.Transparent -> accent.copy(alpha = 0.22f)
+        reached -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
         else -> Color.Transparent
     }
+    val background by animateColorAsState(targetBackground, tween(220), label = "reader-word-background")
+    val wordScale by animateFloatAsState(
+        targetValue = if (selected) 1.06f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        label = "reader-word-scale"
+    )
     val borderMod = if (selected) {
         Modifier.border(BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary), RoundedCornerShape(5.dp))
     } else {
@@ -1125,6 +1811,7 @@ private fun ReaderWord(
     Text(
         text = token.surface,
         modifier = Modifier
+            .scale(wordScale)
             .clip(RoundedCornerShape(5.dp))
             .background(background)
             .then(borderMod)
@@ -1173,7 +1860,10 @@ private fun WordDetailCard(
             verticalAlignment = Alignment.Top
         ) {
             Column(Modifier.weight(1f)) {
-                Text(token.stressForm ?: token.surface, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(token.stressForm ?: token.surface, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    CurrentWordStatusPill(token.status)
+                }
                 val gloss = token.translation?.takeIf { it != "lookup pending" }
                 Text(
                     gloss ?: "Not in your deck yet — mark it to start tracking.",
@@ -1186,6 +1876,22 @@ private fun WordDetailCard(
                 }
             }
             TextButton(onClick = onClearSelection) { Text("Done") }
+        }
+        state.lookupResult?.takeIf { it.isNotBlank() }?.let { message ->
+            Spacer(Modifier.height(10.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+            ) {
+                Text(
+                    message,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
         if (state.readerLookupInProgress) {
             Spacer(Modifier.height(10.dp))
@@ -1200,6 +1906,39 @@ private fun WordDetailCard(
             WordStatusChip("New", WordStatus.NEW, token.status, onSetStatus)
             WordStatusChip("Ignore", WordStatus.IGNORED, token.status, onSetStatus)
         }
+        token.exampleSentence?.takeIf { it.isNotBlank() }?.let { example ->
+            Spacer(Modifier.height(14.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Example", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                    Text(example, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CurrentWordStatusPill(status: WordStatus) {
+    val accent = when (status) {
+        WordStatus.NEW -> Color(0xFF4C8DFF)
+        WordStatus.LEARNING -> Color(0xFFE0A21E)
+        WordStatus.KNOWN -> Color(0xFF2E9E5B)
+        WordStatus.IGNORED -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val container by animateColorAsState(accent.copy(alpha = 0.14f), tween(180), label = "word-status-pill")
+    Surface(shape = MaterialTheme.shapes.small, color = container) {
+        Text(
+            status.name.lowercase().replaceFirstChar { it.titlecase() },
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = accent,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -2091,6 +2830,8 @@ private fun reviewTaskTitle(prompt: ReviewPrompt): String =
         CardType.AUDIO_TO_RU -> "Listen and type the Russian"
         CardType.CASE_FILL -> "Choose the right Russian form"
         CardType.VERB_FORM -> "Conjugate this Russian verb"
+        CardType.ADJ_AGREE -> "Make the adjective agree"
+        CardType.GENDER_ID -> "Identify the noun gender"
         CardType.ASPECT_SELECT -> "Pick the verb form that fits"
     }
 
@@ -2102,6 +2843,8 @@ private fun reviewTaskHelp(prompt: ReviewPrompt): String =
         CardType.AUDIO_TO_RU -> "Tap Hear Russian, then type what you hear."
         CardType.CASE_FILL -> "Use the sentence and case label to type the inflected form."
         CardType.VERB_FORM -> "Use the grammar label to type the conjugated verb form."
+        CardType.ADJ_AGREE -> "Use the noun context to type the matching adjective form."
+        CardType.GENDER_ID -> "Choose the gender that fits this noun."
         CardType.ASPECT_SELECT -> "Choose the form that matches whether the action is bounded or ongoing."
     }
 
@@ -2117,7 +2860,7 @@ private fun reviewContext(prompt: ReviewPrompt): String? =
     when (prompt.card.cardType) {
         CardType.RU_TO_MEANING -> prompt.note.exampleSentence?.let { "Example: $it" }
         CardType.MEANING_TO_RU -> null
-        CardType.CLOZE, CardType.CASE_FILL, CardType.VERB_FORM, CardType.ASPECT_SELECT -> prompt.note.exampleTranslation?.let { "Meaning: $it" }
+        CardType.CLOZE, CardType.CASE_FILL, CardType.VERB_FORM, CardType.ADJ_AGREE, CardType.GENDER_ID, CardType.ASPECT_SELECT -> prompt.note.exampleTranslation?.let { "Meaning: $it" }
         CardType.AUDIO_TO_RU -> null
     }
 
@@ -2130,6 +2873,14 @@ private fun formatDays(days: Int): String =
 
 private fun Rating.shortLabel(days: Int): String =
     "${name.lowercase().replaceFirstChar { it.titlecase() }}\n${formatDays(days)}"
+
+private fun Rating.recallCaption(): String =
+    when (this) {
+        Rating.AGAIN -> "Forgot"
+        Rating.HARD -> "Slow"
+        Rating.GOOD -> "Solid"
+        Rating.EASY -> "Instant"
+    }
 
 private fun ReaderStatus.label(): String =
     when (this) {

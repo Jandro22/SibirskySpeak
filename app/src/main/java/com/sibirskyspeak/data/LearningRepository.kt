@@ -171,7 +171,12 @@ class LearningRepository(
     // and their cards; without this each insert auto-commits, making first
     // launch slow. Defaults to running the block directly (used by tests).
     private val transactionRunner: (suspend (suspend () -> Unit) -> Unit)? = null,
-    private val config: () -> LearningConfig = { LearningConfig() }
+    private val config: () -> LearningConfig = { LearningConfig() },
+    // Reads/writes a full-state JSON backup that lives outside the DB, used to
+    // auto-recover study history if the database is ever wiped (destructive
+    // migration, corruption, reinstall). Null in tests that don't exercise it.
+    private val restoreBackup: (suspend () -> String?)? = null,
+    private val writeBackup: (suspend (String) -> Unit)? = null
 ) {
     // Holds the most recent review so the user can undo a misclick or typo. Kept
     // in memory only: undo is a within-session affordance, not durable history.
@@ -189,11 +194,17 @@ class LearningRepository(
     @Volatile private var notesCache: List<Note>? = null
     @Volatile private var formIndexCache: Map<String, Note>? = null
     @Volatile private var knownIdsCache: Set<Long>? = null
+    @Volatile private var lastGraduationReviewCount: Int? = null
+    @Volatile private var accuracyCacheReviewCount: Int? = null
+    @Volatile private var accuracyCache: List<CategoryKey>? = null
 
     private fun invalidateNoteStructure() {
         notesCache = null
         formIndexCache = null
         knownIdsCache = null
+        lastGraduationReviewCount = null
+        accuracyCacheReviewCount = null
+        accuracyCache = null
     }
 
     private fun invalidateNoteState() {
@@ -210,15 +221,13 @@ class LearningRepository(
     private suspend fun knownNoteIds(): Set<Long> =
         knownIdsCache ?: computeKnownNoteIds(allNotesCached()).also { knownIdsCache = it }
 
+    private suspend fun runInTransaction(block: suspend () -> Unit) {
+        val runner = transactionRunner
+        if (runner != null) runner(block) else block()
+    }
+
     private suspend fun computeKnownNoteIds(notes: List<Note>): Set<Long> {
-        val cardKnown = cardDao.getAllVocabCards()
-            .filter { card ->
-                card.state == CardState.GRADUATED ||
-                    card.reps > 0 ||
-                    card.consecutiveCorrect > 0 ||
-                    card.lastReview != null
-            }
-            .map { it.noteId }
+        val cardKnown = cardDao.getKnownVocabNoteIds()
         val statusKnown = notes.filter { note ->
             note.status == WordStatus.KNOWN ||
                 note.status == WordStatus.IGNORED ||
@@ -230,6 +239,19 @@ class LearningRepository(
     suspend fun seedIfEmpty() {
         if (noteDao.count() > 0) return
         val runner = transactionRunner ?: { block -> block() }
+        // Safety net first: if a local backup exists, the empty DB is almost
+        // certainly the result of a wipe (destructive migration / reinstall), not a
+        // first run. Restore the user's history instead of re-seeding bootstrap data.
+        val backup = restoreBackup?.invoke()?.takeIf { it.isNotBlank() }
+        if (backup != null) {
+            var restored = 0
+            runner { restored = importJsonLines(backup) }
+            if (restored > 0) {
+                // Reader texts aren't in the note backup; re-sync shipped ones.
+                runCatching { syncBootstrapReaderTexts() }
+                return
+            }
+        }
         var imported = 0
         runner {
             imported = bootstrapNotes?.invoke()?.takeIf { it.isNotBlank() }?.let { importJsonLines(it) } ?: 0
@@ -323,65 +345,73 @@ class LearningRepository(
     suspend fun importJsonLines(jsonLines: String): Int {
         val pendingPartners = mutableListOf<Pair<Long, String>>()
         var imported = 0
-        jsonLines.lineSequence()
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .forEach { line ->
-                val json = JSONObject(line)
-                val partnerLemma = json.optString("aspectPartner").takeIf { it.isNotBlank() && it != "null" }
-                val note = Note(
-                    russian = json.getString("russian"),
-                    lemma = json.getString("lemma"),
-                    translation = json.getString("translation"),
-                    partOfSpeech = json.optString("pos", json.optString("partOfSpeech")),
-                    aspect = json.optCleanString("aspect"),
-                    aktionsart = json.optCleanString("aktionsart"),
-                    aktionsartConfidence = json.optCleanString("aktionsartConfidence"),
-                    gender = json.optCleanString("gender"),
-                    declensionJson = json.optCleanString("declensionJson"),
-                    generalFreqRank = json.optIntOrNull("generalFreqRank"),
-                    domainFreqRank = json.optIntOrNull("domainFreqRank"),
-                    encounterCount = json.optInt("encounterCount", 0),
-                    exampleSentence = json.optCleanString("exampleSentence"),
-                    exampleTranslation = json.optCleanString("exampleTranslation"),
-                    audioPath = json.optCleanString("audioPath"),
-                    tags = json.optString("tags", "")
-                )
-                val noteId = addNote(note)
-                if (partnerLemma != null) pendingPartners += noteId to partnerLemma
-                // Restore SRS state if this is a full-state backup
-                val cardsJson = if (json.has("_cards")) json.optJSONArray("_cards") else null
-                if (cardsJson != null) {
-                    val fresh = cardDao.getCardsForNote(noteId)
-                    val freshByVariant = fresh.associateBy { it.srsVariantKey() }
-                    repeat(cardsJson.length()) { ci ->
-                        val cj = cardsJson.getJSONObject(ci)
-                        val existing = freshByVariant[cj.srsVariantKey()] ?: return@repeat
-                        cardDao.update(existing.copy(
-                            state = CardState.valueOf(cj.getString("state")),
-                            stability = cj.getDouble("stability"),
-                            difficulty = cj.getDouble("difficulty"),
-                            elapsedDays = cj.getInt("elapsedDays"),
-                            scheduledDays = cj.getInt("scheduledDays"),
-                            reps = cj.getInt("reps"),
-                            lapses = cj.getInt("lapses"),
-                            due = cj.getLong("due"),
-                            lastReview = if (cj.isNull("lastReview")) null else cj.getLong("lastReview"),
-                            consecutiveCorrect = cj.optInt("consecutiveCorrect", 0)
-                        ))
+        runInTransaction {
+            jsonLines.lineSequence()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .forEach { line ->
+                    val json = JSONObject(line)
+                    val partnerLemma = json.optString("aspectPartner").takeIf { it.isNotBlank() && it != "null" }
+                    val note = Note(
+                        russian = json.getString("russian"),
+                        lemma = json.getString("lemma"),
+                        translation = json.getString("translation"),
+                        partOfSpeech = json.optString("pos", json.optString("partOfSpeech")),
+                        aspect = json.optCleanString("aspect"),
+                        aktionsart = json.optCleanString("aktionsart"),
+                        aktionsartConfidence = json.optCleanString("aktionsartConfidence"),
+                        gender = json.optCleanString("gender"),
+                        declensionJson = json.optCleanString("declensionJson"),
+                        generalFreqRank = json.optIntOrNull("generalFreqRank"),
+                        domainFreqRank = json.optIntOrNull("domainFreqRank"),
+                        encounterCount = json.optInt("encounterCount", 0),
+                        exampleSentence = json.optCleanString("exampleSentence"),
+                        exampleTranslation = json.optCleanString("exampleTranslation"),
+                        audioPath = json.optCleanString("audioPath"),
+                        tags = json.optString("tags", "")
+                    )
+                    val noteId = addNote(note)
+                    if (partnerLemma != null) pendingPartners += noteId to partnerLemma
+                    // Restore SRS state if this is a full-state backup.
+                    val cardsJson = if (json.has("_cards")) json.optJSONArray("_cards") else null
+                    if (cardsJson != null) {
+                        val freshByVariant = cardDao.getCardsForNote(noteId).associateBy { it.srsVariantKey() }
+                        val updates = buildList {
+                            repeat(cardsJson.length()) { ci ->
+                                val cj = cardsJson.getJSONObject(ci)
+                                val existing = freshByVariant[cj.srsVariantKey()] ?: return@repeat
+                                add(
+                                    existing.copy(
+                                        state = CardState.valueOf(cj.getString("state")),
+                                        stability = cj.getDouble("stability"),
+                                        difficulty = cj.getDouble("difficulty"),
+                                        elapsedDays = cj.getInt("elapsedDays"),
+                                        scheduledDays = cj.getInt("scheduledDays"),
+                                        reps = cj.getInt("reps"),
+                                        lapses = cj.getInt("lapses"),
+                                        due = cj.getLong("due"),
+                                        lastReview = if (cj.isNull("lastReview")) null else cj.getLong("lastReview"),
+                                        consecutiveCorrect = cj.optInt("consecutiveCorrect", 0),
+                                        suspended = cj.optBoolean("suspended", false)
+                                    )
+                                )
+                            }
+                        }
+                        if (updates.isNotEmpty()) cardDao.updateAll(updates)
                     }
+                    imported += 1
                 }
-                imported += 1
-            }
 
-        pendingPartners.forEach { (noteId, partnerLemma) ->
-            val note = noteDao.getById(noteId) ?: return@forEach
-            val partner = noteDao.getByLemma(partnerLemma) ?: return@forEach
-            noteDao.update(note.copy(aspectPartner = partner.id))
-            confusablePairDao.insert(ConfusablePair(firstNoteId = note.id, secondNoteId = partner.id, reason = "aspect_partner"))
-            // Re-run cardsFor so BI/no_aspect_pair guards apply and both NO_CUE + HAS_CUE are added
-            insertMissingAspectCards(note.id)
+            pendingPartners.forEach { (noteId, partnerLemma) ->
+                val note = noteDao.getById(noteId) ?: return@forEach
+                val partner = noteDao.getByLemma(partnerLemma) ?: return@forEach
+                noteDao.update(note.copy(aspectPartner = partner.id))
+                confusablePairDao.insert(ConfusablePair(firstNoteId = note.id, secondNoteId = partner.id, reason = "aspect_partner"))
+                // Re-run cardsFor so BI/no_aspect_pair guards apply and both NO_CUE + HAS_CUE are added
+                insertMissingAspectCards(note.id)
+            }
         }
+        invalidateNoteStructure()
         return imported
     }
 
@@ -444,6 +474,7 @@ class LearningRepository(
                                     put("due", card.due)
                                     put("lastReview", card.lastReview)
                                     put("consecutiveCorrect", card.consecutiveCorrect)
+                                    put("suspended", card.suspended)
                                     card.gramCase?.let { put("gramCase", it) }
                                     card.gramGender?.let { put("gramGender", it) }
                                     card.gramNumber?.let { put("gramNumber", it) }
@@ -467,7 +498,7 @@ class LearningRepository(
     suspend fun syncBootstrapReaderTexts(): Int {
         val payload = bootstrapReaderTexts?.invoke()?.takeIf { it.isNotBlank() } ?: return 0
         val existingTitles = readerTextDao.getAll().mapTo(HashSet()) { it.title }
-        var added = 0
+        val additions = mutableListOf<ReaderText>()
         payload.lineSequence()
             .map { it.trim() }
             .filter { it.isNotBlank() }
@@ -475,29 +506,37 @@ class LearningRepository(
                 val json = JSONObject(line)
                 val title = json.optString("title", "Imported Text")
                 if (title !in existingTitles) {
-                    addReaderText(title, json.getString("body"), json.optString("source", "local"))
+                    additions += ReaderText(
+                        title = title.ifBlank { "Imported Text" },
+                        body = json.getString("body"),
+                        source = json.optString("source", "local")
+                    )
                     existingTitles += title
-                    added += 1
                 }
             }
-        return added
+        if (additions.isNotEmpty()) {
+            runInTransaction { readerTextDao.insertAll(additions) }
+        }
+        return additions.size
     }
 
     suspend fun importReaderTextsJsonLines(jsonLines: String): Int {
-        var imported = 0
-        jsonLines.lineSequence()
+        val texts = jsonLines.lineSequence()
             .map { it.trim() }
             .filter { it.isNotBlank() }
-            .forEach { line ->
+            .map { line ->
                 val json = JSONObject(line)
-                addReaderText(
+                ReaderText(
                     title = json.optString("title", "Imported Text"),
                     body = json.getString("body"),
                     source = json.optString("source", "local")
                 )
-                imported += 1
             }
-        return imported
+            .toList()
+        if (texts.isNotEmpty()) {
+            runInTransaction { readerTextDao.insertAll(texts) }
+        }
+        return texts.size
     }
 
     suspend fun readerTexts(): List<ReaderRecommendation> {
@@ -570,7 +609,7 @@ class LearningRepository(
         dashboardStatsFrom(now, readerTexts())
 
     private suspend fun dashboardStatsFrom(now: Long, recommendations: List<ReaderRecommendation>): DashboardStats {
-        val notes = noteDao.getAll()
+        val notes = allNotesCached()
         val targetCoverages = recommendations.filter { it.text.source.startsWith("target:", ignoreCase = true) }.map { it.coverage }
         val qualityReport = importQualityReport(notes, recommendations)
         return DashboardStats(
@@ -588,10 +627,14 @@ class LearningRepository(
     }
 
     suspend fun importQualityReport(): ImportQualityReport =
-        importQualityReport(noteDao.getAll(), readerTexts())
+        importQualityReport(allNotesCached(), readerTexts())
 
     suspend fun dailyPlan(now: Long = System.currentTimeMillis()): DailyPlan {
-        val categories = accuracyCategories()
+        val categories = accuracyCategoriesCached()
+        return dailyPlanFromCategories(now, categories)
+    }
+
+    private suspend fun dailyPlanFromCategories(now: Long, categories: List<CategoryKey>): DailyPlan {
         val eligible = categories.filter { it.sampleSize >= MIN_ACCURACY_SAMPLE }
         val focus = eligible.sortedBy { it.accuracy ?: 1.0 }.take(3)
         val dueCount = cardDao.countDue(now)
@@ -605,15 +648,15 @@ class LearningRepository(
     }
 
     suspend fun sessionPlan(now: Long = System.currentTimeMillis()): SessionPlan {
-        graduateEligibleCategories()
-        graduateVocabByEncounters()
-        val daily = dailyPlan(now)
+        refreshGraduationsIfNeeded()
+        val categories = accuracyCategoriesCached()
+        val daily = dailyPlanFromCategories(now, categories)
         val blocked = blockedGrammarPrompts(daily, now)
         // Compute once; reuse for both readerRecommendation and dashboardStats.
         val allTexts = readerTexts()
         return SessionPlan(
             ruleSummary = ruleSummaryFor(daily.openBlockedWith),
-            reviewQueue = sessionCards(now, config().sessionSize).mapNotNull { promptFor(it, now) },
+            reviewQueue = sessionCards(now, config().sessionSize, daily).mapNotNull { promptFor(it, now) },
             blockedGrammar = blocked,
             interleavedGrammar = interleavedGrammarPrompts(blocked.map { it.card.id }.toSet(), now),
             readerRecommendation = allTexts.minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTarget(it.coverage) }.thenByDescending { it.coverage }),
@@ -644,7 +687,8 @@ class LearningRepository(
         var run = 0
         var previous: Long? = null
         for (day in days.sorted()) {
-            run = if (previous != null && day == previous!! + 1) run + 1 else 1
+            val previousDay = previous
+            run = if (previousDay != null && day == previousDay + 1) run + 1 else 1
             if (run > longestStreak) longestStreak = run
             previous = day
         }
@@ -771,8 +815,7 @@ class LearningRepository(
         reviewLogDao.insert(log)
         note?.let { noteDao.update(it.copy(encounterCount = it.encounterCount + 1)) }
         invalidateNoteState()
-        graduateEligibleCategories()
-        graduateVocabByEncounters()
+        refreshGraduationsIfNeeded(force = true)
     }
 
     /** True if there is a review that can be rolled back this session. */
@@ -797,6 +840,12 @@ class LearningRepository(
         return snapshot.card
     }
 
+    /** Permanently retire a card (e.g. a bad auto-generated item) from all queues. */
+    suspend fun suspendCard(card: Card) {
+        cardDao.update(card.copy(suspended = true))
+        invalidateNoteState()
+    }
+
     suspend fun searchNotes(query: String, limit: Int = 50): List<Note> {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return emptyList()
@@ -806,9 +855,11 @@ class LearningRepository(
     /** Mark a batch of reader surface tokens with one status in a single pass. */
     suspend fun setWordStatusBatch(tokens: Collection<String>, status: WordStatus): Int {
         var changed = 0
-        tokens.distinctBy { normalizeToken(it) }.forEach { token ->
-            setWordStatus(token, status)
-            changed += 1
+        runInTransaction {
+            tokens.distinctBy { normalizeToken(it) }.forEach { token ->
+                setWordStatus(token, status)
+                changed += 1
+            }
         }
         return changed
     }
@@ -837,7 +888,7 @@ class LearningRepository(
                     )
                 )
             }
-            graduateVocabByEncounters()
+            refreshGraduationsIfNeeded(force = true)
             return noteDao.getById(note.id)
         }
         addNote(
@@ -857,13 +908,32 @@ class LearningRepository(
         return readerLookup(token, text, now)
     }
 
-    suspend fun reviewedToday(now: Long = System.currentTimeMillis()): Int {
-        val startOfDay = now - (now % DAY_MILLIS)
-        return reviewLogDao.countSince(startOfDay)
+    suspend fun reviewedToday(now: Long = System.currentTimeMillis()): Int =
+        reviewLogDao.countSince(startOfLocalDay(now))
+
+    /**
+     * Start-of-today in the device's local timezone. Using local (not UTC) day
+     * boundaries keeps "reviewed today", the daily goal, and the new-card throttle
+     * consistent with the streak counter — otherwise counts reset at the wrong hour
+     * for every non-UTC user and drift across DST.
+     */
+    private fun startOfLocalDay(now: Long): Long {
+        val tz = java.util.TimeZone.getDefault().getOffset(now).toLong()
+        return ((now + tz) / DAY_MILLIS) * DAY_MILLIS - tz
     }
 
-    private suspend fun sessionCards(now: Long, limit: Int): List<Card> {
-        val plan = dailyPlan(now)
+    /**
+     * Write a full-state backup if there's data worth saving. Never writes an empty
+     * backup, so it can't clobber a good one during a post-wipe/pre-restore window.
+     */
+    suspend fun backupNow(): Boolean {
+        val w = writeBackup ?: return false
+        if (noteDao.count() == 0) return false
+        w(exportFullState())
+        return true
+    }
+
+    private suspend fun sessionCards(now: Long, limit: Int, plan: DailyPlan): List<Card> {
         val due = if (plan.triageMode) {
             cardDao.getOverdueCards(now - 2 * DAY_MILLIS, limit = limit)
         } else {
@@ -907,8 +977,7 @@ class LearningRepository(
      *    word back-to-back; its other facets surface on later days.
      */
     private suspend fun newCardSession(now: Long, limit: Int): List<Card> {
-        val startOfDay = now - (now % DAY_MILLIS)
-        val introducedToday = reviewLogDao.countNewIntroducedSince(startOfDay)
+        val introducedToday = reviewLogDao.countNewIntroducedSince(startOfLocalDay(now))
         val budget = (config().newCardsPerDay - introducedToday).coerceAtLeast(0)
         val take = minOf(limit, budget)
         if (take == 0) return emptyList()
@@ -997,16 +1066,22 @@ class LearningRepository(
             .mapNotNull { promptFor(it, now) }
 
     private fun cardsFor(note: Note): List<Card> = buildList {
+        // The general reading-matrix layer carries declension tables purely to
+        // feed the reader form index (coverage); grammar drilling stays focused
+        // on the curated domain corpus, so general notes get only vocab cards.
+        val isGeneral = note.tags.contains("general")
         add(Card(noteId = note.id, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB))
         add(Card(noteId = note.id, cardType = CardType.MEANING_TO_RU, queue = Queue.VOCAB))
         if (!note.exampleSentence.isNullOrBlank()) add(Card(noteId = note.id, cardType = CardType.CLOZE, queue = Queue.VOCAB))
-        if (!note.audioPath.isNullOrBlank()) add(Card(noteId = note.id, cardType = CardType.AUDIO_TO_RU, queue = Queue.VOCAB))
-        // The general reading-matrix layer carries declension tables purely to
-        // feed the reader form index (coverage); grammar drilling stays focused
-        // on the curated domain corpus, so general notes get no CASE_FILL cards.
-        val isGeneral = note.tags.contains("general")
+        // Listening: a real audio asset, or any curated domain word (the on-device
+        // Russian TTS supplies the audio at review time, so no asset is needed).
+        if (!note.audioPath.isNullOrBlank() || !isGeneral) {
+            add(Card(noteId = note.id, cardType = CardType.AUDIO_TO_RU, queue = Queue.VOCAB))
+        }
         if (!isGeneral) caseCards(note).forEach(::add)
         if (!isGeneral) verbFormCards(note).forEach(::add)
+        if (!isGeneral) adjectiveAgreementCards(note).forEach(::add)
+        if (!isGeneral) genderCard(note)?.let(::add)
         // ASPECT_SELECT requires a verified Aktionsart (design F8): the drill's
         // whole point is reasoning from inherent temporal structure, so a verb
         // without Aktionsart never produces a half-formed aspect card.
@@ -1020,6 +1095,32 @@ class LearningRepository(
             add(Card(noteId = note.id, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, due = 0L, gramContextCue = "NO_CUE"))
             add(Card(noteId = note.id, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, due = 0L, gramContextCue = "HAS_CUE"))
         }
+    }
+
+    // Adjective–noun agreement: produce the feminine, neuter, and plural nominative
+    // forms (the masculine is the citation form). Russian agreement is one of the
+    // highest-frequency grammar skills and the forms already ship in the data, but
+    // they were previously only used for reader matching, never drilled.
+    private fun adjectiveAgreementCards(note: Note): List<Card> {
+        if (!note.partOfSpeech.equals("adjective", ignoreCase = true)) return emptyList()
+        val json = note.declensionJson ?: return emptyList()
+        val table = runCatching { JSONObject(json) }.getOrNull() ?: return emptyList()
+        val source = if (table.has("cases")) table.getJSONObject("cases") else table
+        val masc = RussianForms.normalize(source.optString("NOM_SG").ifBlank { note.lemma })
+        return listOf("FEM" to "FEM_NOM", "NEUT" to "NEUT_NOM", "PL" to "PL_NOM").mapNotNull { (cue, key) ->
+            val form = source.optString(key)
+            if (form.isBlank() || RussianForms.normalize(form) == masc) return@mapNotNull null
+            Card(noteId = note.id, cardType = CardType.ADJ_AGREE, queue = Queue.GRAMMAR, gramContextCue = cue)
+        }
+    }
+
+    // Noun gender recall. Gender drives every agreement choice but was stored and
+    // never tested; one fast card per noun makes the pattern explicit.
+    private fun genderCard(note: Note): Card? {
+        if (!note.partOfSpeech.equals("noun", ignoreCase = true)) return null
+        val gender = note.gender?.uppercase(Locale.ROOT) ?: return null
+        if (gender !in NOUN_GENDERS) return null
+        return Card(noteId = note.id, cardType = CardType.GENDER_ID, queue = Queue.GRAMMAR, gramGender = gender)
     }
 
     private fun caseCards(note: Note): List<Card> {
@@ -1053,6 +1154,12 @@ class LearningRepository(
             .toList()
     }
 
+    // Only drill the past-tense paradigm. Russian past tense is regular (stem + л
+    // with gender/number agreement), so derived answers are trustworthy. Present
+    // tense is riddled with consonant mutation (писать→пишу, любить→люблю) that we
+    // cannot derive from the infinitive, and the deck ships no present tables — so
+    // drilling it would teach learners incorrect forms. Past-only keeps the grammar
+    // sense (gender/number agreement) without ever presenting a wrong answer.
     private fun verbFormCards(note: Note): List<Card> {
         if (!note.partOfSpeech.equals("verb", ignoreCase = true)) return emptyList()
         return RussianForms.verbForms(note.lemma).keys
@@ -1067,33 +1174,29 @@ class LearningRepository(
             }
     }
 
+    private suspend fun accuracyCategoriesCached(): List<CategoryKey> {
+        val reviewCount = reviewLogDao.countAll()
+        val cached = accuracyCache
+        if (cached != null && accuracyCacheReviewCount == reviewCount) return cached
+        return accuracyCategories().also {
+            accuracyCache = it
+            accuracyCacheReviewCount = reviewCount
+        }
+    }
+
     private suspend fun accuracyCategories(): List<CategoryKey> {
-        val cards = cardDao.getAllGrammarCards()
-        val nounKeys = cards
-            .filter { it.cardType == CardType.CASE_FILL && it.gramCase != null && it.gramGender != null && it.gramNumber != null }
-            .map { Triple(it.gramCase.orEmpty(), it.gramGender.orEmpty(), it.gramNumber.orEmpty()) }
-            .distinct()
+        val nounKeys = cardDao.getCaseCategoryKeys()
             .map { key ->
-                val ratings = reviewLogDao.nounCategoryRatings(key.first, key.second, key.third, MIN_ACCURACY_SAMPLE)
-                CategoryKey("case", key.first, key.second, key.third, accuracy = ratings.accuracyOrNull(), sampleSize = ratings.size)
+                val ratings = reviewLogDao.nounCategoryRatings(key.gramCase, key.gramGender, key.gramNumber, MIN_ACCURACY_SAMPLE)
+                CategoryKey("case", key.gramCase, key.gramGender, key.gramNumber, accuracy = ratings.accuracyOrNull(), sampleSize = ratings.size)
             }
 
-        val noteById = noteDao.getAll().associateBy { it.id }
-        val aspectKeys = cards
-            .filter { it.cardType == CardType.ASPECT_SELECT }
-            .mapNotNull { card ->
-                val note = noteById[card.noteId] ?: return@mapNotNull null
-                Triple(note.aktionsart ?: return@mapNotNull null, note.aspect ?: return@mapNotNull null, card.gramContextCue ?: "NO_CUE")
-            }
-            .distinct()
+        val aspectKeys = cardDao.getAspectCategoryKeys()
             .map { key ->
-                val ratings = reviewLogDao.aspectCategoryRatings(key.first, key.second, key.third, MIN_ACCURACY_SAMPLE)
-                CategoryKey("aspect", aktionsart = key.first, aspect = key.second, contextCue = key.third, accuracy = ratings.accuracyOrNull(), sampleSize = ratings.size)
+                val ratings = reviewLogDao.aspectCategoryRatings(key.aktionsart, key.aspect, key.contextCue, MIN_ACCURACY_SAMPLE)
+                CategoryKey("aspect", aktionsart = key.aktionsart, aspect = key.aspect, contextCue = key.contextCue, accuracy = ratings.accuracyOrNull(), sampleSize = ratings.size)
             }
-        val verbFormKeys = cards
-            .filter { it.cardType == CardType.VERB_FORM && it.gramContextCue != null }
-            .map { it.gramContextCue.orEmpty() }
-            .distinct()
+        val verbFormKeys = cardDao.getVerbFormCategoryKeys()
             .map { key ->
                 val ratings = reviewLogDao.verbFormCategoryRatings(key, MIN_ACCURACY_SAMPLE)
                 CategoryKey("verb_form", contextCue = key, accuracy = ratings.accuracyOrNull(), sampleSize = ratings.size)
@@ -1101,38 +1204,33 @@ class LearningRepository(
         return nounKeys + aspectKeys + verbFormKeys
     }
 
-    private suspend fun graduateEligibleCategories() {
+    private suspend fun refreshGraduationsIfNeeded(force: Boolean = false) {
+        val reviewCount = reviewLogDao.countAll()
+        if (!force && lastGraduationReviewCount == reviewCount) return
         val categories = accuracyCategories()
+        accuracyCache = categories
+        accuracyCacheReviewCount = reviewCount
+        graduateEligibleCategories(categories)
+        graduateVocabByEncounters()
+        lastGraduationReviewCount = reviewCount
+    }
+
+    private suspend fun graduateEligibleCategories(categories: List<CategoryKey>) {
+        val eligibleCategories = categories
             .filter { it.sampleSize >= MIN_ACCURACY_SAMPLE && (it.accuracy ?: 0.0) >= GRADUATION_ACCURACY }
-        categories.filter { it.kind == "case" }.forEach { category ->
-            cardDao.getGrammarCardsForNounCategory(category.gramCase.orEmpty(), category.gramGender.orEmpty(), category.gramNumber.orEmpty())
-                .filter { it.state != CardState.GRADUATED }
-                .forEach { cardDao.update(it.copy(state = CardState.GRADUATED)) }
+        eligibleCategories.filter { it.kind == "case" }.forEach { category ->
+            cardDao.graduateCaseCategory(category.gramCase.orEmpty(), category.gramGender.orEmpty(), category.gramNumber.orEmpty())
         }
-        categories.filter { it.kind == "aspect" }.forEach { category ->
-            cardDao.getAspectCards()
-                .filter { card ->
-                    val note = noteDao.getById(card.noteId)
-                    note?.aktionsart == category.aktionsart && note?.aspect == category.aspect && card.gramContextCue == category.contextCue
-                }
-                .filter { it.state != CardState.GRADUATED }
-                .forEach { cardDao.update(it.copy(state = CardState.GRADUATED)) }
+        eligibleCategories.filter { it.kind == "aspect" }.forEach { category ->
+            cardDao.graduateAspectCategory(category.aktionsart.orEmpty(), category.aspect.orEmpty(), category.contextCue.orEmpty())
         }
-        categories.filter { it.kind == "verb_form" }.forEach { category ->
-            cardDao.getVerbFormCards(category.contextCue.orEmpty(), Int.MAX_VALUE)
-                .filter { it.state != CardState.GRADUATED }
-                .forEach { cardDao.update(it.copy(state = CardState.GRADUATED)) }
+        eligibleCategories.filter { it.kind == "verb_form" }.forEach { category ->
+            cardDao.graduateVerbFormCategory(category.contextCue.orEmpty())
         }
     }
 
     private suspend fun graduateVocabByEncounters() {
-        noteDao.getAll()
-            .filter { it.encounterCount >= VOCAB_GRADUATION_ENCOUNTERS }
-            .forEach { note ->
-                cardDao.getCardsForNote(note.id)
-                    .filter { it.queue == Queue.VOCAB && it.state != CardState.GRADUATED }
-                    .forEach { cardDao.update(it.copy(state = CardState.GRADUATED)) }
-            }
+        cardDao.graduateVocabForEncounteredNotes(VOCAB_GRADUATION_ENCOUNTERS)
     }
 
     private fun buildFormIndex(notes: List<Note>): Map<String, Note> {
@@ -1269,6 +1367,9 @@ class LearningRepository(
         private const val XP_PER_LEVEL_STEP = 100
         private val CASES = setOf("NOM", "ACC", "GEN", "DAT", "INS", "PREP")
         private val NUMBERS = setOf("SG", "PL")
-        private val VERB_FORM_KEYS = setOf("PRES_1SG", "PRES_2SG", "PRES_3SG", "PRES_1PL", "PRES_2PL", "PRES_3PL", "PAST_M", "PAST_F", "PAST_N", "PAST_PL")
+        private val NOUN_GENDERS = setOf("M", "F", "N", "PL")
+        // Past-tense only: see verbFormCards. Present tense can't be derived
+        // reliably from the infinitive, so we don't drill it.
+        private val VERB_FORM_KEYS = setOf("PAST_M", "PAST_F", "PAST_N", "PAST_PL")
     }
 }

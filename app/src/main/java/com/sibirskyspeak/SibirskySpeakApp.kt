@@ -4,13 +4,17 @@ import android.app.Application
 import androidx.room.withTransaction
 import com.sibirskyspeak.data.AppDatabase
 import com.sibirskyspeak.data.AssetBootstrap
+import com.sibirskyspeak.data.BackupManager
 import com.sibirskyspeak.data.LearningConfig
 import com.sibirskyspeak.data.LearningRepository
 import com.sibirskyspeak.data.SettingsStore
 import com.sibirskyspeak.scheduler.FsrsScheduler
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class SibirskySpeakApp : Application() {
     val settings: SettingsStore by lazy { SettingsStore(this) }
+    private val backup: BackupManager by lazy { BackupManager(this) }
 
     val repository: LearningRepository by lazy {
         val database = AppDatabase.get(this)
@@ -25,7 +29,9 @@ class SibirskySpeakApp : Application() {
             bootstrapNotes = { assets.readTextAsset("bootstrap_notes.jsonl") },
             bootstrapReaderTexts = { assets.readTextAsset("bootstrap_reader_texts.jsonl") },
             transactionRunner = { block -> database.withTransaction(block) },
-            config = { LearningConfig(dailyGoal = settings.dailyGoal, sessionSize = settings.sessionSize, newCardsPerDay = settings.newCardsPerDay) }
+            config = { LearningConfig(dailyGoal = settings.dailyGoal, sessionSize = settings.sessionSize, newCardsPerDay = settings.newCardsPerDay) },
+            restoreBackup = { withContext(Dispatchers.IO) { backup.read() } },
+            writeBackup = { content -> withContext(Dispatchers.IO) { backup.write(content) } }
         )
     }
 }

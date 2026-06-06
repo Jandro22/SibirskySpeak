@@ -7,6 +7,8 @@ enum class CardType {
     AUDIO_TO_RU,
     CASE_FILL,
     VERB_FORM,
+    ADJ_AGREE,
+    GENDER_ID,
     ASPECT_SELECT
 }
 

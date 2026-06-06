@@ -10,6 +10,7 @@ matches the Android import contract (see design doc §13.5).
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from russian_morph import (decline_adjective, decline_noun,
@@ -52,15 +53,109 @@ GENDER_BY_CLASS = {
     "pl_voiska": "PL", "pl_peregovory": "PL", "pl_vybory": "PL", "pl_uchenia": "PL",
 }
 
-INANIMATE_TEMPLATES = [
-    ("{C} имеет большое значение в этом вопросе.", "{T} has great importance in this matter."),
-    ("{C} обсуждается в официальном заявлении.", "{T} is discussed in the official statement."),
-    ("{C} упоминается в новом документе.", "{T} is mentioned in the new document."),
-    ("{C} стало предметом переговоров.", "{T} became a subject of the negotiations."),
+BAD_EXAMPLE_MARKERS = (
+    "имеет большое значение в этом вопросе",
+    "обсуждается в официальном заявлении",
+    "упоминается в новом документе",
+    "стало предметом переговоров",
+    "фактор учитывается в стратегии",
+    "Сторонам важно",
+)
+
+SENTENCE_RE = re.compile(r"[^.!?]+[.!?]")
+WORD_RE = re.compile(r"[а-яё-]+", re.IGNORECASE)
+
+
+def normalize_text(value: str) -> str:
+    return strip_stress(value).lower().replace("ё", "е")
+
+
+def sentence_words(sentence: str) -> set[str]:
+    return set(WORD_RE.findall(normalize_text(sentence)))
+
+
+def reader_sentences() -> list[tuple[str, set[str]]]:
+    sentences = []
+    for text in all_reader_texts():
+        for match in SENTENCE_RE.findall(text["body"]):
+            sentence = match.strip()
+            if 18 <= len(sentence) <= 240:
+                sentences.append((sentence, sentence_words(sentence)))
+    return sentences
+
+
+_READER_SENTENCES: list[tuple[str, set[str]]] | None = None
+
+
+def corpus_sentence(forms) -> str | None:
+    """Return a real sentence from bundled reader material containing any form."""
+    global _READER_SENTENCES
+    if _READER_SENTENCES is None:
+        _READER_SENTENCES = reader_sentences()
+    targets = {normalize_text(f) for f in forms if f}
+    targets = {t for t in targets if t}
+    if not targets:
+        return None
+    for sentence, words in _READER_SENTENCES:
+        if words & targets:
+            return sentence
+    return None
+
+
+def corpus_or_fallback(forms, fallback, corpus_gloss: str):
+    sentence = corpus_sentence(forms)
+    if sentence and not is_low_quality_example(sentence):
+        return sentence, corpus_gloss
+    return fallback
+
+
+def is_low_quality_example(sentence: str) -> bool:
+    return any(marker in sentence for marker in BAD_EXAMPLE_MARKERS)
+
+
+def term_en(translation: str) -> str:
+    return translation.split("/")[0]
+
+
+def table_forms(table: dict) -> list[str]:
+    return [str(v) for v in table.values() if isinstance(v, str) and v.strip()]
+
+
+INANIMATE_CONTEXTS = [
+    ("После доклада участники отдельно обсудили {A}.", "After the report, the participants discussed the {T} separately."),
+    ("В проекте резолюции есть ссылка на {A}.", "The draft resolution includes a reference to the {T}."),
+    ("На заседании возник спор вокруг {G}.", "A dispute arose at the meeting around the {T}."),
+    ("Новая мера повлияла на {A} сильнее, чем ожидали эксперты.", "The new measure affected the {T} more strongly than experts expected."),
+    ("Комиссия запросила дополнительные данные о {P}.", "The commission requested additional data about the {T}."),
+    ("В отчёте подробно описаны последствия для {G}.", "The report describes the consequences for the {T} in detail."),
+    ("Представитель ведомства связал решение с {I}.", "The agency representative linked the decision with the {T}."),
+    ("К концу встречи стороны вернулись к вопросу о {P}.", "By the end of the meeting, the parties returned to the issue of the {T}."),
 ]
-ANIMATE_TEMPLATES = [
-    ("{C} выступил с заявлением.", "The {T} made a statement."),
-    ("{C} принял участие в переговорах.", "The {T} took part in the negotiations."),
+
+ANIMATE_CONTEXTS = [
+    ("{N} ответил на вопросы журналистов после заседания.", "The {T} answered journalists' questions after the meeting."),
+    ("{N} прибыл на переговоры вместе с делегацией.", "The {T} arrived at the negotiations with the delegation."),
+    ("По словам источника, {N} поддержал компромиссный вариант.", "According to a source, the {T} supported the compromise option."),
+    ("В ходе визита {N} встретился с представителями региона.", "During the visit, the {T} met with regional representatives."),
+    ("Позднее {N} пояснил позицию своей стороны.", "Later, the {T} explained his side's position."),
+]
+
+ADJECTIVE_CONTEXTS = [
+    ("{M} вопрос вынесли на отдельное обсуждение.", "The {T} issue was put up for separate discussion."),
+    ("Комитет подготовил {M} доклад к заседанию.", "The committee prepared a {T} report for the session."),
+    ("Ведомство опубликовало {N} заявление вечером.", "The agency published a {T} statement in the evening."),
+    ("Участники отметили {F} роль региональных партнёров.", "The participants noted the {T} role of regional partners."),
+    ("В проект включили {P} меры поддержки.", "The project included {T} support measures."),
+    ("Аналитики назвали ситуацию {F} для всего рынка.", "Analysts called the situation {T} for the whole market."),
+]
+
+VERB_CONTEXTS = [
+    ("Делегации удалось {INF} до конца встречи.", "The delegation managed to {T} before the end of the meeting."),
+    ("Комитет предложил {INF} после консультаций.", "The committee proposed to {T} after consultations."),
+    ("Стороны договорились {INF} без дополнительных условий.", "The parties agreed to {T} without additional conditions."),
+    ("Эксперты считают, что необходимо {INF} заранее.", "Experts believe it is necessary to {T} in advance."),
+    ("Власти намерены {INF} в ближайшие месяцы.", "The authorities intend to {T} in the coming months."),
+    ("Рабочая группа продолжит {INF} на следующем этапе.", "The working group will continue to {T} at the next stage."),
 ]
 
 
@@ -68,11 +163,52 @@ def cap(word: str) -> str:
     return word[:1].upper() + word[1:] if word else word
 
 
-def example_for(nom_unstressed: str, translation: str, animate: bool, idx: int):
-    tpls = ANIMATE_TEMPLATES if animate else INANIMATE_TEMPLATES
-    ru, en = tpls[idx % len(tpls)]
-    return (ru.replace("{C}", cap(nom_unstressed)),
-            en.replace("{T}", translation.split("/")[0]))
+def noun_example(table: dict, nom_unstressed: str, translation: str, animate: bool, idx: int):
+    forms = table_forms(table) + [nom_unstressed]
+    if animate:
+        ru, en = ANIMATE_CONTEXTS[idx % len(ANIMATE_CONTEXTS)]
+        fallback = (
+            ru.replace("{N}", cap(nom_unstressed)),
+            en.replace("{T}", term_en(translation)),
+        )
+    else:
+        ru, en = INANIMATE_CONTEXTS[idx % len(INANIMATE_CONTEXTS)]
+        acc = table.get("ACC_SG") or table.get("ACC_PL") or nom_unstressed
+        gen = table.get("GEN_SG") or table.get("GEN_PL") or nom_unstressed
+        ins = table.get("INS_SG") or table.get("INS_PL") or nom_unstressed
+        prep = table.get("PREP_SG") or table.get("PREP_PL") or nom_unstressed
+        fallback = (
+            ru.replace("{A}", acc)
+              .replace("{G}", gen)
+              .replace("{I}", ins)
+              .replace("{P}", prep),
+            en.replace("{T}", term_en(translation)),
+        )
+    return corpus_or_fallback(forms, fallback, term_en(translation))
+
+
+def adjective_example(table: dict, citation: str, translation: str, idx: int):
+    lemma = strip_stress(citation)
+    ru, en = ADJECTIVE_CONTEXTS[idx % len(ADJECTIVE_CONTEXTS)]
+    fallback = (
+        ru.replace("{M}", table.get("NOM_M_SG", lemma))
+          .replace("{F}", table.get("NOM_F_SG", lemma))
+          .replace("{N}", table.get("NOM_N_SG", lemma))
+          .replace("{P}", table.get("NOM_PL", lemma)),
+        en.replace("{T}", term_en(translation)),
+    )
+    return corpus_or_fallback(table_forms(table) + [lemma], fallback, term_en(translation))
+
+
+def verb_example(citation: str, translation: str, idx: int):
+    inf = strip_stress(citation)
+    core_en = translation[3:] if translation.startswith("to ") else translation
+    ru, en = VERB_CONTEXTS[idx % len(VERB_CONTEXTS)]
+    fallback = (
+        ru.replace("{INF}", inf),
+        en.replace("{T}", core_en),
+    )
+    return corpus_or_fallback([inf], fallback, core_en)
 
 
 def noun_rows():
@@ -90,7 +226,7 @@ def noun_rows():
         else:
             table = decline_noun(citation, cls, animate=animate, numbers=nums)
             nom = table.get("NOM_SG") or table.get("NOM_PL")
-        ex_ru, ex_en = example_for(nom, translation, animate, i)
+        ex_ru, ex_en = noun_example(table, nom, translation, animate, i)
         lemma = strip_stress(citation)
         rows.append({
             "russian": citation,
@@ -113,6 +249,7 @@ def adjective_rows(start_rank: int):
     for i, (citation, translation) in enumerate(wl.ADJECTIVES):
         table = decline_adjective(citation)
         lemma = strip_stress(citation)
+        ex_ru, ex_en = adjective_example(table, citation, translation, i)
         rows.append({
             "russian": citation,
             "lemma": lemma,
@@ -122,8 +259,8 @@ def adjective_rows(start_rank: int):
             "declensionJson": table,
             "domainFreqRank": domain_rank(lemma, start_rank + i),
             "generalFreqRank": 2000 + i * 9,
-            "exampleSentence": f"{cap(strip_stress(citation))} фактор учитывается в стратегии.",
-            "exampleTranslation": f"The {translation.split('/')[0]} factor is taken into account in the strategy.",
+            "exampleSentence": ex_ru,
+            "exampleTranslation": ex_en,
             "tags": "domain adjective",
         })
     return rows
@@ -164,10 +301,7 @@ def verb_rows(start_rank: int):
 
 def _verb_note(citation, _unused, translation, aktionsart, aspect, partner_lemma, tags, rank):
     inf = strip_stress(citation)
-    core_en = translation[3:] if translation.startswith("to ") else translation
-    # multiword verbs (e.g. "вводить санкции") already carry their own object
-    frame_ru = f"Сторонам важно {inf} вовремя." if " " in inf else f"Сторонам важно {inf} этот вопрос вовремя."
-    frame_en = f"It is important for the parties to {core_en} in time."
+    ex_ru, ex_en = verb_example(citation, translation, rank)
     note = {
         "russian": citation,
         "lemma": inf,
@@ -178,10 +312,8 @@ def _verb_note(citation, _unused, translation, aktionsart, aspect, partner_lemma
         "aktionsartConfidence": "manual",
         "domainFreqRank": domain_rank(inf, 2000 + rank),
         "generalFreqRank": 1500 + rank,
-        # Infinitive frame: grammatical for every verb regardless of aspect or
-        # irregular past stem, and it keeps the target verb in citation form.
-        "exampleSentence": frame_ru,
-        "exampleTranslation": frame_en,
+        "exampleSentence": ex_ru,
+        "exampleTranslation": ex_en,
         "tags": tags,
     }
     if partner_lemma:

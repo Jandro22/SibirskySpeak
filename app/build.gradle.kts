@@ -19,6 +19,11 @@ android {
         versionName = System.getenv("VERSION_NAME") ?: "0.1.0"
     }
 
+    // A real release keystore is supplied via environment (e.g. CI secrets). When
+    // it's absent (local dev), release builds fall back to the debug keystore so
+    // `assembleRelease` still works without leaking or requiring secrets.
+    val releaseKeystore = System.getenv("KEYSTORE_FILE")
+
     signingConfigs {
         // Reproducible debug signing: both local and CI builds sign with the
         // committed debug keystore (public default credentials), so an APK built
@@ -28,6 +33,29 @@ android {
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
+        }
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        getByName("release") {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            signingConfig = signingConfigs.getByName(if (releaseKeystore != null) "release" else "debug")
         }
     }
 
@@ -47,6 +75,13 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+// Export the Room schema to version-controlled JSON so future schema changes can
+// ship real migrations instead of wiping user data. (Enabled alongside
+// exportSchema = true on @Database.)
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {

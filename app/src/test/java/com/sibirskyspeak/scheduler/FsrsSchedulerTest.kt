@@ -100,6 +100,29 @@ class FsrsSchedulerTest {
     }
 
     @Test
+    fun recoversFromNonFiniteCorruptState() {
+        val scheduler = FsrsScheduler()
+        val corrupt = Card(
+            noteId = 1,
+            cardType = CardType.RU_TO_MEANING,
+            queue = Queue.VOCAB,
+            stability = Double.NaN,
+            difficulty = Double.POSITIVE_INFINITY,
+            state = CardState.REVIEW,
+            lastReview = 0L
+        )
+
+        val (reviewed) = scheduler.review(corrupt, Rating.GOOD, now = 10L * 86_400_000L)
+
+        assertTrue("stability must be finite", reviewed.stability.isFinite())
+        assertTrue("stability must be positive", reviewed.stability > 0.0)
+        assertTrue("difficulty must be finite", reviewed.difficulty.isFinite())
+        assertTrue("difficulty in range", reviewed.difficulty in 1.0..10.0)
+        assertTrue("interval must be schedulable", reviewed.scheduledDays >= 1)
+        assertTrue("due must advance", reviewed.due > 10L * 86_400_000L)
+    }
+
+    @Test
     fun fuzzIsOffByDefaultAndDeterministic() {
         val card = Card(
             noteId = 1,

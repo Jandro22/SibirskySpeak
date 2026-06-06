@@ -8,8 +8,8 @@ import androidx.room.TypeConverters
 
 @Database(
     entities = [Note::class, Card::class, ReviewLog::class, ConfusablePair::class, ReaderText::class],
-    version = 3,
-    exportSchema = false
+    version = 5,
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {

@@ -6,30 +6,42 @@ import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
+data class CaseCategoryRow(
+    val gramCase: String,
+    val gramGender: String,
+    val gramNumber: String
+)
+
+data class AspectCategoryRow(
+    val aktionsart: String,
+    val aspect: String,
+    val contextCue: String
+)
+
 @Dao
 interface CardDao {
-    @Query("SELECT * FROM cards WHERE due <= :now AND state != 'NEW' ORDER BY due ASC, id ASC LIMIT :limit")
+    @Query("SELECT * FROM cards WHERE due <= :now AND state != 'NEW' AND suspended = 0 ORDER BY due ASC, id ASC LIMIT :limit")
     suspend fun getDueCards(now: Long, limit: Int = 100): List<Card>
 
-    @Query("SELECT * FROM cards WHERE due <= :now AND queue = :queue AND state != 'NEW' ORDER BY due ASC, id ASC LIMIT :limit")
+    @Query("SELECT * FROM cards WHERE due <= :now AND queue = :queue AND state != 'NEW' AND suspended = 0 ORDER BY due ASC, id ASC LIMIT :limit")
     suspend fun getDueCardsByQueue(now: Long, queue: Queue, limit: Int = 100): List<Card>
 
-    @Query("SELECT * FROM cards WHERE due <= :cutoff AND state != 'NEW' ORDER BY due ASC, id ASC LIMIT :limit")
+    @Query("SELECT * FROM cards WHERE due <= :cutoff AND state != 'NEW' AND suspended = 0 ORDER BY due ASC, id ASC LIMIT :limit")
     suspend fun getOverdueCards(cutoff: Long, limit: Int = 100): List<Card>
 
-    @Query("SELECT * FROM cards WHERE due <= :now AND state != 'NEW' ORDER BY due ASC, id ASC")
+    @Query("SELECT * FROM cards WHERE due <= :now AND state != 'NEW' AND suspended = 0 ORDER BY due ASC, id ASC")
     suspend fun getAllDueCards(now: Long): List<Card>
 
-    @Query("SELECT * FROM cards WHERE state = 'NEW' ORDER BY due ASC, id ASC LIMIT :limit")
+    @Query("SELECT * FROM cards WHERE state = 'NEW' AND suspended = 0 ORDER BY due ASC, id ASC LIMIT :limit")
     suspend fun getNewCards(limit: Int): List<Card>
 
     @Query("SELECT * FROM cards WHERE noteId = :noteId AND cardType = :cardType LIMIT 1")
     suspend fun getByNoteAndType(noteId: Long, cardType: CardType): Card?
 
-    @Query("SELECT COUNT(*) FROM cards WHERE due <= :now AND state != 'NEW'")
+    @Query("SELECT COUNT(*) FROM cards WHERE due <= :now AND state != 'NEW' AND suspended = 0")
     suspend fun countDue(now: Long): Int
 
-    @Query("SELECT COUNT(*) FROM cards WHERE due <= :now AND queue = :queue AND state != 'NEW'")
+    @Query("SELECT COUNT(*) FROM cards WHERE due <= :now AND queue = :queue AND state != 'NEW' AND suspended = 0")
     suspend fun countDueByQueue(now: Long, queue: Queue): Int
 
     @Query("SELECT COUNT(*) FROM cards WHERE queue = :queue")
@@ -47,13 +59,45 @@ interface CardDao {
     @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR'")
     suspend fun getAllGrammarCards(): List<Card>
 
-    @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR' AND cardType = 'CASE_FILL' AND gramCase = :gramCase AND gramGender = :gramGender AND gramNumber = :gramNumber ORDER BY due ASC, id ASC LIMIT :limit")
+    @Query("""
+        SELECT DISTINCT gramCase, gramGender, gramNumber
+        FROM cards
+        WHERE queue = 'GRAMMAR'
+          AND cardType = 'CASE_FILL'
+          AND gramCase IS NOT NULL
+          AND gramGender IS NOT NULL
+          AND gramNumber IS NOT NULL
+    """)
+    suspend fun getCaseCategoryKeys(): List<CaseCategoryRow>
+
+    @Query("""
+        SELECT DISTINCT n.aktionsart AS aktionsart, n.aspect AS aspect, c.gramContextCue AS contextCue
+        FROM cards c
+        JOIN notes n ON c.noteId = n.id
+        WHERE c.queue = 'GRAMMAR'
+          AND c.cardType = 'ASPECT_SELECT'
+          AND n.aktionsart IS NOT NULL
+          AND n.aspect IS NOT NULL
+          AND c.gramContextCue IS NOT NULL
+    """)
+    suspend fun getAspectCategoryKeys(): List<AspectCategoryRow>
+
+    @Query("""
+        SELECT DISTINCT gramContextCue
+        FROM cards
+        WHERE queue = 'GRAMMAR'
+          AND cardType = 'VERB_FORM'
+          AND gramContextCue IS NOT NULL
+    """)
+    suspend fun getVerbFormCategoryKeys(): List<String>
+
+    @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR' AND cardType = 'CASE_FILL' AND gramCase = :gramCase AND gramGender = :gramGender AND gramNumber = :gramNumber AND suspended = 0 ORDER BY due ASC, id ASC LIMIT :limit")
     suspend fun getCaseDrillCards(gramCase: String, gramGender: String, gramNumber: String, limit: Int): List<Card>
 
-    @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR' AND cardType = 'VERB_FORM' AND gramContextCue = :formKey ORDER BY due ASC, id ASC LIMIT :limit")
+    @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR' AND cardType = 'VERB_FORM' AND gramContextCue = :formKey AND suspended = 0 ORDER BY due ASC, id ASC LIMIT :limit")
     suspend fun getVerbFormCards(formKey: String, limit: Int): List<Card>
 
-    @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR' ORDER BY due ASC, id ASC LIMIT :limit")
+    @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR' AND suspended = 0 ORDER BY due ASC, id ASC LIMIT :limit")
     suspend fun getGrammarDrillCards(limit: Int): List<Card>
 
     @Query("SELECT * FROM cards WHERE noteId = :noteId")
@@ -62,8 +106,71 @@ interface CardDao {
     @Query("SELECT * FROM cards WHERE queue = 'VOCAB'")
     suspend fun getAllVocabCards(): List<Card>
 
+    @Query("""
+        SELECT DISTINCT noteId
+        FROM cards
+        WHERE queue = 'VOCAB'
+          AND (
+              state = 'GRADUATED'
+              OR reps > 0
+              OR consecutiveCorrect > 0
+              OR lastReview IS NOT NULL
+          )
+    """)
+    suspend fun getKnownVocabNoteIds(): List<Long>
+
     @Update
     suspend fun update(card: Card)
+
+    @Update
+    suspend fun updateAll(cards: List<Card>)
+
+    @Query("""
+        UPDATE cards
+        SET state = 'GRADUATED'
+        WHERE queue = 'GRAMMAR'
+          AND cardType = 'CASE_FILL'
+          AND gramCase = :gramCase
+          AND gramGender = :gramGender
+          AND gramNumber = :gramNumber
+          AND state != 'GRADUATED'
+    """)
+    suspend fun graduateCaseCategory(gramCase: String, gramGender: String, gramNumber: String): Int
+
+    @Query("""
+        UPDATE cards
+        SET state = 'GRADUATED'
+        WHERE queue = 'GRAMMAR'
+          AND cardType = 'ASPECT_SELECT'
+          AND gramContextCue = :contextCue
+          AND state != 'GRADUATED'
+          AND noteId IN (
+              SELECT id FROM notes
+              WHERE aktionsart = :aktionsart AND aspect = :aspect
+          )
+    """)
+    suspend fun graduateAspectCategory(aktionsart: String, aspect: String, contextCue: String): Int
+
+    @Query("""
+        UPDATE cards
+        SET state = 'GRADUATED'
+        WHERE queue = 'GRAMMAR'
+          AND cardType = 'VERB_FORM'
+          AND gramContextCue = :formKey
+          AND state != 'GRADUATED'
+    """)
+    suspend fun graduateVerbFormCategory(formKey: String): Int
+
+    @Query("""
+        UPDATE cards
+        SET state = 'GRADUATED'
+        WHERE queue = 'VOCAB'
+          AND state != 'GRADUATED'
+          AND noteId IN (
+              SELECT id FROM notes WHERE encounterCount >= :minEncounterCount
+          )
+    """)
+    suspend fun graduateVocabForEncounteredNotes(minEncounterCount: Int): Int
 
     @Insert
     suspend fun insert(card: Card): Long
@@ -76,6 +183,9 @@ interface CardDao {
 interface NoteDao {
     @Insert
     suspend fun insert(note: Note): Long
+
+    @Insert
+    suspend fun insertAll(notes: List<Note>): List<Long>
 
     @Query("SELECT * FROM notes WHERE id = :id")
     suspend fun getById(id: Long): Note?
@@ -182,6 +292,9 @@ interface ConfusablePairDao {
 interface ReaderTextDao {
     @Insert
     suspend fun insert(text: ReaderText): Long
+
+    @Insert
+    suspend fun insertAll(texts: List<ReaderText>): List<Long>
 
     @Query("SELECT COUNT(*) FROM reader_texts")
     suspend fun count(): Int

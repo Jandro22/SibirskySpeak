@@ -7,6 +7,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -52,7 +53,7 @@ class LearningRepositoryTest {
     }
 
     @Test
-    fun importCreatesVerbFormGrammarCardsForRegularDomainVerbs() = runTest {
+    fun importCreatesPastTenseVerbFormDrillsOnly() = runTest {
         val fixture = RepoFixture()
         val jsonl = """
             {"russian":"\u043f\u0438\u0441\u0430\u0442\u044c","lemma":"\u043f\u0438\u0441\u0430\u0442\u044c","pos":"verb","translation":"to write","aspect":"IPF","aktionsart":"activity","aktionsartConfidence":"high","domainFreqRank":1,"exampleSentence":"\u041e\u043d\u0430 \u043f\u0438\u0441\u0430\u043b\u0430 \u043f\u0438\u0441\u044c\u043c\u043e."}
@@ -62,9 +63,13 @@ class LearningRepositoryTest {
 
         val note = fixture.notes.getByLemma("\u043f\u0438\u0441\u0430\u0442\u044c")
         val verbForms = fixture.cards.cards.filter { it.noteId == note?.id && it.cardType == CardType.VERB_FORM }
+        // Past tense is regular and trustworthy.
         assertTrue(verbForms.any { it.gramContextCue == "PAST_F" })
-        assertTrue(verbForms.any { it.gramContextCue == "PRES_1PL" })
+        assertTrue(verbForms.any { it.gramContextCue == "PAST_PL" })
         assertTrue(verbForms.all { it.queue == Queue.GRAMMAR })
+        // No present-tense drills: \u043f\u0438\u0441\u0430\u0442\u044c is irregular (\u043f\u0438\u0448\u0443), so deriving present
+        // forms would teach a wrong answer. We never generate them.
+        assertTrue(verbForms.none { it.gramContextCue?.startsWith("PRES_") == true })
     }
 
     @Test
@@ -332,6 +337,77 @@ class LearningRepositoryTest {
         assertTrue(session.all { it.card.cardType == CardType.RU_TO_MEANING })
     }
 
+    @Test
+    fun emptyDatabaseAutoRestoresFromBackupInsteadOfReseeding() = runTest {
+        // Source deck with real review state, captured into a backup.
+        var backup: String? = null
+        val source = RepoFixture(writeBackup = { backup = it })
+        source.repository.seedIfEmpty()
+        val prompt = source.repository.nextPrompt(now = 1_000L)
+        source.repository.review(prompt!!.card, Rating.GOOD, now = 2_000L)
+        assertTrue(source.repository.backupNow())
+        assertNotNull(backup)
+        val sourceNoteCount = source.notes.count()
+
+        // A fresh, empty install (simulating a destructive wipe) restores the backup
+        // rather than re-seeding bootstrap data.
+        val recovered = RepoFixture(
+            bootstrapNotes = """{"russian":"x","lemma":"x","pos":"noun","translation":"x"}""",
+            restoreBackup = { backup }
+        )
+        recovered.repository.seedIfEmpty()
+
+        assertEquals(sourceNoteCount, recovered.notes.count())
+        // Restored, not bootstrapped: the single bootstrap note is not what we got.
+        assertNull(recovered.notes.getByLemma("x"))
+        // SRS history survived (a reviewed card carries reps > 0).
+        assertTrue(recovered.cards.cards.any { it.reps > 0 })
+    }
+
+    @Test
+    fun backupIsNotWrittenForEmptyDatabase() = runTest {
+        var backup: String? = null
+        val fixture = RepoFixture(writeBackup = { backup = it })
+        // No seed: DB is empty, so we must not overwrite a (potentially good) backup.
+        assertFalse(fixture.repository.backupNow())
+        assertNull(backup)
+    }
+
+    @Test
+    fun adjectivesGetAgreementDrillsAndNounsGetGenderDrills() = runTest {
+        val fixture = RepoFixture()
+        val jsonl = """
+            {"russian":"я́дерный","lemma":"ядерный","pos":"adjective","translation":"nuclear","gender":"M","declensionJson":{"NOM_SG":"ядерный","FEM_NOM":"ядерная","NEUT_NOM":"ядерное","PL_NOM":"ядерные"},"domainFreqRank":1,"exampleSentence":"Ядерный фактор важен."}
+            {"russian":"госуда́рство","lemma":"государство","pos":"noun","translation":"state","gender":"N","declensionJson":{"NOM_SG":"государство","GEN_SG":"государства"},"domainFreqRank":2,"exampleSentence":"Государство большое."}
+        """.trimIndent()
+        fixture.repository.importJsonLines(jsonl)
+
+        val adj = fixture.notes.getByLemma("ядерный")
+        val adjCards = fixture.cards.cards.filter { it.noteId == adj?.id && it.cardType == CardType.ADJ_AGREE }
+        assertEquals(setOf("FEM", "NEUT", "PL"), adjCards.mapNotNull { it.gramContextCue }.toSet())
+
+        val noun = fixture.notes.getByLemma("государство")
+        val genderCards = fixture.cards.cards.filter { it.noteId == noun?.id && it.cardType == CardType.GENDER_ID }
+        assertEquals(1, genderCards.size)
+        assertEquals("N", genderCards.first().gramGender)
+    }
+
+    @Test
+    fun suspendedCardsAreSkippedByEveryQueue() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.seedIfEmpty()
+        val due = fixture.cards.insert(
+            Card(noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, due = 50L, state = CardState.REVIEW, lastReview = 0L)
+        )
+        val card = fixture.cards.cards.first { it.id == due }
+        assertTrue(fixture.repository.sessionPlan(now = 100L).reviewQueue.any { it.card.id == due })
+
+        fixture.repository.suspendCard(card)
+
+        assertFalse(fixture.repository.sessionPlan(now = 100L).reviewQueue.any { it.card.id == due })
+        assertTrue(fixture.cards.cards.first { it.id == due }.suspended)
+    }
+
     private fun goodLog(card: Card, time: Long): ReviewLog =
         ReviewLog(
             cardId = card.id,
@@ -345,10 +421,12 @@ class LearningRepositoryTest {
 
     private class RepoFixture(
         bootstrapNotes: String? = null,
-        bootstrapReaderTexts: String? = null
+        bootstrapReaderTexts: String? = null,
+        restoreBackup: (suspend () -> String?)? = null,
+        writeBackup: (suspend (String) -> Unit)? = null
     ) {
         val notes = FakeNoteDao()
-        val cards = FakeCardDao()
+        val cards = FakeCardDao(notes)
         val logs = FakeReviewLogDao(cards, notes)
         val pairs = FakeConfusablePairDao()
         val readers = FakeReaderTextDao()
@@ -360,7 +438,9 @@ class LearningRepositoryTest {
             readers,
             FsrsScheduler(),
             bootstrapNotes = { bootstrapNotes },
-            bootstrapReaderTexts = { bootstrapReaderTexts }
+            bootstrapReaderTexts = { bootstrapReaderTexts },
+            restoreBackup = restoreBackup,
+            writeBackup = writeBackup
         )
     }
 
@@ -373,6 +453,8 @@ class LearningRepositoryTest {
             notes += note.copy(id = id)
             return id
         }
+
+        override suspend fun insertAll(notes: List<Note>): List<Long> = notes.map { insert(it) }
 
         override suspend fun getById(id: Long): Note? = notes.firstOrNull { it.id == id }
         override suspend fun getByLemma(lemma: String): Note? = notes.firstOrNull { it.lemma == lemma }
@@ -389,22 +471,22 @@ class LearningRepositoryTest {
         }
     }
 
-    private class FakeCardDao : CardDao {
+    private class FakeCardDao(private val notes: FakeNoteDao) : CardDao {
         val cards = mutableListOf<Card>()
         private var nextId = 1L
 
         override suspend fun getDueCards(now: Long, limit: Int): List<Card> =
-            cards.filter { it.due <= now && it.state != CardState.NEW }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
+            cards.filter { it.due <= now && it.state != CardState.NEW && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
         override suspend fun getDueCardsByQueue(now: Long, queue: Queue, limit: Int): List<Card> =
-            cards.filter { it.due <= now && it.queue == queue && it.state != CardState.NEW }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
+            cards.filter { it.due <= now && it.queue == queue && it.state != CardState.NEW && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
         override suspend fun getOverdueCards(cutoff: Long, limit: Int): List<Card> =
-            cards.filter { it.due <= cutoff && it.state != CardState.NEW }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
+            cards.filter { it.due <= cutoff && it.state != CardState.NEW && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
         override suspend fun getAllDueCards(now: Long): List<Card> =
-            cards.filter { it.due <= now && it.state != CardState.NEW }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id })
+            cards.filter { it.due <= now && it.state != CardState.NEW && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id })
         override suspend fun getNewCards(limit: Int): List<Card> =
-            cards.filter { it.state == CardState.NEW }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
+            cards.filter { it.state == CardState.NEW && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
         override suspend fun getByNoteAndType(noteId: Long, cardType: CardType): Card? = cards.firstOrNull { it.noteId == noteId && it.cardType == cardType }
-        override suspend fun countDue(now: Long): Int = cards.count { it.due <= now && it.state != CardState.NEW }
+        override suspend fun countDue(now: Long): Int = cards.count { it.due <= now && it.state != CardState.NEW && !it.suspended }
         override suspend fun countDueByQueue(now: Long, queue: Queue): Int = cards.count { it.due <= now && it.queue == queue && it.state != CardState.NEW }
         override suspend fun countByQueue(queue: Queue): Int = cards.count { it.queue == queue }
         override suspend fun getGrammarCardsForNounCategory(gramCase: String, gramGender: String, gramNumber: String): List<Card> =
@@ -412,6 +494,23 @@ class LearningRepositoryTest {
         override suspend fun getGrammarCardsForNotes(noteIds: List<Long>): List<Card> = cards.filter { it.queue == Queue.GRAMMAR && it.noteId in noteIds }
         override suspend fun getAspectCards(): List<Card> = cards.filter { it.queue == Queue.GRAMMAR && it.cardType == CardType.ASPECT_SELECT }
         override suspend fun getAllGrammarCards(): List<Card> = cards.filter { it.queue == Queue.GRAMMAR }
+        override suspend fun getCaseCategoryKeys(): List<CaseCategoryRow> =
+            cards.filter { it.queue == Queue.GRAMMAR && it.cardType == CardType.CASE_FILL && it.gramCase != null && it.gramGender != null && it.gramNumber != null }
+                .map { CaseCategoryRow(it.gramCase.orEmpty(), it.gramGender.orEmpty(), it.gramNumber.orEmpty()) }
+                .distinct()
+        override suspend fun getAspectCategoryKeys(): List<AspectCategoryRow> =
+            cards.filter { it.queue == Queue.GRAMMAR && it.cardType == CardType.ASPECT_SELECT && it.gramContextCue != null }
+                .mapNotNull { card ->
+                    val note = notes.notes.firstOrNull { it.id == card.noteId } ?: return@mapNotNull null
+                    val aktionsart = note.aktionsart ?: return@mapNotNull null
+                    val aspect = note.aspect ?: return@mapNotNull null
+                    AspectCategoryRow(aktionsart, aspect, card.gramContextCue.orEmpty())
+                }
+                .distinct()
+        override suspend fun getVerbFormCategoryKeys(): List<String> =
+            cards.filter { it.queue == Queue.GRAMMAR && it.cardType == CardType.VERB_FORM && it.gramContextCue != null }
+                .map { it.gramContextCue.orEmpty() }
+                .distinct()
         override suspend fun getCaseDrillCards(gramCase: String, gramGender: String, gramNumber: String, limit: Int): List<Card> =
             cards.filter { it.queue == Queue.GRAMMAR && it.cardType == CardType.CASE_FILL && it.gramCase == gramCase && it.gramGender == gramGender && it.gramNumber == gramNumber }
                 .sortedWith(compareBy<Card> { it.due }.thenBy { it.id })
@@ -424,8 +523,66 @@ class LearningRepositoryTest {
             cards.filter { it.queue == Queue.GRAMMAR }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
         override suspend fun getCardsForNote(noteId: Long): List<Card> = cards.filter { it.noteId == noteId }
         override suspend fun getAllVocabCards(): List<Card> = cards.filter { it.queue == Queue.VOCAB }
+        override suspend fun getKnownVocabNoteIds(): List<Long> =
+            cards.filter {
+                it.queue == Queue.VOCAB &&
+                    (it.state == CardState.GRADUATED || it.reps > 0 || it.consecutiveCorrect > 0 || it.lastReview != null)
+            }.map { it.noteId }.distinct()
         override suspend fun update(card: Card) {
             cards.replaceAll { if (it.id == card.id) card else it }
+        }
+        override suspend fun updateAll(cards: List<Card>) {
+            cards.forEach { update(it) }
+        }
+        override suspend fun graduateCaseCategory(gramCase: String, gramGender: String, gramNumber: String): Int {
+            var changed = 0
+            cards.replaceAll { card ->
+                if (card.queue == Queue.GRAMMAR && card.cardType == CardType.CASE_FILL &&
+                    card.gramCase == gramCase && card.gramGender == gramGender && card.gramNumber == gramNumber &&
+                    card.state != CardState.GRADUATED
+                ) {
+                    changed += 1
+                    card.copy(state = CardState.GRADUATED)
+                } else card
+            }
+            return changed
+        }
+        override suspend fun graduateAspectCategory(aktionsart: String, aspect: String, contextCue: String): Int {
+            var changed = 0
+            cards.replaceAll { card ->
+                val note = notes.notes.firstOrNull { it.id == card.noteId }
+                if (card.queue == Queue.GRAMMAR && card.cardType == CardType.ASPECT_SELECT &&
+                    card.gramContextCue == contextCue && note?.aktionsart == aktionsart && note.aspect == aspect &&
+                    card.state != CardState.GRADUATED
+                ) {
+                    changed += 1
+                    card.copy(state = CardState.GRADUATED)
+                } else card
+            }
+            return changed
+        }
+        override suspend fun graduateVerbFormCategory(formKey: String): Int {
+            var changed = 0
+            cards.replaceAll { card ->
+                if (card.queue == Queue.GRAMMAR && card.cardType == CardType.VERB_FORM &&
+                    card.gramContextCue == formKey && card.state != CardState.GRADUATED
+                ) {
+                    changed += 1
+                    card.copy(state = CardState.GRADUATED)
+                } else card
+            }
+            return changed
+        }
+        override suspend fun graduateVocabForEncounteredNotes(minEncounterCount: Int): Int {
+            val eligible = notes.notes.filter { it.encounterCount >= minEncounterCount }.map { it.id }.toSet()
+            var changed = 0
+            cards.replaceAll { card ->
+                if (card.queue == Queue.VOCAB && card.noteId in eligible && card.state != CardState.GRADUATED) {
+                    changed += 1
+                    card.copy(state = CardState.GRADUATED)
+                } else card
+            }
+            return changed
         }
         override suspend fun insert(card: Card): Long {
             val id = nextId++
@@ -503,6 +660,7 @@ class LearningRepositoryTest {
             texts += text.copy(id = id)
             return id
         }
+        override suspend fun insertAll(texts: List<ReaderText>): List<Long> = texts.map { insert(it) }
         override suspend fun count(): Int = texts.size
         override suspend fun getAll(): List<ReaderText> = texts
         override suspend fun getById(id: Long): ReaderText? = texts.firstOrNull { it.id == id }

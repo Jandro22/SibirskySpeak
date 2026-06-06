@@ -72,8 +72,34 @@ fun buildPrompt(
             prompt = caseDrill?.prompt ?: note.exampleSentence ?: note.translation,
             expectedAnswer = caseDrill?.answer ?: note.russian,
             answerMode = AnswerMode.RUSSIAN_TYPED,
-            intervalPreview = intervalPreview
+            intervalPreview = intervalPreview,
+            explanation = caseTeaching(card.gramCase)
         )
+        CardType.ADJ_AGREE -> {
+            val drill = adjAgreeDrill(card, note)
+            ReviewPrompt(
+                card = card,
+                note = note,
+                prompt = drill.prompt,
+                expectedAnswer = drill.answer,
+                answerMode = AnswerMode.RUSSIAN_TYPED,
+                intervalPreview = intervalPreview,
+                explanation = drill.explanation
+            )
+        }
+        CardType.GENDER_ID -> {
+            val gender = (card.gramGender ?: note.gender ?: "M").uppercase()
+            ReviewPrompt(
+                card = card,
+                note = note,
+                prompt = "What gender is this noun?\n${note.russian}",
+                expectedAnswer = genderLabel(gender),
+                answerMode = AnswerMode.CHOICE,
+                intervalPreview = intervalPreview,
+                choices = listOf("Masculine", "Feminine", "Neuter", "Plural-only"),
+                explanation = genderTeaching(note.russian, gender)
+            )
+        }
         CardType.VERB_FORM -> {
             val drill = verbFormDrill(card, note)
             ReviewPrompt(
@@ -108,6 +134,81 @@ fun buildPrompt(
             )
         }
     }
+}
+
+// --- Adjective agreement ---------------------------------------------------
+
+private data class AdjAgreeDrill(val prompt: String, val answer: String, val explanation: String)
+
+private fun adjAgreeDrill(card: Card, note: Note): AdjAgreeDrill {
+    val cue = card.gramContextCue ?: "FEM"
+    val table = note.declensionJson?.let { runCatching { JSONObject(it) }.getOrNull() }
+    val source = table?.let { if (it.has("cases")) it.getJSONObject("cases") else it }
+    val masc = source?.optString("NOM_SG")?.takeIf { it.isNotBlank() } ?: note.russian
+    fun form(key: String) = source?.optString(key)?.takeIf { it.isNotBlank() }
+    val answer = form(cueKey(cue)) ?: note.russian
+    val target = when (cue) {
+        "FEM" -> "feminine singular"
+        "NEUT" -> "neuter singular"
+        "PL" -> "plural"
+        else -> cue.lowercase()
+    }
+    // Teach the full nominative agreement set so the learner sees the pattern.
+    val paradigm = listOfNotNull(
+        form("NOM_SG")?.let { "м. $it" },
+        form("FEM_NOM")?.let { "ж. $it" },
+        form("NEUT_NOM")?.let { "ср. $it" },
+        form("PL_NOM")?.let { "мн. $it" }
+    ).joinToString(" · ")
+    return AdjAgreeDrill(
+        prompt = "Russian adjectives agree with their noun's gender and number.\n" +
+            "Make \"$masc\" (${note.translation}) agree with a $target noun.",
+        answer = answer,
+        explanation = buildString {
+            append("Agreement endings — $paradigm. ")
+            append("The adjective copies the gender and number of the noun it describes; ")
+            append("the dictionary (masculine) form changes its ending to match.")
+        }
+    )
+}
+
+private fun cueKey(cue: String): String = when (cue) {
+    "FEM" -> "FEM_NOM"
+    "NEUT" -> "NEUT_NOM"
+    "PL" -> "PL_NOM"
+    else -> "NOM_SG"
+}
+
+// --- Noun gender -----------------------------------------------------------
+
+private fun genderLabel(gender: String): String = when (gender) {
+    "M" -> "Masculine"
+    "F" -> "Feminine"
+    "N" -> "Neuter"
+    "PL" -> "Plural-only"
+    else -> "Masculine"
+}
+
+private fun genderTeaching(russian: String, gender: String): String {
+    val rule = "Gender is usually visible in the ending: a consonant or -й → masculine, " +
+        "-а/-я → feminine, -о/-е → neuter. A soft sign (-ь) can be either, so those must be memorised."
+    val verdict = when (gender) {
+        "M" -> "\"$russian\" is masculine."
+        "F" -> "\"$russian\" is feminine."
+        "N" -> "\"$russian\" is neuter."
+        "PL" -> "\"$russian\" is used only in the plural (pluralia tantum), so it has no singular gender."
+        else -> ""
+    }
+    return "$verdict $rule Gender controls adjective and past-tense agreement, so it's worth knowing cold."
+}
+
+private fun caseTeaching(gramCase: String?): String = when (gramCase) {
+    "GEN" -> "Genitive: possession (\"of\"), absence (нет + gen), and after many quantity words and prepositions (из, от, до, без)."
+    "DAT" -> "Dative: the indirect object / recipient (\"to/for\"), and after к, по; also for age and \"need\" constructions."
+    "ACC" -> "Accusative: the direct object of an action; also direction with в/на (\"into/onto\")."
+    "INS" -> "Instrumental: the means \"by/with\", and after с (\"together with\"); used with быть/стать."
+    "PREP" -> "Prepositional: only after prepositions, mainly location with в/на (\"in/at\") and topic with о (\"about\")."
+    else -> "Pick the case the sentence requires, then change the ending to match."
 }
 
 private data class ClozeDrill(val prompt: String, val answer: String)
