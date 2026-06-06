@@ -9,7 +9,11 @@ enum class CardType {
     VERB_FORM,
     ADJ_AGREE,
     GENDER_ID,
-    ASPECT_SELECT
+    ASPECT_SELECT,
+    // A teaching card: shows a grammar concept's explanation and a worked example
+    // BEFORE any drill on that concept. Has no real answer ("Got it" only). Seeing
+    // it flips the concept to "introduced", which is what lets its drills surface.
+    LESSON
 }
 
 enum class Queue {

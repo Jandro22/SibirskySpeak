@@ -165,6 +165,46 @@ class ReviewPromptTest {
     }
 
     @Test
+    fun lessonCardBuildsTeachingContentFromConcept() {
+        val note = Note(
+            id = 1,
+            russian = "Noun gender",
+            lemma = "lesson_gender",
+            translation = "Noun gender",
+            partOfSpeech = "lesson",
+            conceptId = "GENDER"
+        )
+        val card = Card(noteId = 1, cardType = CardType.LESSON, queue = Queue.GRAMMAR, gramConcept = "GENDER")
+
+        val prompt = buildPrompt(card, note, emptyMap())
+
+        assertEquals(AnswerMode.LESSON, prompt.answerMode)
+        assertEquals("Noun gender", prompt.lesson?.title)
+        assertTrue(prompt.lesson!!.body.isNotBlank())
+        assertTrue(prompt.lesson!!.exampleRu.isNotBlank())
+        assertTrue(prompt.lesson!!.exampleEn.isNotBlank())
+    }
+
+    @Test
+    fun grammarDrillsCarryAPromptSideTeachingHint() {
+        val note = Note(
+            id = 1,
+            russian = "state",
+            lemma = "state",
+            translation = "state",
+            partOfSpeech = "noun",
+            gender = "M",
+            declensionJson = """{"NOM_SG":"state","GEN_SG":"state_gen"}""",
+            exampleSentence = "The role of state_gen is large."
+        )
+        val caseCard = Card(noteId = 1, cardType = CardType.CASE_FILL, queue = Queue.GRAMMAR, gramCase = "GEN", gramNumber = "SG", gramConcept = "GEN")
+        val vocabCard = Card(noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB)
+
+        assertTrue(buildPrompt(caseCard, note, emptyMap()).teachingHint!!.isNotBlank())
+        assertEquals(null, buildPrompt(vocabCard, note, emptyMap()).teachingHint)
+    }
+
+    @Test
     fun allPracticeCardTypesHaveCoherentPromptAnswerModes() {
         val note = Note(
             id = 1,

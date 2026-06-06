@@ -54,7 +54,12 @@ def decline_noun(citation: str, decl_class: str, animate: bool = False,
         table["NOM_SG"] = w
         table["GEN_SG"] = stem + gen
         table["DAT_SG"] = stem + dat
-        table["ACC_SG"] = (stem + gen) if animate else (acc if acc else w)
+        # Animacy only affects the masculine accusative (acc == "" here): animate
+        # masc = genitive, inanimate masc = nominative. Feminine nouns pass their
+        # own explicit accusative (-у/-ю), which is correct regardless of animacy;
+        # neuter passes the nominative. Only fall back to the animate rule when no
+        # explicit accusative is given (the masculine classes).
+        table["ACC_SG"] = acc if acc else ((stem + gen) if animate else w)
         table["INS_SG"] = stem + ins
         table["PREP_SG"] = stem + prep
 
@@ -87,7 +92,8 @@ def decline_noun(citation: str, decl_class: str, animate: bool = False,
             table["NOM_SG"] = w
             table["GEN_SG"] = root + "ии"
             table["DAT_SG"] = root + "ии"
-            table["ACC_SG"] = (root + "ии") if animate else root + "ию"
+            # Feminine -ия accusative is -ию regardless of animacy (Мария → Марию).
+            table["ACC_SG"] = root + "ию"
             table["INS_SG"] = root + "ией"
             table["PREP_SG"] = root + "ии"
         elif decl_class == "f_soft":  # -ь
@@ -95,7 +101,9 @@ def decline_noun(citation: str, decl_class: str, animate: bool = False,
             table["NOM_SG"] = w
             table["GEN_SG"] = stem + "и"
             table["DAT_SG"] = stem + "и"
-            table["ACC_SG"] = (stem + "и") if animate else w
+            # Feminine soft-sign accusative singular equals the nominative
+            # (дверь → дверь), for both animate and inanimate nouns.
+            table["ACC_SG"] = w
             table["INS_SG"] = stem + "ью"
             table["PREP_SG"] = stem + "и"
         elif decl_class == "n_o":

@@ -2,6 +2,7 @@ package com.sibirskyspeak.review
 
 import com.sibirskyspeak.data.Card
 import com.sibirskyspeak.data.CardType
+import com.sibirskyspeak.data.GrammarConcepts
 import com.sibirskyspeak.data.Note
 import com.sibirskyspeak.data.Rating
 import com.sibirskyspeak.data.RussianForms
@@ -15,14 +16,30 @@ data class ReviewPrompt(
     val answerMode: AnswerMode,
     val intervalPreview: Map<Rating, Int>,
     val choices: List<String> = emptyList(),
-    val explanation: String? = null
+    val explanation: String? = null,
+    // A short rule reminder shown on the *prompt* side (before answering), so grammar
+    // is taught while the learner works, not only revealed afterward. Null for plain
+    // vocab cards.
+    val teachingHint: String? = null,
+    // Lesson cards carry their full teaching text + worked example here for a
+    // dedicated teaching screen (no grading).
+    val lesson: LessonContent? = null
+)
+
+data class LessonContent(
+    val title: String,
+    val body: String,
+    val exampleRu: String,
+    val exampleEn: String
 )
 
 enum class AnswerMode {
     ENGLISH,
     RUSSIAN_TYPED,
     AUDIO_ONLY,
-    CHOICE
+    CHOICE,
+    // A teaching card: no answer to grade, just "Got it".
+    LESSON
 }
 
 fun buildPrompt(
@@ -133,8 +150,40 @@ fun buildPrompt(
                 explanation = drill.rationale
             )
         }
-    }
+        CardType.LESSON -> {
+            val concept = GrammarConcepts.byId(card.gramConcept ?: note.conceptId)
+            val content = if (concept != null) {
+                LessonContent(
+                    title = concept.title,
+                    body = concept.lesson,
+                    exampleRu = concept.exampleRu,
+                    exampleEn = concept.exampleEn
+                )
+            } else {
+                LessonContent(
+                    title = note.translation.ifBlank { "New grammar" },
+                    body = note.exampleTranslation ?: note.translation,
+                    exampleRu = note.exampleSentence.orEmpty(),
+                    exampleEn = note.exampleTranslation.orEmpty()
+                )
+            }
+            ReviewPrompt(
+                card = card,
+                note = note,
+                prompt = content.title,
+                expectedAnswer = "Got it",
+                answerMode = AnswerMode.LESSON,
+                intervalPreview = intervalPreview,
+                teachingHint = "New grammar",
+                lesson = content
+            )
+        }
+    }.let { it.copy(teachingHint = it.teachingHint ?: teachingHintFor(card)) }
 }
+
+/** The prompt-side rule reminder for a grammar drill card, or null for vocab. */
+private fun teachingHintFor(card: Card): String? =
+    com.sibirskyspeak.data.GrammarConcepts.forCard(card)?.hint
 
 // --- Adjective agreement ---------------------------------------------------
 

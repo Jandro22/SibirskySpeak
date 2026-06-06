@@ -30,7 +30,19 @@ The `scrape` command can fetch public pages, but manual text files are safer and
 python tools\preprocess\build_bootstrap.py
 ```
 
-This emits ~10,300 real notes in two layers:
+This emits ~10,300 real notes in three layers:
+
+- **CEFR course layer (tier 0, ~250 notes, A1→C1):** the progressive course in
+  `a1_starter.py`, `a2_starter.py`, `b1_starter.py`, `b2_starter.py`, `c1_starter.py`
+  (shared builders in `curriculum_common.py`). Concrete vocabulary grouped into
+  numbered units with fully readable example sentences (real translations, controlled
+  cumulative vocabulary) and a teach-before-test grammar spine of `pos:"lesson"` notes
+  (one per concept, ids matching `GrammarConcepts` in the app). `test_curriculum.py`
+  validates the whole course: every example is comprehensible and uses only words
+  introduced in this or an earlier unit, across all levels; `test_a1_starter.py`
+  keeps the A1 level independently checkable. Edit a level module and re-run
+  `python -m pytest -q tools\preprocess` before rebuilding.
+
 
 - **Domain layer (~779 notes):** the curated `domain_wordlist.py` plus the `extended_*` modules — 514 nouns/adjectives with full case tables and 265 verbs (224 aspect-ready with manually-verified Aktionsart). Domain frequency ranks come from `domain_freq_list.tsv`; authentic target-source reader passages from `reader_texts.py`. These get the full grammar treatment (CASE_FILL + ASPECT_SELECT drills).
 - **General layer (~9,500 notes):** the reading matrix (function words + common vocab) from the *Alex's 10k Russian* Anki deck. Nouns carry full declension tables (rule-engine, validated against the deck's real forms so irregulars like человек→люди keep correct forms); adjectives get the full paradigm; verbs derive regular past forms. These feed the reader coverage index but are tagged `general` so they stay vocab-only — grammar drilling stays focused on the domain. Sequencing is unified via the domain frequency list so function words surface first.

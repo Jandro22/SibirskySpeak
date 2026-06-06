@@ -35,6 +35,10 @@ data class Card(
     val gramGender: String? = null,
     val gramNumber: String? = null,
     val gramContextCue: String? = null,
+    // Grammar concept this card belongs to (e.g. "GENDER", "ACC", "ASPECT"). For
+    // LESSON cards it is the concept being taught; for drill cards it is the concept
+    // that must be "introduced" (its LESSON reviewed) before the drill may surface.
+    val gramConcept: String? = null,
     val consecutiveCorrect: Int = 0,
     // User-suspended cards are skipped by every queue. Lets a learner permanently
     // retire a bad auto-generated card without deleting the note it belongs to.

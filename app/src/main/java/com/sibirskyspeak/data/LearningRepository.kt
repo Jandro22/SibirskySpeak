@@ -368,7 +368,11 @@ class LearningRepository(
                         exampleSentence = json.optCleanString("exampleSentence"),
                         exampleTranslation = json.optCleanString("exampleTranslation"),
                         audioPath = json.optCleanString("audioPath"),
-                        tags = json.optString("tags", "")
+                        tags = json.optString("tags", ""),
+                        tier = json.optInt("tier", 1),
+                        unit = json.optIntOrNull("unit"),
+                        conceptId = json.optCleanString("conceptId"),
+                        cefrLevel = json.optCleanString("cefrLevel")
                     )
                     val noteId = addNote(note)
                     if (partnerLemma != null) pendingPartners += noteId to partnerLemma
@@ -457,6 +461,10 @@ class LearningRepository(
                     put("exampleTranslation", note.exampleTranslation)
                     put("audioPath", note.audioPath)
                     put("tags", note.tags)
+                    put("tier", note.tier)
+                    put("unit", note.unit)
+                    put("conceptId", note.conceptId)
+                    put("cefrLevel", note.cefrLevel)
                     val cards = cardsByNoteId[note.id]
                     if (!cards.isNullOrEmpty()) {
                         put("_cards", org.json.JSONArray().apply {
@@ -717,44 +725,78 @@ class LearningRepository(
             achievement("wordsmith", "Wordsmith", "Know 100 words", knownWords >= 100),
             achievement("words_250", "Wordhoard", "Know 250 words", knownWords >= 250),
             achievement("lexicon", "Lexicon", "Know 500 words", knownWords >= 500),
+            achievement("words_750", "Shelf Builder", "Know 750 words", knownWords >= 750),
             achievement("polyglot", "Polyglot", "Know 1,000 words", knownWords >= 1000),
+            achievement("words_1500", "Phrase Finder", "Know 1,500 words", knownWords >= 1500),
             achievement("words_2000", "Erudite", "Know 2,000 words", knownWords >= 2000),
+            achievement("words_3000", "Deep Reader", "Know 3,000 words", knownWords >= 3000),
             achievement("words_5000", "Native Range", "Know 5,000 words", knownWords >= 5000),
+            achievement("words_7500", "Library Mind", "Know 7,500 words", knownWords >= 7500),
+            achievement("words_10000", "Ten Thousand Words", "Know 10,000 words", knownWords >= 10000),
             // --- Reviews done ---
             achievement("rev_10", "Warming Up", "10 reviews", totalReviews >= 10),
+            achievement("rev_25", "First Lap", "25 reviews", totalReviews >= 25),
             achievement("rev_50", "In the Groove", "50 reviews", totalReviews >= 50),
             achievement("centurion", "Centurion", "100 reviews", totalReviews >= 100),
+            achievement("rev_250", "Steady Hands", "250 reviews", totalReviews >= 250),
             achievement("rev_500", "Workhorse", "500 reviews", totalReviews >= 500),
             achievement("dedicated", "Dedicated", "1,000 reviews", totalReviews >= 1000),
+            achievement("rev_2500", "Review Engine", "2,500 reviews", totalReviews >= 2500),
             achievement("rev_5000", "Relentless", "5,000 reviews", totalReviews >= 5000),
             achievement("rev_10000", "Machine", "10,000 reviews", totalReviews >= 10000),
             achievement("rev_25000", "Unstoppable", "25,000 reviews", totalReviews >= 25000),
+            achievement("rev_50000", "Memory Forge", "50,000 reviews", totalReviews >= 50000),
             // --- Streaks ---
             achievement("streak_3", "Habit Forming", "3-day streak", longestStreak >= 3),
             achievement("week_warrior", "Week Warrior", "7-day streak", longestStreak >= 7),
+            achievement("streak_10", "Ten-Day Trail", "10-day streak", longestStreak >= 10),
             achievement("streak_14", "Fortnight", "14-day streak", longestStreak >= 14),
+            achievement("streak_21", "Three-Week Run", "21-day streak", longestStreak >= 21),
             achievement("month_master", "Month Master", "30-day streak", longestStreak >= 30),
+            achievement("streak_45", "Long Haul", "45-day streak", longestStreak >= 45),
             achievement("streak_60", "Two Months", "60-day streak", longestStreak >= 60),
+            achievement("streak_90", "Seasoned", "90-day streak", longestStreak >= 90),
             achievement("streak_100", "Century Streak", "100-day streak", longestStreak >= 100),
             achievement("streak_200", "Iron Will", "200-day streak", longestStreak >= 200),
+            achievement("streak_300", "Almost a Year", "300-day streak", longestStreak >= 300),
             achievement("streak_365", "Year of Russian", "365-day streak", longestStreak >= 365),
+            achievement("streak_500", "Unbroken Path", "500-day streak", longestStreak >= 500),
             // --- Levels ---
             achievement("level_5", "Apprentice", "Reach level 5", level >= 5),
             achievement("level_10", "Adept", "Reach level 10", level >= 10),
+            achievement("level_15", "Climber", "Reach level 15", level >= 15),
             achievement("level_20", "Expert", "Reach level 20", level >= 20),
+            achievement("level_30", "Specialist", "Reach level 30", level >= 30),
+            achievement("level_40", "Veteran", "Reach level 40", level >= 40),
             achievement("level_50", "Master", "Reach level 50", level >= 50),
+            achievement("level_75", "Sage", "Reach level 75", level >= 75),
             achievement("level_100", "Grandmaster", "Reach level 100", level >= 100),
+            achievement("level_150", "Legend", "Reach level 150", level >= 150),
             // --- XP ---
             achievement("xp_1k", "Spark", "Earn 1,000 XP", xp >= 1000),
+            achievement("xp_5k", "Glow", "Earn 5,000 XP", xp >= 5000),
             achievement("xp_10k", "Charged", "Earn 10,000 XP", xp >= 10000),
+            achievement("xp_25k", "Voltage", "Earn 25,000 XP", xp >= 25000),
+            achievement("xp_50k", "High Current", "Earn 50,000 XP", xp >= 50000),
             achievement("xp_100k", "Overcharged", "Earn 100,000 XP", xp >= 100000),
+            achievement("xp_250k", "Powerhouse", "Earn 250,000 XP", xp >= 250000),
+            achievement("xp_500k", "Lightning Mind", "Earn 500,000 XP", xp >= 500000),
             // --- Consistency (active days) ---
             achievement("days_10", "Regular", "10 active days", activeDays >= 10),
+            achievement("days_25", "Showing Up", "25 active days", activeDays >= 25),
             achievement("days_50", "Committed", "50 active days", activeDays >= 50),
+            achievement("days_75", "Clockwork", "75 active days", activeDays >= 75),
             achievement("days_100", "Devoted", "100 active days", activeDays >= 100),
+            achievement("days_150", "Deep Roots", "150 active days", activeDays >= 150),
+            achievement("days_250", "Long Game", "250 active days", activeDays >= 250),
+            achievement("days_365", "All-Year Learner", "365 active days", activeDays >= 365),
             // --- Daily intensity ---
+            achievement("goal_plus_10", "Extra Push", "Daily goal +10", reviewedToday >= dailyGoal + 10),
             achievement("goal_double", "Overachiever", "Double the daily goal", reviewedToday >= dailyGoal * 2),
-            achievement("goal_triple", "Marathon", "Triple the daily goal", reviewedToday >= dailyGoal * 3)
+            achievement("goal_triple", "Marathon", "Triple the daily goal", reviewedToday >= dailyGoal * 3),
+            achievement("goal_quad", "Big Day", "Quadruple the daily goal", reviewedToday >= dailyGoal * 4),
+            achievement("goal_100_today", "Hundred-Card Day", "Review 100 cards today", reviewedToday >= 100),
+            achievement("goal_200_today", "Two-Hundred Day", "Review 200 cards today", reviewedToday >= 200)
         )
 
         return GamificationStats(
@@ -810,6 +852,32 @@ class LearningRepository(
         val note = noteDao.getById(card.noteId)
         // Snapshot the live card + encounter count before mutating, for undo.
         lastUndo = UndoSnapshot(card = card, noteId = card.noteId, priorEncounterCount = note?.encounterCount ?: 0)
+        // A lesson is "done" the moment it's read: graduate it so it never recurs.
+        // We still log it (stateBefore = NEW) so it counts as the concept's
+        // introduction — that is what unlocks the concept's drills.
+        if (card.cardType == CardType.LESSON) {
+            val graduated = card.copy(
+                state = CardState.GRADUATED,
+                reps = card.reps + 1,
+                lastReview = now,
+                due = now + 365L * DAY_MILLIS
+            )
+            cardDao.update(graduated)
+            reviewLogDao.insert(
+                ReviewLog(
+                    cardId = card.id,
+                    reviewDatetime = now,
+                    rating = rating,
+                    stateBefore = card.state,
+                    scheduledDays = 365,
+                    elapsedDays = 0,
+                    source = ReviewSource.GRAMMAR_DRILL
+                )
+            )
+            note?.let { noteDao.update(it.copy(encounterCount = it.encounterCount + 1)) }
+            invalidateNoteState()
+            return
+        }
         val (updatedCard, log) = scheduler.review(card, rating, now)
         cardDao.update(updatedCard)
         reviewLogDao.insert(log)
@@ -982,12 +1050,22 @@ class LearningRepository(
         val take = minOf(limit, budget)
         if (take == 0) return emptyList()
 
-        // Pull a generous pool so interleaving has material across many notes.
-        val pool = cardDao.getNewCards(limit = maxOf(limit * 4, 200))
-        // Per-note queues, each ordered comprehension-first.
+        // Pull a generous pool, already in curriculum order (A1 tier first, by unit,
+        // then by frequency rank). Drop grammar drills whose teaching lesson the
+        // learner hasn't seen yet — concept gating keeps "teach before test" true.
+        val locked = lockedConceptIds()
+        val pool = cardDao.getNewCardsOrdered(limit = maxOf(limit * 4, 200))
+            .filterNot { isConceptLocked(it, locked) }
+        // Group by note, preserving the pool's curriculum order for *note* ordering
+        // (first appearance of each note), then order each note's own cards
+        // comprehension-first (lesson → recognition → production → grammar).
+        val grouped = LinkedHashMap<Long, MutableList<Card>>()
+        for (card in pool) grouped.getOrPut(card.noteId) { mutableListOf() }.add(card)
         val byNote = LinkedHashMap<Long, ArrayDeque<Card>>()
-        for (card in pool.sortedWith(compareBy<Card> { introductionTier(it) }.thenBy { introductionTier2(it) }.thenBy { it.id })) {
-            byNote.getOrPut(card.noteId) { ArrayDeque() }.addLast(card)
+        for ((noteId, cards) in grouped) {
+            byNote[noteId] = ArrayDeque(
+                cards.sortedWith(compareBy<Card> { introductionTier(it) }.thenBy { introductionTier2(it) }.thenBy { it.id })
+            )
         }
         val session = mutableListOf<Card>()
         val notesWithVocab = mutableSetOf<Long>()
@@ -1007,8 +1085,31 @@ class LearningRepository(
         return session
     }
 
-    /** Coarse introduction tier: receptive (0) → productive (1) → grammar (2). */
+    /**
+     * Grammar concepts the learner has not been taught yet: concepts that have a
+     * LESSON card which hasn't been reviewed. Drills on these stay dormant until the
+     * lesson is seen. Concepts with no lesson at all (e.g. legacy/migrated decks)
+     * are never locked, so existing study is never blocked.
+     */
+    private suspend fun lockedConceptIds(): Set<String> {
+        val withLessons = cardDao.getConceptIdsWithLessons().toHashSet()
+        if (withLessons.isEmpty()) return emptySet()
+        val introduced = cardDao.getIntroducedConceptIds().toHashSet()
+        return (withLessons - introduced)
+    }
+
+    /** True if [card] is a grammar drill whose teaching concept is still locked. */
+    private fun isConceptLocked(card: Card, locked: Set<String>): Boolean {
+        if (locked.isEmpty()) return false
+        if (card.cardType == CardType.LESSON) return false
+        if (card.queue != Queue.GRAMMAR) return false
+        val concept = GrammarConcepts.forCard(card)?.id ?: card.gramConcept ?: return false
+        return concept in locked
+    }
+
+    /** Coarse introduction tier: lesson (0) → receptive (1) → productive (2) → grammar (3). */
     private fun introductionTier(card: Card): Int = when (card.cardType) {
+        CardType.LESSON -> -1
         CardType.RU_TO_MEANING, CardType.AUDIO_TO_RU -> 0
         CardType.MEANING_TO_RU, CardType.CLOZE -> 1
         else -> 2
@@ -1048,6 +1149,7 @@ class LearningRepository(
 
     private suspend fun blockedGrammarPrompts(plan: DailyPlan, now: Long): List<ReviewPrompt> {
         val category = plan.openBlockedWith ?: return emptyList()
+        val locked = lockedConceptIds()
         val cards = when (category.kind) {
             "case" -> cardDao.getCaseDrillCards(category.gramCase.orEmpty(), category.gramGender.orEmpty(), category.gramNumber.orEmpty(), 5)
             "verb_form" -> cardDao.getVerbFormCards(category.contextCue.orEmpty(), 5)
@@ -1056,23 +1158,35 @@ class LearningRepository(
                     note?.aktionsart == category.aktionsart && note?.aspect == category.aspect && card.gramContextCue == category.contextCue
                 }.take(5)
         }
-        return cards.mapNotNull { promptFor(it, now) }
+        return cards.filterNot { isConceptLocked(it, locked) }.mapNotNull { promptFor(it, now) }
     }
 
-    private suspend fun interleavedGrammarPrompts(excludeIds: Set<Long>, now: Long): List<ReviewPrompt> =
-        cardDao.getGrammarDrillCards(20)
-            .filter { it.id !in excludeIds }
+    private suspend fun interleavedGrammarPrompts(excludeIds: Set<Long>, now: Long): List<ReviewPrompt> {
+        val locked = lockedConceptIds()
+        return cardDao.getGrammarDrillCards(40)
+            .filter { it.id !in excludeIds && it.cardType != CardType.LESSON }
+            .filterNot { isConceptLocked(it, locked) }
             .take(10)
             .mapNotNull { promptFor(it, now) }
+    }
 
     private fun cardsFor(note: Note): List<Card> = buildList {
+        // A lesson note (pos = "lesson") teaches one grammar concept and produces a
+        // single LESSON card — no vocab/drill cards. Seeing it is what unlocks the
+        // concept's drills (concept gating).
+        if (note.partOfSpeech.equals("lesson", ignoreCase = true)) {
+            add(Card(noteId = note.id, cardType = CardType.LESSON, queue = Queue.GRAMMAR, due = 0L, gramConcept = note.conceptId))
+            return@buildList
+        }
         // The general reading-matrix layer carries declension tables purely to
         // feed the reader form index (coverage); grammar drilling stays focused
         // on the curated domain corpus, so general notes get only vocab cards.
         val isGeneral = note.tags.contains("general")
         add(Card(noteId = note.id, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB))
         add(Card(noteId = note.id, cardType = CardType.MEANING_TO_RU, queue = Queue.VOCAB))
-        if (!note.exampleSentence.isNullOrBlank()) add(Card(noteId = note.id, cardType = CardType.CLOZE, queue = Queue.VOCAB))
+        // Cloze blanks a word inside the example sentence — only useful if the learner
+        // can read that sentence, i.e. it ships with a real sentence-level translation.
+        if (hasReadableExample(note)) add(Card(noteId = note.id, cardType = CardType.CLOZE, queue = Queue.VOCAB))
         // Listening: a real audio asset, or any curated domain word (the on-device
         // Russian TTS supplies the audio at review time, so no asset is needed).
         if (!note.audioPath.isNullOrBlank() || !isGeneral) {
@@ -1092,9 +1206,23 @@ class LearningRepository(
             note.aspectPartner != null &&
             !note.aspect.isNullOrBlank()
         if (isAspectDrillable) {
-            add(Card(noteId = note.id, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, due = 0L, gramContextCue = "NO_CUE"))
-            add(Card(noteId = note.id, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, due = 0L, gramContextCue = "HAS_CUE"))
+            add(Card(noteId = note.id, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, due = 0L, gramContextCue = "NO_CUE", gramConcept = GrammarConcepts.ASPECT.id))
+            add(Card(noteId = note.id, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, due = 0L, gramContextCue = "HAS_CUE", gramConcept = GrammarConcepts.ASPECT.id))
         }
+    }
+
+    /**
+     * True when the note ships an example sentence the learner can actually read: a
+     * sentence plus a real sentence-level translation (more than one word, and not
+     * just the headword gloss). Gates comprehension-dependent cards like CLOZE.
+     */
+    private fun hasReadableExample(note: Note): Boolean {
+        val sentence = note.exampleSentence?.trim().orEmpty()
+        val gloss = note.exampleTranslation?.trim().orEmpty()
+        if (sentence.isBlank() || gloss.isBlank()) return false
+        if (gloss.equals(note.translation.trim(), ignoreCase = true)) return false
+        // A real translation of a sentence has multiple words.
+        return gloss.split(Regex("\\s+")).size >= 2
     }
 
     // Adjective–noun agreement: produce the feminine, neuter, and plural nominative
@@ -1110,7 +1238,7 @@ class LearningRepository(
         return listOf("FEM" to "FEM_NOM", "NEUT" to "NEUT_NOM", "PL" to "PL_NOM").mapNotNull { (cue, key) ->
             val form = source.optString(key)
             if (form.isBlank() || RussianForms.normalize(form) == masc) return@mapNotNull null
-            Card(noteId = note.id, cardType = CardType.ADJ_AGREE, queue = Queue.GRAMMAR, gramContextCue = cue)
+            Card(noteId = note.id, cardType = CardType.ADJ_AGREE, queue = Queue.GRAMMAR, gramContextCue = cue, gramConcept = GrammarConcepts.ADJ_AGREE.id)
         }
     }
 
@@ -1120,7 +1248,7 @@ class LearningRepository(
         if (!note.partOfSpeech.equals("noun", ignoreCase = true)) return null
         val gender = note.gender?.uppercase(Locale.ROOT) ?: return null
         if (gender !in NOUN_GENDERS) return null
-        return Card(noteId = note.id, cardType = CardType.GENDER_ID, queue = Queue.GRAMMAR, gramGender = gender)
+        return Card(noteId = note.id, cardType = CardType.GENDER_ID, queue = Queue.GRAMMAR, gramGender = gender, gramConcept = GrammarConcepts.GENDER.id)
     }
 
     private fun caseCards(note: Note): List<Card> {
@@ -1148,7 +1276,8 @@ class LearningRepository(
                     queue = Queue.GRAMMAR,
                     gramCase = gramCase,
                     gramGender = gender,
-                    gramNumber = gramNumber
+                    gramNumber = gramNumber,
+                    gramConcept = gramCase
                 )
             }
             .toList()
@@ -1169,7 +1298,8 @@ class LearningRepository(
                     noteId = note.id,
                     cardType = CardType.VERB_FORM,
                     queue = Queue.GRAMMAR,
-                    gramContextCue = key
+                    gramContextCue = key,
+                    gramConcept = GrammarConcepts.PAST.id
                 )
             }
     }

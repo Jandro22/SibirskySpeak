@@ -35,6 +35,33 @@ interface CardDao {
     @Query("SELECT * FROM cards WHERE state = 'NEW' AND suspended = 0 ORDER BY due ASC, id ASC LIMIT :limit")
     suspend fun getNewCards(limit: Int): List<Card>
 
+    /**
+     * New cards in curriculum order: the A1 starter tier (tier 0) first, by unit,
+     * then everything else interleaved by frequency rank (the existing unified
+     * domain/general sequencing). This is what front-loads everyday A1 vocabulary
+     * ahead of the formal/political domain.
+     */
+    @Query("""
+        SELECT c.* FROM cards c
+        JOIN notes n ON c.noteId = n.id
+        WHERE c.state = 'NEW' AND c.suspended = 0
+        ORDER BY
+            (CASE WHEN n.tier = 0 THEN 0 ELSE 1 END) ASC,
+            COALESCE(n.unit, 2147483647) ASC,
+            COALESCE(n.domainFreqRank, n.generalFreqRank, 2147483647) ASC,
+            c.id ASC
+        LIMIT :limit
+    """)
+    suspend fun getNewCardsOrdered(limit: Int): List<Card>
+
+    /** Concept ids whose LESSON card has been seen (drills on them may now surface). */
+    @Query("SELECT DISTINCT gramConcept FROM cards WHERE cardType = 'LESSON' AND gramConcept IS NOT NULL AND state != 'NEW'")
+    suspend fun getIntroducedConceptIds(): List<String>
+
+    /** Concept ids that have a LESSON card at all (so we know which drills to gate). */
+    @Query("SELECT DISTINCT gramConcept FROM cards WHERE cardType = 'LESSON' AND gramConcept IS NOT NULL")
+    suspend fun getConceptIdsWithLessons(): List<String>
+
     @Query("SELECT * FROM cards WHERE noteId = :noteId AND cardType = :cardType LIMIT 1")
     suspend fun getByNoteAndType(noteId: Long, cardType: CardType): Card?
 

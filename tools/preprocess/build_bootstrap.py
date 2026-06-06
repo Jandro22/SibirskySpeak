@@ -103,9 +103,14 @@ def corpus_sentence(forms) -> str | None:
 
 
 def corpus_or_fallback(forms, fallback, corpus_gloss: str):
-    sentence = corpus_sentence(forms)
-    if sentence and not is_low_quality_example(sentence):
-        return sentence, corpus_gloss
+    """Return an (example_sentence, example_translation) pair.
+
+    Previously this preferred an authentic corpus sentence but paired it with only
+    the *headword* as the "translation" (corpus_gloss), leaving every such note with
+    an unreadable example (e.g. a full Russian sentence glossed as just "state").
+    Comprehensible input matters more than authenticity here: always use the aligned
+    template fallback, whose Russian and English are real translations of each other.
+    """
     return fallback
 
 
@@ -239,6 +244,7 @@ def noun_rows():
             "generalFreqRank": 1000 + i * 7,
             "exampleSentence": ex_ru,
             "exampleTranslation": ex_en,
+            "tier": 2,
             "tags": "domain noun",
         })
     return rows
@@ -261,6 +267,7 @@ def adjective_rows(start_rank: int):
             "generalFreqRank": 2000 + i * 9,
             "exampleSentence": ex_ru,
             "exampleTranslation": ex_en,
+            "tier": 2,
             "tags": "domain adjective",
         })
     return rows
@@ -314,6 +321,7 @@ def _verb_note(citation, _unused, translation, aktionsart, aspect, partner_lemma
         "generalFreqRank": 1500 + rank,
         "exampleSentence": ex_ru,
         "exampleTranslation": ex_en,
+        "tier": 2,
         "tags": tags,
     }
     if partner_lemma:
@@ -379,28 +387,62 @@ def main():
     domain = nouns + adjs + verbs
     domain_lemmas = {n["lemma"] for n in domain}
 
+    # Progressive CEFR course (tier 0): A1→C1, concrete and fully readable, with a
+    # teach-before-test grammar spine (lesson notes). This is what a learner meets
+    # first, level by level, before the general matrix and political/security domain.
+    # A shared `seen` set dedups across levels so a word is taught only once.
+    a1_notes = []
+    a1_readers = []
+    a1_lemmas = set()
+    try:
+        from curriculum_common import build_level
+        import a1_starter, a2_starter, b1_starter, b2_starter, c1_starter
+        seen = set()
+        a1_notes = (
+            build_level(a1_starter.UNITS, "A1", seen)
+            + build_level(a2_starter.UNITS, "A2", seen)
+            + build_level(b1_starter.UNITS, "B1", seen)
+            + build_level(b2_starter.UNITS, "B2", seen)
+            + build_level(c1_starter.UNITS, "C1", seen)
+        )
+        a1_readers = (
+            a1_starter.a1_reader_texts() + a2_starter.a2_reader_texts()
+            + b1_starter.b1_reader_texts() + b2_starter.b2_reader_texts()
+            + c1_starter.c1_reader_texts()
+        )
+        a1_lemmas = {n["lemma"] for n in a1_notes if n.get("pos") != "lesson"}
+    except ImportError:
+        pass
+
     # General reading-matrix layer (function words + common vocab) from the
     # Anki deck. Deduped against the domain corpus; sequencing unified through
     # the domain frequency list so function words sort ahead of domain content.
     general = []
     try:
         from general_layer import general_rows
-        general = general_rows(domain_lemmas)
+        # Don't duplicate A1 starter words in the general layer.
+        general = general_rows(domain_lemmas | a1_lemmas)
         for g in general:
+            g["tier"] = 1
             r = DOMAIN_FREQ.get(g["lemma"])
             if r is not None:
                 g["domainFreqRank"] = r
     except ImportError:
         pass
 
-    notes = domain + general
-    reader_texts = all_reader_texts()
+    notes = a1_notes + domain + general
+    reader_texts = a1_readers + all_reader_texts()
     write_jsonl(ASSETS / "bootstrap_notes.jsonl", notes)
     write_jsonl(ASSETS / "bootstrap_reader_texts.jsonl", reader_texts)
     nominal = len(nouns) + len(adjs)
     aspect_ready = sum(1 for v in verbs if "aspectPartner" in v)
-    print(f"notes: {len(notes)}  (domain={len(domain)}: nominal={nominal}, verbs={len(verbs)}, "
-          f"aspect-ready={aspect_ready}; general={len(general)})")
+    a1_lessons = sum(1 for n in a1_notes if n.get("pos") == "lesson")
+    by_level = {}
+    for n in a1_notes:
+        by_level[n.get("cefrLevel")] = by_level.get(n.get("cefrLevel"), 0) + 1
+    print(f"notes: {len(notes)}  (curriculum={len(a1_notes)}: lessons={a1_lessons}, "
+          f"levels={by_level}; domain={len(domain)}: nominal={nominal}, "
+          f"verbs={len(verbs)}, aspect-ready={aspect_ready}; general={len(general)})")
     print(f"reader texts: {len(reader_texts)}")
     print(f"wrote -> {ASSETS}")
 

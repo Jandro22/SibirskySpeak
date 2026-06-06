@@ -338,6 +338,81 @@ class LearningRepositoryTest {
     }
 
     @Test
+    fun newCardsFrontLoadA1TierBeforeDomain() = runTest {
+        val fixture = RepoFixture()
+        // A domain (tier 2) note and an A1 (tier 0) note. The A1 word must come first
+        // regardless of its frequency rank.
+        fixture.repository.importJsonLines(
+            """
+            {"russian":"президент","lemma":"президент","pos":"noun","translation":"president","tier":2,"domainFreqRank":1}
+            {"russian":"дом","lemma":"дом","pos":"noun","translation":"house","tier":0,"unit":1,"generalFreqRank":500}
+            """.trimIndent()
+        )
+
+        val session = fixture.repository.sessionPlan(now = 0L).reviewQueue
+        val firstNote = fixture.notes.getById(session.first().card.noteId)
+        assertEquals("дом", firstNote?.lemma)
+        assertTrue("A1 tier should lead the session", session.all { fixture.notes.getById(it.card.noteId)?.tier == 0 } || session.first().let { fixture.notes.getById(it.card.noteId)?.tier == 0 })
+    }
+
+    @Test
+    fun grammarDrillsAreLockedUntilTheirLessonIsSeen() = runTest {
+        val fixture = RepoFixture()
+        // A lesson teaching GENDER, plus a noun whose gender drill is gated by it.
+        fixture.repository.importJsonLines(
+            """
+            {"russian":"Noun gender","lemma":"lesson_gender","pos":"lesson","translation":"Noun gender","conceptId":"GENDER","tier":0,"unit":1,"generalFreqRank":0}
+            {"russian":"стол","lemma":"стол","pos":"noun","translation":"table","gender":"M","declensionJson":{"NOM_SG":"стол","GEN_SG":"стола"},"tier":0,"unit":1,"generalFreqRank":1}
+            """.trimIndent()
+        )
+
+        // Before the lesson is seen, the GENDER drill must not surface in any session.
+        val before = fixture.repository.sessionPlan(now = 0L).reviewQueue
+        assertFalse(
+            "Gender drill leaked before its lesson",
+            before.any { it.card.cardType == CardType.GENDER_ID }
+        )
+        assertTrue("Lesson card should be offered", before.any { it.card.cardType == CardType.LESSON })
+
+        // Review (read) the lesson; it should graduate and unlock the concept.
+        val lesson = before.first { it.card.cardType == CardType.LESSON }.card
+        fixture.repository.review(lesson, Rating.GOOD, now = 1_000L)
+        assertEquals(
+            CardState.GRADUATED,
+            fixture.cards.cards.first { it.id == lesson.id }.state
+        )
+
+        // Now the gender drill is eligible to be introduced.
+        val concepts = fixture.cards.getIntroducedConceptIds()
+        assertTrue("GENDER concept should be introduced", "GENDER" in concepts)
+        val after = fixture.repository.sessionPlan(now = 2_000L).reviewQueue
+        assertTrue(
+            "Gender drill should surface after its lesson",
+            after.any { it.card.cardType == CardType.GENDER_ID } ||
+                fixture.cards.cards.any { it.cardType == CardType.GENDER_ID && it.state == CardState.NEW }
+        )
+    }
+
+    @Test
+    fun clozeIsOnlyCreatedWhenTheExampleHasAReadableTranslation() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """
+            {"russian":"дом","lemma":"дом","pos":"noun","translation":"house","tier":0,"exampleSentence":"Это дом.","exampleTranslation":"This is a house."}
+            {"russian":"стол","lemma":"стол","pos":"noun","translation":"table","tier":0,"exampleSentence":"Это стол.","exampleTranslation":"table"}
+            {"russian":"окно","lemma":"окно","pos":"noun","translation":"window","tier":0,"exampleSentence":"Это окно."}
+            """.trimIndent()
+        )
+
+        val withGloss = fixture.notes.getByLemma("дом")
+        val headwordOnly = fixture.notes.getByLemma("стол")
+        val noGloss = fixture.notes.getByLemma("окно")
+        assertTrue(fixture.cards.cards.any { it.noteId == withGloss?.id && it.cardType == CardType.CLOZE })
+        assertFalse(fixture.cards.cards.any { it.noteId == headwordOnly?.id && it.cardType == CardType.CLOZE })
+        assertFalse(fixture.cards.cards.any { it.noteId == noGloss?.id && it.cardType == CardType.CLOZE })
+    }
+
+    @Test
     fun emptyDatabaseAutoRestoresFromBackupInsteadOfReseeding() = runTest {
         // Source deck with real review state, captured into a backup.
         var backup: String? = null
@@ -485,6 +560,28 @@ class LearningRepositoryTest {
             cards.filter { it.due <= now && it.state != CardState.NEW && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id })
         override suspend fun getNewCards(limit: Int): List<Card> =
             cards.filter { it.state == CardState.NEW && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
+        override suspend fun getNewCardsOrdered(limit: Int): List<Card> {
+            fun rank(card: Card): IntArray {
+                val n = notes.notes.firstOrNull { it.id == card.noteId }
+                val tierPhase = if (n?.tier == 0) 0 else 1
+                val unit = n?.unit ?: Int.MAX_VALUE
+                val freq = n?.domainFreqRank ?: n?.generalFreqRank ?: Int.MAX_VALUE
+                return intArrayOf(tierPhase, unit, freq)
+            }
+            return cards.filter { it.state == CardState.NEW && !it.suspended }
+                .sortedWith(
+                    compareBy<Card>({ rank(it)[0] }, { rank(it)[1] }, { rank(it)[2] }, { it.id })
+                )
+                .take(limit)
+        }
+        override suspend fun getIntroducedConceptIds(): List<String> =
+            cards.filter { it.cardType == CardType.LESSON && it.gramConcept != null && it.state != CardState.NEW }
+                .mapNotNull { it.gramConcept }
+                .distinct()
+        override suspend fun getConceptIdsWithLessons(): List<String> =
+            cards.filter { it.cardType == CardType.LESSON && it.gramConcept != null }
+                .mapNotNull { it.gramConcept }
+                .distinct()
         override suspend fun getByNoteAndType(noteId: Long, cardType: CardType): Card? = cards.firstOrNull { it.noteId == noteId && it.cardType == cardType }
         override suspend fun countDue(now: Long): Int = cards.count { it.due <= now && it.state != CardState.NEW && !it.suspended }
         override suspend fun countDueByQueue(now: Long, queue: Queue): Int = cards.count { it.due <= now && it.queue == queue && it.state != CardState.NEW }

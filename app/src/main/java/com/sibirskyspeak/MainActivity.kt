@@ -342,7 +342,7 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             onReveal = viewModel::reveal,
                             onRate = viewModel::rate,
                             onContinue = viewModel::continueAfterRating,
-                            onSpeak = { p -> tts.speak(p.note.russian) },
+                            onSpeak = { p -> tts.speak(p.lesson?.exampleRu?.takeIf { it.isNotBlank() } ?: p.note.russian) },
                             onExit = { studyActive = false },
                             onUndo = viewModel::undoLastReview,
                             onKnewIt = viewModel::overrideKnewIt,
@@ -948,6 +948,12 @@ private fun ReviewContent(
     onSpeak: () -> Unit,
     onKnewIt: () -> Unit
 ) {
+    // A lesson is a teaching screen, not a quiz: render it on its own and bail out
+    // of the normal answer/reveal flow.
+    prompt.lesson?.let { lesson ->
+        LessonCard(lesson = lesson, onSpeak = onSpeak, onGotIt = { onRate(Rating.GOOD) }, ratingInProgress = state.ratingInProgress)
+        return
+    }
     var keyboardMode by rememberSaveable(prompt.card.id) { mutableStateOf(prompt.answerMode == AnswerMode.ENGLISH) }
     SectionCard(emphasis = true) {
         Row(
@@ -960,7 +966,17 @@ private fun ReviewContent(
                 Text(reviewTaskHelp(prompt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.width(10.dp))
-            StatusTag(if (prompt.card.queue.name == "VOCAB") "Vocab" else "Grammar")
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                StatusTag(if (prompt.card.queue.name == "VOCAB") "Vocab" else "Grammar")
+                if (prompt.note.tier == 0 && prompt.note.unit != null) {
+                    Text(
+                        "${prompt.note.cefrLevel ?: "A1"} · Unit ${prompt.note.unit}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
         }
         Spacer(Modifier.height(18.dp))
         Surface(
@@ -978,6 +994,7 @@ private fun ReviewContent(
                             AnswerMode.RUSSIAN_TYPED -> "Russian"
                             AnswerMode.AUDIO_ONLY -> "Listening"
                             AnswerMode.CHOICE -> "Choice"
+                            AnswerMode.LESSON -> "Lesson"
                         }
                     )
                     AssistChip(
@@ -989,6 +1006,22 @@ private fun ReviewContent(
                             labelColor = MaterialTheme.colorScheme.onSurface
                         )
                     )
+                }
+                prompt.teachingHint?.takeIf { prompt.card.queue.name == "GRAMMAR" }?.let { hint ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Filled.School, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Text(hint, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                        }
+                    }
                 }
                 Text(
                     prompt.prompt.ifBlank { "Listen and type what you hear" },
@@ -1082,6 +1115,62 @@ private fun ReviewContent(
             exit = fadeOut(tween(120))
         ) {
             RevealPanel(state, prompt, onRate, onContinue, onKnewIt)
+        }
+    }
+}
+
+@Composable
+private fun LessonCard(
+    lesson: com.sibirskyspeak.review.LessonContent,
+    onSpeak: () -> Unit,
+    onGotIt: () -> Unit,
+    ratingInProgress: Boolean
+) {
+    SectionCard(emphasis = true) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Filled.School, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            StatusTag("New grammar")
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(lesson.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(10.dp))
+        Text(lesson.body, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+        if (lesson.exampleRu.isNotBlank()) {
+            Spacer(Modifier.height(16.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface,
+                shape = MaterialTheme.shapes.medium,
+                tonalElevation = 1.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+            ) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(lesson.exampleRu, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        AssistChip(
+                            onClick = onSpeak,
+                            label = { Text("Hear") },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                        )
+                    }
+                    if (lesson.exampleEn.isNotBlank()) {
+                        Text(lesson.exampleEn, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(18.dp))
+        Button(
+            onClick = onGotIt,
+            enabled = !ratingInProgress,
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 14.dp)
+        ) {
+            Text(if (ratingInProgress) "Saving..." else "Got it", fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -2128,15 +2217,34 @@ private fun WordsKnownCard(modifier: Modifier, game: GamificationStats) {
 @Composable
 private fun AchievementsCard(game: GamificationStats) {
     val unlocked = game.achievements.count { it.unlocked }
+    var expanded by rememberSaveable { mutableStateOf(true) }
     SectionCard {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             Icon(Icons.Filled.EmojiEvents, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
             Text("Achievements", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             Text("$unlocked / ${game.achievements.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(
+                Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (expanded) "Collapse achievements" else "Expand achievements",
+                modifier = Modifier
+                    .size(24.dp)
+                    .graphicsLayer { rotationZ = if (expanded) 180f else 0f },
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
-        Spacer(Modifier.height(12.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            game.achievements.forEach { AchievementBadge(it) }
+        AnimatedVisibility(visible = expanded) {
+            Column {
+                Spacer(Modifier.height(12.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    game.achievements.forEach { AchievementBadge(it) }
+                }
+            }
         }
     }
 }
@@ -2833,6 +2941,7 @@ private fun reviewTaskTitle(prompt: ReviewPrompt): String =
         CardType.ADJ_AGREE -> "Make the adjective agree"
         CardType.GENDER_ID -> "Identify the noun gender"
         CardType.ASPECT_SELECT -> "Pick the verb form that fits"
+        CardType.LESSON -> "Read the grammar lesson"
     }
 
 private fun reviewTaskHelp(prompt: ReviewPrompt): String =
@@ -2846,6 +2955,7 @@ private fun reviewTaskHelp(prompt: ReviewPrompt): String =
         CardType.ADJ_AGREE -> "Use the noun context to type the matching adjective form."
         CardType.GENDER_ID -> "Choose the gender that fits this noun."
         CardType.ASPECT_SELECT -> "Choose the form that matches whether the action is bounded or ongoing."
+        CardType.LESSON -> "Read the explanation, then continue when it feels familiar."
     }
 
 private fun answerHint(prompt: ReviewPrompt): String =
@@ -2854,14 +2964,35 @@ private fun answerHint(prompt: ReviewPrompt): String =
         AnswerMode.RUSSIAN_TYPED -> "Type in Russian. Stress marks and small spelling slips are okay."
         AnswerMode.AUDIO_ONLY -> "Type the Russian you heard. Small spelling slips are okay."
         AnswerMode.CHOICE -> "Pick one of the choices."
+        AnswerMode.LESSON -> "Read the lesson, then tap Got it."
     }
+
+/**
+ * True when the note's example translation is a real sentence gloss (multi-word and
+ * not merely the headword), so it can be shown as comprehensible input.
+ */
+private fun ReviewPrompt.hasSentenceGloss(): Boolean {
+    val gloss = note.exampleTranslation?.trim().orEmpty()
+    return gloss.isNotBlank() &&
+        !gloss.equals(note.translation.trim(), ignoreCase = true) &&
+        gloss.split(Regex("\\s+")).size >= 2
+}
 
 private fun reviewContext(prompt: ReviewPrompt): String? =
     when (prompt.card.cardType) {
-        CardType.RU_TO_MEANING -> prompt.note.exampleSentence?.let { "Example: $it" }
+        // Recognition: show the example sentence and, if we have one, its translation,
+        // so the learner sees the word living in a sentence they can actually read.
+        CardType.RU_TO_MEANING -> prompt.note.exampleSentence?.let { ru ->
+            if (prompt.hasSentenceGloss()) "$ru\n${prompt.note.exampleTranslation}" else "Example: $ru"
+        }
         CardType.MEANING_TO_RU -> null
-        CardType.CLOZE, CardType.CASE_FILL, CardType.VERB_FORM, CardType.ADJ_AGREE, CardType.GENDER_ID, CardType.ASPECT_SELECT -> prompt.note.exampleTranslation?.let { "Meaning: $it" }
+        // Cloze/case/verb drills already show the Russian carrier in the prompt; add
+        // the full English meaning beneath it so the sentence is comprehensible.
+        CardType.CLOZE, CardType.CASE_FILL, CardType.VERB_FORM, CardType.ADJ_AGREE, CardType.ASPECT_SELECT ->
+            if (prompt.hasSentenceGloss()) "Meaning: ${prompt.note.exampleTranslation}" else null
+        CardType.GENDER_ID -> null
         CardType.AUDIO_TO_RU -> null
+        CardType.LESSON -> null
     }
 
 private fun formatDays(days: Int): String =

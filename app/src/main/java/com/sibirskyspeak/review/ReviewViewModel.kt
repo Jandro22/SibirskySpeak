@@ -190,6 +190,8 @@ class ReviewViewModel(
                 val correct = mutableState.value.typedAnswer.trim().equals(prompt.expectedAnswer.trim(), ignoreCase = true)
                 AnswerEvaluation(if (correct) AnswerMatch.EXACT else AnswerMatch.WRONG, prompt.expectedAnswer)
             }
+            // A lesson has nothing to grade; "Got it" rates it directly via rate().
+            AnswerMode.LESSON -> AnswerEvaluation(AnswerMatch.EXACT, prompt.expectedAnswer)
         }
         mutableState.value = mutableState.value.copy(
             revealed = true,

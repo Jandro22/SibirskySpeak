@@ -11,7 +11,9 @@ import androidx.room.PrimaryKey
         Index("status"),
         Index("encounterCount"),
         Index("domainFreqRank"),
-        Index("generalFreqRank")
+        Index("generalFreqRank"),
+        Index("tier"),
+        Index("unit")
     ]
 )
 data class Note(
@@ -33,5 +35,18 @@ data class Note(
     val domainFreqRank: Int? = null,
     val encounterCount: Int = 0,
     val status: WordStatus = WordStatus.NEW,
-    val tags: String = ""
+    val tags: String = "",
+    // Curriculum scaffold. [tier] orders the whole course: 0 = A1 starter (concrete,
+    // high-frequency, readable), 1 = general reading matrix, 2 = formal/political
+    // domain. New material is introduced tier by tier, so a beginner meets everyday
+    // words before Kremlin vocabulary. [unit] is the A1 lesson index within tier 0
+    // (null for uncurated tiers). [conceptId] tags lesson notes (pos = "lesson")
+    // with the grammar concept they teach (e.g. "ACC", "GENDER"); null otherwise.
+    val tier: Int = 1,
+    val unit: Int? = null,
+    val conceptId: String? = null,
+    // CEFR level this curated note belongs to ("A1".."C1"), for the curriculum
+    // course (tier 0). Null for the general/domain tiers. Drives the level label in
+    // the UI; sequencing is by [unit], which is monotonic across levels.
+    val cefrLevel: String? = null
 )
