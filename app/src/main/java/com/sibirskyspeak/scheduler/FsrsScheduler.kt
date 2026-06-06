@@ -8,13 +8,22 @@ import com.sibirskyspeak.data.ReviewLog
 import com.sibirskyspeak.data.ReviewSource
 import kotlin.math.exp
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.random.Random
 
 class FsrsScheduler(
     private val desiredRetentionProvider: () -> Double = { 0.9 },
     private val maximumIntervalDays: Int = 36_500,
-    private val weights: DoubleArray = DEFAULT_WEIGHTS
+    private val weights: DoubleArray = DEFAULT_WEIGHTS,
+    // Interval fuzz spreads review dates so a batch of cards graded the same way on
+    // one day doesn't all resurface on the same future day (the "avalanche" that
+    // makes review days lumpy and makes you re-type the same words together). This
+    // is the standard FSRS/Anki fuzz. Off by default so unit tests stay
+    // deterministic; the app turns it on. [random] is injectable for repeatable tests.
+    private val enableFuzz: Boolean = false,
+    private val random: Random = Random.Default
 ) : Scheduler {
     override fun review(card: Card, rating: Rating, now: Long): Pair<Card, ReviewLog> {
         val elapsedDays = elapsedDays(card, now)
@@ -127,8 +136,26 @@ class FsrsScheduler(
         when {
             rating == Rating.AGAIN -> 0
             state == CardState.NEW && rating == Rating.HARD -> 0
-            else -> interval(stability)
+            else -> applyFuzz(interval(stability))
         }
+
+    /**
+     * FSRS interval fuzz: widen the interval by a small, length-dependent band and
+     * pick a random day within it. Intervals under ~2.5 days are left exact so the
+     * daily learning cadence is preserved. Bands match the py-fsrs reference.
+     */
+    private fun applyFuzz(intervalDays: Int): Int {
+        if (!enableFuzz || intervalDays < 2) return intervalDays
+        val ivl = intervalDays.toDouble()
+        var delta = 1.0
+        delta += 0.15 * (min(ivl, 7.0) - 2.5).coerceAtLeast(0.0)
+        delta += 0.10 * (min(ivl, 20.0) - 7.0).coerceAtLeast(0.0)
+        delta += 0.05 * (ivl - 20.0).coerceAtLeast(0.0)
+        var minIvl = (ivl - delta).roundToInt().coerceAtLeast(2)
+        val maxIvl = (ivl + delta).roundToInt().coerceAtMost(maximumIntervalDays)
+        if (minIvl > maxIvl) minIvl = maxIvl
+        return if (minIvl >= maxIvl) maxIvl else random.nextInt(minIvl, maxIvl + 1)
+    }
 
     private fun dueAt(now: Long, scheduledDays: Int, rating: Rating, state: CardState): Long {
         val delayMillis = when {

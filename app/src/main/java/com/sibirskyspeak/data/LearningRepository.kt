@@ -144,7 +144,11 @@ data class GamificationStats(
 /** User-tunable study pacing levers, read live on each session build. */
 data class LearningConfig(
     val dailyGoal: Int = 20,
-    val sessionSize: Int = 25
+    val sessionSize: Int = 25,
+    // Cap on brand-new cards introduced per day. Throttling new material is the
+    // single biggest lever against overload/burnout in spaced repetition — it
+    // keeps the future review load (and the daily session) sustainable.
+    val newCardsPerDay: Int = 15
 )
 
 /** A captured pre-review snapshot, enough to roll one review back. */
@@ -860,14 +864,22 @@ class LearningRepository(
 
     private suspend fun sessionCards(now: Long, limit: Int): List<Card> {
         val plan = dailyPlan(now)
-        val base = if (plan.triageMode) {
+        val due = if (plan.triageMode) {
             cardDao.getOverdueCards(now - 2 * DAY_MILLIS, limit = limit)
         } else {
             cardDao.getDueCards(now, limit = limit)
-        }.ifEmpty { cardDao.getNewCards(limit = limit) }
+        }
+        // When real reviews are due we never dilute them with new material; due
+        // cards (with their confusable partners) keep their existing ordering.
+        if (due.isNotEmpty()) return dueSessionCards(due, now, limit)
+        // Otherwise introduce new cards with research-based pacing.
+        return newCardSession(now, limit)
+    }
+
+    /** Due-review session: surface scheduled cards plus their confusable partners. */
+    private suspend fun dueSessionCards(base: List<Card>, now: Long, limit: Int): List<Card> {
         val session = mutableListOf<Card>()
         val sessionIds = mutableSetOf<Long>()
-        val newCardSession = base.all { it.state == CardState.NEW }
         for (card in base) {
             if (sessionIds.add(card.id)) session += card
             for (pair in confusablePairDao.getForNote(card.noteId)) {
@@ -875,11 +887,70 @@ class LearningRepository(
                 val partner = cardDao.getCardsForNote(partnerNoteId)
                     .filter { it.matchesCardVariant(card) && it.id !in sessionIds }
                     .sortedWith(compareBy<Card> { it.due }.thenBy { it.id })
-                    .firstOrNull { if (newCardSession) it.state == CardState.NEW else it.state != CardState.NEW && it.due <= now }
+                    .firstOrNull { it.state != CardState.NEW && it.due <= now }
                 if (partner != null && sessionIds.add(partner.id)) session += partner
             }
         }
         return session.take(limit)
+    }
+
+    /**
+     * New-card introduction, sequenced for how people actually learn:
+     *  - **Throttled**: at most [LearningConfig.newCardsPerDay] new cards per day,
+     *    so the future review load stays sustainable (anti-burnout).
+     *  - **Comprehension-first**: a note's recognition card is introduced before its
+     *    production card, which is introduced before its grammar drills (receptive
+     *    knowledge scaffolds productive recall).
+     *  - **Interleaved**: cards are pulled round-robin across notes rather than in
+     *    note-sized blocks, which improves discrimination and fights boredom.
+     *  - **One vocab card per note per session**: you no longer re-type the same
+     *    word back-to-back; its other facets surface on later days.
+     */
+    private suspend fun newCardSession(now: Long, limit: Int): List<Card> {
+        val startOfDay = now - (now % DAY_MILLIS)
+        val introducedToday = reviewLogDao.countNewIntroducedSince(startOfDay)
+        val budget = (config().newCardsPerDay - introducedToday).coerceAtLeast(0)
+        val take = minOf(limit, budget)
+        if (take == 0) return emptyList()
+
+        // Pull a generous pool so interleaving has material across many notes.
+        val pool = cardDao.getNewCards(limit = maxOf(limit * 4, 200))
+        // Per-note queues, each ordered comprehension-first.
+        val byNote = LinkedHashMap<Long, ArrayDeque<Card>>()
+        for (card in pool.sortedWith(compareBy<Card> { introductionTier(it) }.thenBy { introductionTier2(it) }.thenBy { it.id })) {
+            byNote.getOrPut(card.noteId) { ArrayDeque() }.addLast(card)
+        }
+        val session = mutableListOf<Card>()
+        val notesWithVocab = mutableSetOf<Long>()
+        // Round-robin across notes until the budget is filled or material runs out.
+        while (session.size < take && byNote.values.any { it.isNotEmpty() }) {
+            for ((noteId, queue) in byNote) {
+                if (session.size >= take) break
+                // Skip a vocab card if this note already contributed one this session.
+                while (queue.isNotEmpty() && queue.first().queue == Queue.VOCAB && noteId in notesWithVocab) {
+                    queue.removeFirst()
+                }
+                val card = queue.removeFirstOrNull() ?: continue
+                if (card.queue == Queue.VOCAB) notesWithVocab += noteId
+                session += card
+            }
+        }
+        return session
+    }
+
+    /** Coarse introduction tier: receptive (0) → productive (1) → grammar (2). */
+    private fun introductionTier(card: Card): Int = when (card.cardType) {
+        CardType.RU_TO_MEANING, CardType.AUDIO_TO_RU -> 0
+        CardType.MEANING_TO_RU, CardType.CLOZE -> 1
+        else -> 2
+    }
+
+    /** Within grammar, teach aspect and case before the larger verb paradigm. */
+    private fun introductionTier2(card: Card): Int = when (card.cardType) {
+        CardType.ASPECT_SELECT -> 0
+        CardType.CASE_FILL -> 1
+        CardType.VERB_FORM -> 2
+        else -> 0
     }
 
     private fun Card.matchesCardVariant(other: Card): Boolean =

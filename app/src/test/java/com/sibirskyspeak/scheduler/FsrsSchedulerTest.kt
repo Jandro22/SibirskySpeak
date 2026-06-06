@@ -9,6 +9,8 @@ import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.abs
+import kotlin.random.Random
 
 class FsrsSchedulerTest {
     @Test
@@ -95,5 +97,48 @@ class FsrsSchedulerTest {
                 assertEquals(item.getString("name"), expected.getDouble("difficulty"), reviewed.difficulty, 0.0001)
             }
         }
+    }
+
+    @Test
+    fun fuzzIsOffByDefaultAndDeterministic() {
+        val card = Card(
+            noteId = 1,
+            cardType = CardType.RU_TO_MEANING,
+            queue = Queue.VOCAB,
+            stability = 100.0,
+            difficulty = 5.0,
+            state = CardState.REVIEW,
+            lastReview = 0L
+        )
+        val now = 200L * 86_400_000L
+        val a = FsrsScheduler().review(card, Rating.GOOD, now).first.scheduledDays
+        val b = FsrsScheduler().review(card, Rating.GOOD, now).first.scheduledDays
+        assertEquals("default scheduler must be deterministic", a, b)
+    }
+
+    @Test
+    fun fuzzStaysWithinBandAndVaries() {
+        val card = Card(
+            noteId = 1,
+            cardType = CardType.RU_TO_MEANING,
+            queue = Queue.VOCAB,
+            stability = 100.0,
+            difficulty = 5.0,
+            state = CardState.REVIEW,
+            lastReview = 0L
+        )
+        val now = 200L * 86_400_000L
+        val base = FsrsScheduler().review(card, Rating.GOOD, now).first.scheduledDays
+        assertTrue("interval should be long enough to fuzz", base > 5)
+
+        val results = (1..60).map { seed ->
+            FsrsScheduler(enableFuzz = true, random = Random(seed.toLong()))
+                .review(card, Rating.GOOD, now).first.scheduledDays
+        }
+        // Fuzz must keep intervals close to the base (generous envelope) ...
+        val band = (base * 0.2).toInt() + 2
+        assertTrue("fuzzed intervals stray too far", results.all { abs(it - base) <= band })
+        // ... while actually spreading due dates (the whole point).
+        assertTrue("fuzz should produce variation", results.toSet().size > 1)
     }
 }

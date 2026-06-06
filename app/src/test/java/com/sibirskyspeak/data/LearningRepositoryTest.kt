@@ -310,6 +310,28 @@ class LearningRepositoryTest {
         assertEquals(1, report.targetTextsAtOrAbove90)
     }
 
+    @Test
+    fun newCardSessionThrottlesInterleavesAndLeadsWithComprehension() = runTest {
+        val fixture = RepoFixture()
+        // 30 simple noun notes => lots of new cards, each with two vocab cards
+        // (recognition + production) and no grammar/example.
+        val jsonl = (1..30).joinToString("\n") { i ->
+            """{"russian":"слово$i","lemma":"слово$i","pos":"noun","translation":"word $i"}"""
+        }
+        fixture.repository.importJsonLines(jsonl)
+
+        val session = fixture.repository.sessionPlan(now = 0L).reviewQueue
+
+        // Throttled to the default new-cards-per-day budget.
+        assertTrue("expected throttle to <= 15, was ${session.size}", session.size <= 15)
+        assertTrue(session.isNotEmpty())
+        // No word is drilled twice in one session (one vocab card per note).
+        val perNote = session.groupBy { it.card.noteId }
+        assertTrue("a note appeared more than once", perNote.values.all { it.size == 1 })
+        // Comprehension-first: recognition cards lead; production is deferred.
+        assertTrue(session.all { it.card.cardType == CardType.RU_TO_MEANING })
+    }
+
     private fun goodLog(card: Card, time: Long): ReviewLog =
         ReviewLog(
             cardId = card.id,
@@ -426,6 +448,8 @@ class LearningRepositoryTest {
 
         override suspend fun countSince(since: Long): Int = logs.count { it.reviewDatetime >= since }
         override suspend fun countAll(): Int = logs.size
+        override suspend fun countNewIntroducedSince(since: Long): Int =
+            logs.count { it.reviewDatetime >= since && it.stateBefore == CardState.NEW }
         override suspend fun deleteLatestForCard(cardId: Long) {
             val last = logs.filter { it.cardId == cardId }.maxByOrNull { it.id } ?: return
             logs.remove(last)

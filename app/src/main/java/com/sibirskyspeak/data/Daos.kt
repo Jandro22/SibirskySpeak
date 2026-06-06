@@ -122,6 +122,11 @@ interface ReviewLogDao {
     @Query("SELECT COUNT(*) FROM review_logs")
     suspend fun countAll(): Int
 
+    // Cards introduced (first-ever review) since [since], i.e. logs whose card was
+    // still NEW when reviewed. Drives the daily new-card throttle.
+    @Query("SELECT COUNT(*) FROM review_logs WHERE reviewDatetime >= :since AND stateBefore = 'NEW'")
+    suspend fun countNewIntroducedSince(since: Long): Int
+
     // Removes the most recent log row for a card. Used by the undo path to roll
     // back a review (the matching Card row is restored separately from a snapshot).
     @Query("DELETE FROM review_logs WHERE id = (SELECT MAX(id) FROM review_logs WHERE cardId = :cardId)")

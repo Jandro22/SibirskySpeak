@@ -58,6 +58,7 @@ data class ReviewUiState(
     // Settings mirror (persisted in SettingsStore; surfaced for the Settings UI).
     val dailyGoalSetting: Int = SettingsStore.DEFAULT_DAILY_GOAL,
     val sessionSizeSetting: Int = SettingsStore.DEFAULT_SESSION_SIZE,
+    val newCardsPerDaySetting: Int = SettingsStore.DEFAULT_NEW_CARDS_PER_DAY,
     val retentionSetting: Double = SettingsStore.DEFAULT_RETENTION,
     val reminderEnabled: Boolean = true,
     val reminderHour: Int = SettingsStore.DEFAULT_REMINDER_HOUR,
@@ -97,6 +98,12 @@ class ReviewViewModel(
     fun setSessionSize(value: Int) {
         settings.sessionSize = value
         mutableState.value = mutableState.value.copy(sessionSizeSetting = settings.sessionSize)
+        viewModelScope.launch { loadSession() }
+    }
+
+    fun setNewCardsPerDay(value: Int) {
+        settings.newCardsPerDay = value
+        mutableState.value = mutableState.value.copy(newCardsPerDaySetting = settings.newCardsPerDay)
         viewModelScope.launch { loadSession() }
     }
 
@@ -420,6 +427,7 @@ class ReviewViewModel(
             canUndo = repository.canUndo(),
             dailyGoalSetting = settings.dailyGoal,
             sessionSizeSetting = settings.sessionSize,
+            newCardsPerDaySetting = settings.newCardsPerDay,
             retentionSetting = settings.desiredRetention,
             reminderEnabled = settings.reminderEnabled,
             reminderHour = settings.reminderHour,

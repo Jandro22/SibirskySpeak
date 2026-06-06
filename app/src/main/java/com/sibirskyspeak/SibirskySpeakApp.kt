@@ -21,11 +21,11 @@ class SibirskySpeakApp : Application() {
             reviewLogDao = database.reviewLogDao(),
             confusablePairDao = database.confusablePairDao(),
             readerTextDao = database.readerTextDao(),
-            scheduler = FsrsScheduler(desiredRetentionProvider = { settings.desiredRetention }),
+            scheduler = FsrsScheduler(desiredRetentionProvider = { settings.desiredRetention }, enableFuzz = true),
             bootstrapNotes = { assets.readTextAsset("bootstrap_notes.jsonl") },
             bootstrapReaderTexts = { assets.readTextAsset("bootstrap_reader_texts.jsonl") },
             transactionRunner = { block -> database.withTransaction(block) },
-            config = { LearningConfig(dailyGoal = settings.dailyGoal, sessionSize = settings.sessionSize) }
+            config = { LearningConfig(dailyGoal = settings.dailyGoal, sessionSize = settings.sessionSize, newCardsPerDay = settings.newCardsPerDay) }
         )
     }
 }

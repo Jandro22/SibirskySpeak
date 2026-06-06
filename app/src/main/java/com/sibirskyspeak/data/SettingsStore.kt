@@ -21,6 +21,11 @@ class SettingsStore(context: Context) {
         get() = prefs.getInt(KEY_SESSION_SIZE, DEFAULT_SESSION_SIZE).coerceIn(MIN_SESSION_SIZE, MAX_SESSION_SIZE)
         set(value) = prefs.edit().putInt(KEY_SESSION_SIZE, value.coerceIn(MIN_SESSION_SIZE, MAX_SESSION_SIZE)).apply()
 
+    /** Cap on brand-new cards introduced per day. */
+    var newCardsPerDay: Int
+        get() = prefs.getInt(KEY_NEW_CARDS_PER_DAY, DEFAULT_NEW_CARDS_PER_DAY).coerceIn(MIN_NEW_CARDS_PER_DAY, MAX_NEW_CARDS_PER_DAY)
+        set(value) = prefs.edit().putInt(KEY_NEW_CARDS_PER_DAY, value.coerceIn(MIN_NEW_CARDS_PER_DAY, MAX_NEW_CARDS_PER_DAY)).apply()
+
     /** FSRS desired retention (probability of recall at review time). */
     var desiredRetention: Double
         get() = prefs.getFloat(KEY_RETENTION, DEFAULT_RETENTION.toFloat()).toDouble().coerceIn(MIN_RETENTION, MAX_RETENTION)
@@ -73,6 +78,7 @@ class SettingsStore(context: Context) {
     companion object {
         private const val KEY_DAILY_GOAL = "daily_goal"
         private const val KEY_SESSION_SIZE = "session_size"
+        private const val KEY_NEW_CARDS_PER_DAY = "new_cards_per_day"
         private const val KEY_RETENTION = "desired_retention"
         private const val KEY_REMINDER_ENABLED = "reminder_enabled"
         private const val KEY_REMINDER_HOUR = "reminder_hour"
@@ -82,6 +88,7 @@ class SettingsStore(context: Context) {
 
         const val DEFAULT_DAILY_GOAL = 20
         const val DEFAULT_SESSION_SIZE = 25
+        const val DEFAULT_NEW_CARDS_PER_DAY = 15
         const val DEFAULT_RETENTION = 0.9
         const val DEFAULT_REMINDER_HOUR = 19
 
@@ -89,6 +96,8 @@ class SettingsStore(context: Context) {
         const val MAX_DAILY_GOAL = 200
         const val MIN_SESSION_SIZE = 5
         const val MAX_SESSION_SIZE = 100
+        const val MIN_NEW_CARDS_PER_DAY = 0
+        const val MAX_NEW_CARDS_PER_DAY = 80
         const val MIN_RETENTION = 0.80
         const val MAX_RETENTION = 0.97
         const val MIN_FONT_SCALE = 0.8f

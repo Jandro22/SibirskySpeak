@@ -367,6 +367,7 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             onAdd = viewModel::addReaderText,
                             onDailyGoal = viewModel::setDailyGoal,
                             onSessionSize = viewModel::setSessionSize,
+                            onNewCardsPerDay = viewModel::setNewCardsPerDay,
                             onRetention = viewModel::setRetention,
                             onReminderEnabled = { enabled ->
                                 viewModel.setReminderEnabled(enabled)
@@ -1516,6 +1517,7 @@ private fun ImportExportPanel(
     onAdd: () -> Unit,
     onDailyGoal: (Int) -> Unit,
     onSessionSize: (Int) -> Unit,
+    onNewCardsPerDay: (Int) -> Unit,
     onRetention: (Double) -> Unit,
     onReminderEnabled: (Boolean) -> Unit,
     onReminderHour: (Int) -> Unit,
@@ -1560,6 +1562,14 @@ private fun ImportExportPanel(
                 value = state.sessionSizeSetting.toFloat(),
                 range = SettingsStore.MIN_SESSION_SIZE.toFloat()..SettingsStore.MAX_SESSION_SIZE.toFloat(),
                 onChange = { onSessionSize(it.toInt()) }
+            )
+            Spacer(Modifier.height(10.dp))
+            SettingSlider(
+                label = "New cards per day",
+                valueLabel = "${state.newCardsPerDaySetting}",
+                value = state.newCardsPerDaySetting.toFloat(),
+                range = SettingsStore.MIN_NEW_CARDS_PER_DAY.toFloat()..SettingsStore.MAX_NEW_CARDS_PER_DAY.toFloat(),
+                onChange = { onNewCardsPerDay(it.toInt()) }
             )
             Spacer(Modifier.height(10.dp))
             SettingSlider(
