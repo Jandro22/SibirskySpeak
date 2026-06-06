@@ -63,7 +63,7 @@ Open this folder as an Android project and let Android Studio sync Gradle. `loca
 
 ## FSRS reference
 
-The scheduler follows the FSRS-5 formulas and defaults from the open-spaced-repetition project:
+The scheduler follows the FSRS-6 formulas and defaults from the open-spaced-repetition project:
 
 - https://github.com/open-spaced-repetition/awesome-fsrs/wiki/The-Algorithm
 

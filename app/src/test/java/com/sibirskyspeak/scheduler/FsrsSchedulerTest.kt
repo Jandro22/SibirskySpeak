@@ -48,6 +48,24 @@ class FsrsSchedulerTest {
     }
 
     @Test
+    fun sameDayLearningReviewUsesZeroElapsedDays() {
+        val scheduler = FsrsScheduler()
+        val card = Card(
+            noteId = 1,
+            cardType = CardType.RU_TO_MEANING,
+            queue = Queue.VOCAB,
+            stability = 1.0,
+            difficulty = 5.0,
+            state = CardState.LEARNING,
+            lastReview = 0L
+        )
+
+        val (_, log) = scheduler.review(card, Rating.GOOD, now = 10L * 60_000L)
+
+        assertEquals(0, log.elapsedDays)
+    }
+
+    @Test
     fun matchesCheckedReferenceFixtures() {
         val scheduler = FsrsScheduler()
         val raw = javaClass.classLoader!!.getResource("fsrs_reference_cases.json")!!.readText()

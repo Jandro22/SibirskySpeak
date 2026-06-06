@@ -34,3 +34,16 @@ enum class ReviewSource {
     READER_LOOKUP,
     GRAMMAR_DRILL
 }
+
+/**
+ * Explicit per-word reading status, LingQ-style. [NEW] words are highlighted as
+ * unfamiliar, [LEARNING] words are actively being studied, [KNOWN] words read as
+ * plain text and count toward coverage, and [IGNORED] words (names, numbers) are
+ * never highlighted but are treated as readable.
+ */
+enum class WordStatus {
+    NEW,
+    LEARNING,
+    KNOWN,
+    IGNORED
+}

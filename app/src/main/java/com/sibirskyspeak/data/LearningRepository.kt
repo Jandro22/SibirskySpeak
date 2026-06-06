@@ -53,6 +53,7 @@ data class ReaderToken(
     val surface: String,
     val normalized: String,
     val known: Boolean,
+    val status: WordStatus,
     val lemma: String?,
     val parse: String?,
     val aktionsart: String?,
@@ -95,8 +96,48 @@ data class SessionPlan(
     val interleavedGrammar: List<ReviewPrompt>,
     val readerRecommendation: ReaderRecommendation?,
     val dashboardStats: DashboardStats,
-    val dailyPlan: DailyPlan
+    val dailyPlan: DailyPlan,
+    val gamification: GamificationStats = GamificationStats.EMPTY
 )
+
+data class Achievement(
+    val id: String,
+    val title: String,
+    val description: String,
+    val unlocked: Boolean
+)
+
+data class ReminderInfo(
+    val currentStreak: Int,
+    val studiedToday: Boolean,
+    val dueToday: Int
+)
+
+data class GamificationStats(
+    val knownWords: Int,
+    val totalReviews: Int,
+    val xp: Int,
+    val level: Int,
+    val xpIntoLevel: Int,
+    val xpForLevel: Int,
+    val currentStreak: Int,
+    val longestStreak: Int,
+    val reviewedToday: Int,
+    val dailyGoal: Int,
+    val activeDays: Int,
+    val last7Days: List<Boolean>,
+    val achievements: List<Achievement>
+) {
+    val goalReached: Boolean get() = dailyGoal > 0 && reviewedToday >= dailyGoal
+
+    companion object {
+        val EMPTY = GamificationStats(
+            knownWords = 0, totalReviews = 0, xp = 0, level = 1, xpIntoLevel = 0,
+            xpForLevel = 100, currentStreak = 0, longestStreak = 0, reviewedToday = 0,
+            dailyGoal = 20, activeDays = 0, last7Days = List(7) { false }, achievements = emptyList()
+        )
+    }
+}
 
 class LearningRepository(
     private val noteDao: NoteDao,
@@ -113,6 +154,54 @@ class LearningRepository(
     private val transactionRunner: (suspend (suspend () -> Unit) -> Unit)? = null
 ) {
     fun observeNotes(): Flow<List<Note>> = noteDao.observeAll()
+
+    // --- In-memory caches ---------------------------------------------------
+    // Generating surface forms for the full note set (tens of thousands of
+    // rows) is by far the most expensive operation in the app, and it used to
+    // run several times per word tap. Cache the form index and rebuild it only
+    // when notes are added. Status/encounter/card changes keep the cached forms
+    // and just recompute the cheap "known id" set. NOTE: the cached Note objects
+    // may hold stale status/encounter, so any *write* must re-read the row first.
+    @Volatile private var notesCache: List<Note>? = null
+    @Volatile private var formIndexCache: Map<String, Note>? = null
+    @Volatile private var knownIdsCache: Set<Long>? = null
+
+    private fun invalidateNoteStructure() {
+        notesCache = null
+        formIndexCache = null
+        knownIdsCache = null
+    }
+
+    private fun invalidateNoteState() {
+        notesCache = null
+        knownIdsCache = null
+    }
+
+    private suspend fun allNotesCached(): List<Note> =
+        notesCache ?: noteDao.getAll().also { notesCache = it }
+
+    private suspend fun formIndex(): Map<String, Note> =
+        formIndexCache ?: buildFormIndex(allNotesCached()).also { formIndexCache = it }
+
+    private suspend fun knownNoteIds(): Set<Long> =
+        knownIdsCache ?: computeKnownNoteIds(allNotesCached()).also { knownIdsCache = it }
+
+    private suspend fun computeKnownNoteIds(notes: List<Note>): Set<Long> {
+        val cardKnown = cardDao.getAllVocabCards()
+            .filter { card ->
+                card.state == CardState.GRADUATED ||
+                    card.reps > 0 ||
+                    card.consecutiveCorrect > 0 ||
+                    card.lastReview != null
+            }
+            .map { it.noteId }
+        val statusKnown = notes.filter { note ->
+            note.status == WordStatus.KNOWN ||
+                note.status == WordStatus.IGNORED ||
+                note.encounterCount >= READER_KNOWN_ENCOUNTERS
+        }.map { it.id }
+        return (cardKnown + statusKnown).toHashSet()
+    }
 
     suspend fun seedIfEmpty() {
         if (noteDao.count() > 0) return
@@ -186,6 +275,8 @@ class LearningRepository(
         noteDao.update((noteDao.getById(pisat) ?: return).copy(aspectPartner = napisat))
         noteDao.update((noteDao.getById(napisat) ?: return).copy(aspectPartner = pisat))
         confusablePairDao.insert(ConfusablePair(firstNoteId = pisat, secondNoteId = napisat, reason = "aspect_partner"))
+        insertMissingAspectCards(pisat)
+        insertMissingAspectCards(napisat)
 
         if (readerTextDao.count() == 0) {
             readerTextDao.insert(
@@ -201,6 +292,7 @@ class LearningRepository(
     suspend fun addNote(note: Note): Long {
         val noteId = noteDao.insert(note)
         cardDao.insertAll(cardsFor(note.copy(id = noteId)))
+        invalidateNoteStructure()
         return noteId
     }
 
@@ -237,11 +329,10 @@ class LearningRepository(
                 val cardsJson = if (json.has("_cards")) json.optJSONArray("_cards") else null
                 if (cardsJson != null) {
                     val fresh = cardDao.getCardsForNote(noteId)
-                    val freshByTypeAndCue = fresh.associateBy { "${it.cardType.name}:${it.gramContextCue}" }
+                    val freshByVariant = fresh.associateBy { it.srsVariantKey() }
                     repeat(cardsJson.length()) { ci ->
                         val cj = cardsJson.getJSONObject(ci)
-                        val key = "${cj.getString("cardType")}:${cj.optString("gramContextCue", "null")}"
-                        val existing = freshByTypeAndCue[key] ?: return@repeat
+                        val existing = freshByVariant[cj.srsVariantKey()] ?: return@repeat
                         cardDao.update(existing.copy(
                             state = CardState.valueOf(cj.getString("state")),
                             stability = cj.getDouble("stability"),
@@ -265,12 +356,19 @@ class LearningRepository(
             noteDao.update(note.copy(aspectPartner = partner.id))
             confusablePairDao.insert(ConfusablePair(firstNoteId = note.id, secondNoteId = partner.id, reason = "aspect_partner"))
             // Re-run cardsFor so BI/no_aspect_pair guards apply and both NO_CUE + HAS_CUE are added
-            val existingTypes = cardDao.getCardsForNote(note.id).map { it.cardType }.toSet()
-            if (CardType.ASPECT_SELECT !in existingTypes) {
-                cardDao.insertAll(cardsFor(noteDao.getById(note.id) ?: return@forEach).filter { it.cardType == CardType.ASPECT_SELECT })
-            }
+            insertMissingAspectCards(note.id)
         }
         return imported
+    }
+
+    private suspend fun insertMissingAspectCards(noteId: Long) {
+        val existingAspectCues = cardDao.getCardsForNote(noteId)
+            .filter { it.cardType == CardType.ASPECT_SELECT }
+            .mapNotNull { it.gramContextCue }
+            .toSet()
+        val missing = cardsFor(noteDao.getById(noteId) ?: return)
+            .filter { it.cardType == CardType.ASPECT_SELECT && it.gramContextCue !in existingAspectCues }
+        if (missing.isNotEmpty()) cardDao.insertAll(missing)
     }
 
     suspend fun exportJsonLines(): String = exportLines(includeSrs = false)
@@ -337,6 +435,30 @@ class LearningRepository(
     suspend fun addReaderText(title: String, body: String, source: String = "local"): Long =
         readerTextDao.insert(ReaderText(title = title.ifBlank { "Imported Text" }, body = body, source = source))
 
+    /**
+     * Additively import any bootstrap reader texts that aren't already present
+     * (matched by title). Runs on every launch so existing users receive newly
+     * shipped reading material on update, without wiping their data. Idempotent.
+     */
+    suspend fun syncBootstrapReaderTexts(): Int {
+        val payload = bootstrapReaderTexts?.invoke()?.takeIf { it.isNotBlank() } ?: return 0
+        val existingTitles = readerTextDao.getAll().mapTo(HashSet()) { it.title }
+        var added = 0
+        payload.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .forEach { line ->
+                val json = JSONObject(line)
+                val title = json.optString("title", "Imported Text")
+                if (title !in existingTitles) {
+                    addReaderText(title, json.getString("body"), json.optString("source", "local"))
+                    existingTitles += title
+                    added += 1
+                }
+            }
+        return added
+    }
+
     suspend fun importReaderTextsJsonLines(jsonLines: String): Int {
         var imported = 0
         jsonLines.lineSequence()
@@ -355,21 +477,34 @@ class LearningRepository(
     }
 
     suspend fun readerTexts(): List<ReaderRecommendation> {
-        val index = buildFormIndex(noteDao.getAll())
-        val covered = readerTextDao.getAll().map { coverageFor(it, index) }
+        val index = formIndex()
+        val known = knownNoteIds()
+        val covered = readerTextDao.getAll().map { coverageFor(it, index, known) }
         val targetReady = covered.any { it.text.source.startsWith("target:", ignoreCase = true) && it.coverage >= AUTHENTIC_READY_COVERAGE }
         return covered.map { it.copy(authenticReady = targetReady) }
     }
 
     suspend fun readerTokens(text: ReaderText): List<ReaderToken> {
-        val index = buildFormIndex(noteDao.getAll())
+        val notes = allNotesCached()
+        val index = formIndex()
+        val known = knownNoteIds()
+        val statusById = HashMap<Long, WordStatus>(notes.size)
+        for (n in notes) statusById[n.id] = n.status
         return tokenize(text.body).map { token ->
             val normalized = normalizeToken(token)
             val note = index[normalized]
+            val freshStatus = note?.let { statusById[it.id] } ?: WordStatus.NEW
+            val derivedKnown = note != null && note.id in known
+            val status = when {
+                note != null && freshStatus != WordStatus.NEW -> freshStatus
+                derivedKnown -> WordStatus.KNOWN
+                else -> WordStatus.NEW
+            }
             ReaderToken(
                 surface = token,
                 normalized = normalized,
-                known = note != null,
+                known = status == WordStatus.KNOWN || status == WordStatus.IGNORED,
+                status = status,
                 lemma = note?.lemma,
                 parse = note?.let { parseToken(token, it) },
                 aktionsart = note?.aktionsart,
@@ -378,6 +513,33 @@ class LearningRepository(
                 exampleSentence = note?.exampleSentence
             )
         }
+    }
+
+    /**
+     * Explicitly set the reading status of a tapped word. Creates a lightweight
+     * tracking note if the word isn't in the deck yet, so status survives.
+     */
+    suspend fun setWordStatus(token: String, status: WordStatus): Note? {
+        val normalized = normalizeToken(token)
+        val match = formIndex()[normalized] ?: noteDao.getByLemma(normalized)
+        if (match != null) {
+            // Re-read the live row so we don't write back a stale encounterCount.
+            val fresh = noteDao.getById(match.id) ?: match
+            noteDao.update(fresh.copy(status = status))
+            invalidateNoteState()
+            return noteDao.getById(match.id)
+        }
+        addNote(
+            Note(
+                russian = token,
+                lemma = normalized,
+                translation = "lookup pending",
+                partOfSpeech = "unknown",
+                status = status,
+                tags = "reader_lookup"
+            )
+        )
+        return noteDao.getByLemma(normalized)
     }
 
     suspend fun dashboardStats(now: Long = System.currentTimeMillis()): DashboardStats =
@@ -432,7 +594,134 @@ class LearningRepository(
             interleavedGrammar = interleavedGrammarPrompts(blocked.map { it.card.id }.toSet(), now),
             readerRecommendation = allTexts.minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTarget(it.coverage) }.thenByDescending { it.coverage }),
             dashboardStats = dashboardStatsFrom(now, allTexts),
-            dailyPlan = daily
+            dailyPlan = daily,
+            gamification = gamificationStats(now)
+        )
+    }
+
+    suspend fun gamificationStats(now: Long = System.currentTimeMillis()): GamificationStats {
+        val tzOffset = java.util.TimeZone.getDefault().getOffset(now).toLong()
+        val days = reviewLogDao.reviewDayBuckets(tzOffset, DAY_MILLIS)
+        val daySet = days.toHashSet()
+        val todayBucket = (now + tzOffset) / DAY_MILLIS
+
+        // Current streak: count back from today (or yesterday, if nothing yet today).
+        var currentStreak = 0
+        if (todayBucket in daySet || (todayBucket - 1) in daySet) {
+            var day = if (todayBucket in daySet) todayBucket else todayBucket - 1
+            while (day in daySet) {
+                currentStreak += 1
+                day -= 1
+            }
+        }
+        // Longest streak: scan all active days ascending for the longest run.
+        var longestStreak = 0
+        var run = 0
+        var previous: Long? = null
+        for (day in days.sorted()) {
+            run = if (previous != null && day == previous!! + 1) run + 1 else 1
+            if (run > longestStreak) longestStreak = run
+            previous = day
+        }
+
+        val totalReviews = reviewLogDao.countAll()
+        val xp = totalReviews * XP_PER_REVIEW
+        // Level L costs L * XP_PER_LEVEL_STEP to advance; spend xp level by level.
+        var level = 1
+        var remaining = xp
+        while (remaining >= level * XP_PER_LEVEL_STEP) {
+            remaining -= level * XP_PER_LEVEL_STEP
+            level += 1
+        }
+        val knownWords = knownNoteIds().size
+        val reviewedToday = reviewLogDao.countSince(now - (now % DAY_MILLIS))
+        val activeDays = days.size
+        val last7 = (6 downTo 0).map { offset -> (todayBucket - offset) in daySet }
+
+        val achievements = listOf(
+            // --- Getting started ---
+            achievement("first_review", "Liftoff", "Do your first review", totalReviews >= 1),
+            achievement("first_words", "First Words", "Know 10 words", knownWords >= 10),
+            achievement("goal_met", "On Target", "Hit a daily goal", reviewedToday >= DAILY_GOAL || activeDays >= 1),
+            // --- Words known ---
+            achievement("words_50", "Getting Going", "Know 50 words", knownWords >= 50),
+            achievement("wordsmith", "Wordsmith", "Know 100 words", knownWords >= 100),
+            achievement("words_250", "Wordhoard", "Know 250 words", knownWords >= 250),
+            achievement("lexicon", "Lexicon", "Know 500 words", knownWords >= 500),
+            achievement("polyglot", "Polyglot", "Know 1,000 words", knownWords >= 1000),
+            achievement("words_2000", "Erudite", "Know 2,000 words", knownWords >= 2000),
+            achievement("words_5000", "Native Range", "Know 5,000 words", knownWords >= 5000),
+            // --- Reviews done ---
+            achievement("rev_10", "Warming Up", "10 reviews", totalReviews >= 10),
+            achievement("rev_50", "In the Groove", "50 reviews", totalReviews >= 50),
+            achievement("centurion", "Centurion", "100 reviews", totalReviews >= 100),
+            achievement("rev_500", "Workhorse", "500 reviews", totalReviews >= 500),
+            achievement("dedicated", "Dedicated", "1,000 reviews", totalReviews >= 1000),
+            achievement("rev_5000", "Relentless", "5,000 reviews", totalReviews >= 5000),
+            achievement("rev_10000", "Machine", "10,000 reviews", totalReviews >= 10000),
+            achievement("rev_25000", "Unstoppable", "25,000 reviews", totalReviews >= 25000),
+            // --- Streaks ---
+            achievement("streak_3", "Habit Forming", "3-day streak", longestStreak >= 3),
+            achievement("week_warrior", "Week Warrior", "7-day streak", longestStreak >= 7),
+            achievement("streak_14", "Fortnight", "14-day streak", longestStreak >= 14),
+            achievement("month_master", "Month Master", "30-day streak", longestStreak >= 30),
+            achievement("streak_60", "Two Months", "60-day streak", longestStreak >= 60),
+            achievement("streak_100", "Century Streak", "100-day streak", longestStreak >= 100),
+            achievement("streak_200", "Iron Will", "200-day streak", longestStreak >= 200),
+            achievement("streak_365", "Year of Russian", "365-day streak", longestStreak >= 365),
+            // --- Levels ---
+            achievement("level_5", "Apprentice", "Reach level 5", level >= 5),
+            achievement("level_10", "Adept", "Reach level 10", level >= 10),
+            achievement("level_20", "Expert", "Reach level 20", level >= 20),
+            achievement("level_50", "Master", "Reach level 50", level >= 50),
+            achievement("level_100", "Grandmaster", "Reach level 100", level >= 100),
+            // --- XP ---
+            achievement("xp_1k", "Spark", "Earn 1,000 XP", xp >= 1000),
+            achievement("xp_10k", "Charged", "Earn 10,000 XP", xp >= 10000),
+            achievement("xp_100k", "Overcharged", "Earn 100,000 XP", xp >= 100000),
+            // --- Consistency (active days) ---
+            achievement("days_10", "Regular", "10 active days", activeDays >= 10),
+            achievement("days_50", "Committed", "50 active days", activeDays >= 50),
+            achievement("days_100", "Devoted", "100 active days", activeDays >= 100),
+            // --- Daily intensity ---
+            achievement("goal_double", "Overachiever", "Double the daily goal", reviewedToday >= DAILY_GOAL * 2),
+            achievement("goal_triple", "Marathon", "Triple the daily goal", reviewedToday >= DAILY_GOAL * 3)
+        )
+
+        return GamificationStats(
+            knownWords = knownWords,
+            totalReviews = totalReviews,
+            xp = xp,
+            level = level,
+            xpIntoLevel = remaining,
+            xpForLevel = level * XP_PER_LEVEL_STEP,
+            currentStreak = currentStreak,
+            longestStreak = longestStreak,
+            reviewedToday = reviewedToday,
+            dailyGoal = DAILY_GOAL,
+            activeDays = days.size,
+            last7Days = last7,
+            achievements = achievements
+        )
+    }
+
+    private fun achievement(id: String, title: String, description: String, unlocked: Boolean) =
+        Achievement(id, title, description, unlocked)
+
+    /** Cheap stats for the daily reminder notification (no form-index build). */
+    suspend fun reminderInfo(now: Long = System.currentTimeMillis()): ReminderInfo {
+        val tzOffset = java.util.TimeZone.getDefault().getOffset(now).toLong()
+        val daySet = reviewLogDao.reviewDayBuckets(tzOffset, DAY_MILLIS).toHashSet()
+        val todayBucket = (now + tzOffset) / DAY_MILLIS
+        var streak = 0
+        if (todayBucket in daySet || (todayBucket - 1) in daySet) {
+            var day = if (todayBucket in daySet) todayBucket else todayBucket - 1
+            while (day in daySet) { streak += 1; day -= 1 }
+        }
+        return ReminderInfo(
+            currentStreak = streak,
+            studiedToday = todayBucket in daySet,
+            dueToday = cardDao.countDue(now)
         )
     }
 
@@ -449,6 +738,7 @@ class LearningRepository(
         cardDao.update(updatedCard)
         reviewLogDao.insert(log)
         noteDao.getById(card.noteId)?.let { noteDao.update(it.copy(encounterCount = it.encounterCount + 1)) }
+        invalidateNoteState()
         graduateEligibleCategories()
         graduateVocabByEncounters()
     }
@@ -456,11 +746,13 @@ class LearningRepository(
     suspend fun readerRecommendation(): ReaderRecommendation? =
         readerTexts().minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTarget(it.coverage) }.thenByDescending { it.coverage })
 
+    @Suppress("UNUSED_PARAMETER")
     suspend fun readerLookup(token: String, text: ReaderText, now: Long = System.currentTimeMillis()): Note? {
         val normalized = normalizeToken(token)
-        val note = buildFormIndex(noteDao.getAll())[normalized]
+        val note = formIndex()[normalized]?.let { noteDao.getById(it.id) }
         if (note != null) {
             noteDao.update(note.copy(encounterCount = note.encounterCount + 1))
+            invalidateNoteState()
             val card = cardDao.getCardsForNote(note.id).firstOrNull()
             if (card != null) {
                 reviewLogDao.insert(
@@ -507,24 +799,41 @@ class LearningRepository(
         } else {
             cardDao.getDueCards(now, limit = limit)
         }.ifEmpty { cardDao.getNewCards(limit = limit) }
-        val queue = base.toMutableList()
-        val pairPriority = mutableSetOf<Long>()
+        val session = mutableListOf<Card>()
+        val sessionIds = mutableSetOf<Long>()
+        val newCardSession = base.all { it.state == CardState.NEW }
         for (card in base) {
+            if (sessionIds.add(card.id)) session += card
             for (pair in confusablePairDao.getForNote(card.noteId)) {
                 val partnerNoteId = if (pair.firstNoteId == card.noteId) pair.secondNoteId else pair.firstNoteId
                 val partner = cardDao.getCardsForNote(partnerNoteId)
-                    .firstOrNull { it.cardType == card.cardType && queue.none { queued -> queued.id == it.id } }
-                if (partner != null) {
-                    queue += partner
-                    pairPriority += card.id
-                    pairPriority += partner.id
-                }
+                    .filter { it.matchesCardVariant(card) && it.id !in sessionIds }
+                    .sortedWith(compareBy<Card> { it.due }.thenBy { it.id })
+                    .firstOrNull { if (newCardSession) it.state == CardState.NEW else it.state != CardState.NEW && it.due <= now }
+                if (partner != null && sessionIds.add(partner.id)) session += partner
             }
         }
-        return queue.distinctBy { it.id }
-            .sortedWith(compareBy<Card> { if (it.id in pairPriority) 0 else 1 }.thenBy { it.due }.thenBy { it.id })
-            .take(limit)
+        return session.take(limit)
     }
+
+    private fun Card.matchesCardVariant(other: Card): Boolean =
+        cardType == other.cardType &&
+            gramCase == other.gramCase &&
+            gramGender == other.gramGender &&
+            gramNumber == other.gramNumber &&
+            gramContextCue == other.gramContextCue
+
+    private fun Card.srsVariantKey(): String =
+        listOf(cardType.name, gramCase, gramGender, gramNumber, gramContextCue).joinToString(":") { it ?: "" }
+
+    private fun JSONObject.srsVariantKey(): String =
+        listOf(
+            getString("cardType"),
+            optCleanString("gramCase"),
+            optCleanString("gramGender"),
+            optCleanString("gramNumber"),
+            optCleanString("gramContextCue")
+        ).joinToString(":") { it ?: "" }
 
     private suspend fun promptFor(card: Card, now: Long): ReviewPrompt? {
         val note = noteDao.getById(card.noteId) ?: return null
@@ -567,7 +876,8 @@ class LearningRepository(
             note.aspect != "BI" &&
             !note.tags.contains("no_aspect_pair") &&
             !note.aktionsart.isNullOrBlank() &&
-            (note.aspectPartner != null || !note.aspect.isNullOrBlank())
+            note.aspectPartner != null &&
+            !note.aspect.isNullOrBlank()
         if (isAspectDrillable) {
             add(Card(noteId = note.id, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, gramContextCue = "NO_CUE"))
             add(Card(noteId = note.id, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, gramContextCue = "HAS_CUE"))
@@ -579,12 +889,20 @@ class LearningRepository(
         val gender = note.gender ?: return emptyList()
         val table = runCatching { JSONObject(json) }.getOrNull() ?: return emptyList()
         val source = if (table.has("cases")) table.getJSONObject("cases") else table
+        val nominativeByNumber = mapOf(
+            "SG" to source.optString("NOM_SG"),
+            "PL" to source.optString("NOM_PL")
+        )
         return source.keys().asSequence()
             .map { key -> key.uppercase(Locale.ROOT) }
             .mapNotNull { key ->
                 val parts = key.split("_")
                 val gramCase = parts.getOrNull(0)?.takeIf { it in CASES } ?: return@mapNotNull null
+                if (gramCase == "NOM") return@mapNotNull null
                 val gramNumber = parts.getOrNull(1)?.takeIf { it in NUMBERS } ?: if (gender == "PL") "PL" else "SG"
+                val answer = source.optString(key)
+                val nominative = nominativeByNumber[gramNumber].orEmpty()
+                if (answer.isBlank() || RussianForms.normalize(answer) == RussianForms.normalize(nominative)) return@mapNotNull null
                 Card(
                     noteId = note.id,
                     cardType = CardType.CASE_FILL,
@@ -660,9 +978,13 @@ class LearningRepository(
         return map
     }
 
-    private fun coverageFor(text: ReaderText, index: Map<String, Note>): ReaderRecommendation {
+
+    private fun coverageFor(text: ReaderText, index: Map<String, Note>, knownIds: Set<Long>): ReaderRecommendation {
         val tokens = tokenize(text.body)
-        val knownCount = tokens.count { normalizeToken(it) in index }
+        val knownCount = tokens.count { token ->
+            val note = index[normalizeToken(token)]
+            note != null && note.id in knownIds
+        }
         val coverage = if (tokens.isEmpty()) 0.0 else knownCount.toDouble() / tokens.size
         return ReaderRecommendation(
             text = text,
@@ -770,11 +1092,15 @@ class LearningRepository(
         private const val MIN_ACCURACY_SAMPLE = 30
         private const val GRADUATION_ACCURACY = 0.90
         private const val VOCAB_GRADUATION_ENCOUNTERS = 15
+        private const val READER_KNOWN_ENCOUNTERS = 3
         private const val MIN_READER_COVERAGE = 0.90
         private const val PRODUCTIVE_COVERAGE_MAX = 0.96
         private const val AUTHENTIC_READY_COVERAGE = 0.90
         private const val DESIGN_DOC_MIN_NOMINAL_ROWS = 200
         private const val DESIGN_DOC_MIN_VERB_ROWS = 100
+        private const val DAILY_GOAL = 20
+        private const val XP_PER_REVIEW = 10
+        private const val XP_PER_LEVEL_STEP = 100
         private val CASES = setOf("NOM", "ACC", "GEN", "DAT", "INS", "PREP")
         private val NUMBERS = setOf("SG", "PL")
     }

@@ -28,6 +28,7 @@ class LearningRepositoryTest {
         assertEquals(napisat?.id, pisat?.aspectPartner)
         assertTrue(fixture.cards.cards.any { it.cardType == CardType.ASPECT_SELECT && it.queue == Queue.GRAMMAR })
         assertTrue(fixture.cards.cards.any { it.cardType == CardType.CASE_FILL && it.gramCase == "GEN" && it.gramGender == "PL" && it.gramNumber == "PL" })
+        assertFalse(fixture.cards.cards.any { it.cardType == CardType.CASE_FILL && it.gramCase == "NOM" })
         assertTrue(fixture.pairs.pairs.isNotEmpty())
     }
 
@@ -117,9 +118,128 @@ class LearningRepositoryTest {
     }
 
     @Test
+    fun sessionPlanSuggestsDueReviewsBeforeNewCards() = runTest {
+        val fixture = RepoFixture()
+        val dueNoteId = fixture.notes.insert(Note(russian = "due", lemma = "due", translation = "due", partOfSpeech = "noun"))
+        val newNoteId = fixture.notes.insert(Note(russian = "new", lemma = "new", translation = "new", partOfSpeech = "noun"))
+        val newCardId = fixture.cards.insert(Card(noteId = newNoteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, due = 1L))
+        val dueCardId = fixture.cards.insert(
+            Card(
+                noteId = dueNoteId,
+                cardType = CardType.RU_TO_MEANING,
+                queue = Queue.VOCAB,
+                due = 100L,
+                state = CardState.REVIEW,
+                lastReview = 0L
+            )
+        )
+
+        val session = fixture.repository.sessionPlan(now = 200L)
+
+        assertEquals(dueCardId, session.reviewQueue.first().card.id)
+        assertFalse(session.reviewQueue.drop(1).any { it.card.id == newCardId })
+    }
+
+    @Test
+    fun sessionPlanPairsOnlyMatchingAspectCue() = runTest {
+        val fixture = RepoFixture()
+        val firstNoteId = fixture.notes.insert(
+            Note(
+                russian = "write",
+                lemma = "write",
+                translation = "write",
+                partOfSpeech = "verb",
+                aspect = "IPF",
+                aktionsart = "activity"
+            )
+        )
+        val secondNoteId = fixture.notes.insert(
+            Note(
+                russian = "finish-write",
+                lemma = "finish-write",
+                translation = "finish writing",
+                partOfSpeech = "verb",
+                aspect = "PF",
+                aktionsart = "accomplishment"
+            )
+        )
+        fixture.pairs.insert(ConfusablePair(firstNoteId = firstNoteId, secondNoteId = secondNoteId, reason = "aspect_partner"))
+        val firstHasCue = fixture.cards.insert(
+            Card(
+                noteId = firstNoteId,
+                cardType = CardType.ASPECT_SELECT,
+                queue = Queue.GRAMMAR,
+                due = 100L,
+                state = CardState.REVIEW,
+                lastReview = 0L,
+                gramContextCue = "HAS_CUE"
+            )
+        )
+        val secondNoCue = fixture.cards.insert(
+            Card(
+                noteId = secondNoteId,
+                cardType = CardType.ASPECT_SELECT,
+                queue = Queue.GRAMMAR,
+                due = 100L,
+                state = CardState.REVIEW,
+                lastReview = 0L,
+                gramContextCue = "NO_CUE"
+            )
+        )
+        fixture.cards.insert(
+            Card(
+                noteId = secondNoteId,
+                cardType = CardType.ASPECT_SELECT,
+                queue = Queue.GRAMMAR,
+                due = 170L,
+                state = CardState.REVIEW,
+                lastReview = 0L,
+                gramContextCue = "HAS_CUE"
+            )
+        )
+        val secondHasCue = fixture.cards.insert(
+            Card(
+                noteId = secondNoteId,
+                cardType = CardType.ASPECT_SELECT,
+                queue = Queue.GRAMMAR,
+                due = 150L,
+                state = CardState.REVIEW,
+                lastReview = 0L,
+                gramContextCue = "HAS_CUE"
+            )
+        )
+
+        val ids = fixture.repository.sessionPlan(now = 200L).reviewQueue.map { it.card.id }
+
+        assertEquals(listOf(firstHasCue, secondHasCue, secondNoCue), ids.take(3))
+    }
+
+    @Test
+    fun fullStateImportRestoresEachCaseCardByGrammarVariant() = runTest {
+        val fixture = RepoFixture()
+        val jsonl = """{"russian":"term","lemma":"term","pos":"noun","translation":"term","gender":"M","declensionJson":{"NOM_SG":"term","GEN_SG":"terma","DAT_SG":"termu"},"_cards":[{"cardType":"CASE_FILL","queue":"GRAMMAR","state":"REVIEW","stability":3.0,"difficulty":4.0,"elapsedDays":1,"scheduledDays":3,"reps":7,"lapses":0,"due":3000,"lastReview":1000,"consecutiveCorrect":2,"gramCase":"GEN","gramGender":"M","gramNumber":"SG"},{"cardType":"CASE_FILL","queue":"GRAMMAR","state":"RELEARNING","stability":1.5,"difficulty":8.0,"elapsedDays":2,"scheduledDays":0,"reps":9,"lapses":2,"due":2000,"lastReview":1500,"consecutiveCorrect":0,"gramCase":"DAT","gramGender":"M","gramNumber":"SG"}]}"""
+
+        assertEquals(1, fixture.repository.importJsonLines(jsonl))
+
+        val note = fixture.notes.getByLemma("term")
+        val caseCards = fixture.cards.cards.filter { it.noteId == note?.id && it.cardType == CardType.CASE_FILL }
+        val gen = caseCards.first { it.gramCase == "GEN" }
+        val dat = caseCards.first { it.gramCase == "DAT" }
+        assertEquals(CardState.REVIEW, gen.state)
+        assertEquals(7, gen.reps)
+        assertEquals(3000L, gen.due)
+        assertEquals(CardState.RELEARNING, dat.state)
+        assertEquals(9, dat.reps)
+        assertEquals(2000L, dat.due)
+    }
+
+    @Test
     fun readerCoverageStatusTokensAndDashboardTrackAuthenticReadiness() = runTest {
         val fixture = RepoFixture()
         fixture.repository.seedIfEmpty()
+        val troopNote = fixture.notes.notes.first { it.translation == "troops" }
+        val troopCard = fixture.cards.cards.first { it.noteId == troopNote.id && it.queue == Queue.VOCAB }
+        fixture.repository.review(troopCard, Rating.GOOD, now = 10_000L)
         fixture.repository.addReaderText(
             "Target sample",
             List(15) { "войска" }.joinToString(" ") + " неизвестно",
@@ -160,6 +280,9 @@ class LearningRepositoryTest {
         }
 
         assertEquals(300, fixture.repository.importJsonLines(jsonl))
+        val termNote = fixture.notes.notes.first { it.lemma == "term" }
+        val termCard = fixture.cards.cards.first { it.noteId == termNote.id && it.queue == Queue.VOCAB }
+        fixture.repository.review(termCard, Rating.GOOD, now = 10_000L)
         fixture.repository.addReaderText("Target", List(30) { "term" }.joinToString(" "), "target:fixture")
 
         val report = fixture.repository.importQualityReport()
@@ -228,14 +351,19 @@ class LearningRepositoryTest {
         val cards = mutableListOf<Card>()
         private var nextId = 1L
 
-        override suspend fun getDueCards(now: Long, limit: Int): List<Card> = cards.filter { it.due <= now }.sortedBy { it.due }.take(limit)
-        override suspend fun getDueCardsByQueue(now: Long, queue: Queue, limit: Int): List<Card> = cards.filter { it.due <= now && it.queue == queue }.take(limit)
-        override suspend fun getOverdueCards(cutoff: Long, limit: Int): List<Card> = cards.filter { it.due <= cutoff }.take(limit)
-        override suspend fun getAllDueCards(now: Long): List<Card> = cards.filter { it.due <= now }
-        override suspend fun getNewCards(limit: Int): List<Card> = cards.filter { it.state == CardState.NEW }.sortedBy { it.due }.take(limit)
+        override suspend fun getDueCards(now: Long, limit: Int): List<Card> =
+            cards.filter { it.due <= now && it.state != CardState.NEW }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
+        override suspend fun getDueCardsByQueue(now: Long, queue: Queue, limit: Int): List<Card> =
+            cards.filter { it.due <= now && it.queue == queue && it.state != CardState.NEW }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
+        override suspend fun getOverdueCards(cutoff: Long, limit: Int): List<Card> =
+            cards.filter { it.due <= cutoff && it.state != CardState.NEW }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
+        override suspend fun getAllDueCards(now: Long): List<Card> =
+            cards.filter { it.due <= now && it.state != CardState.NEW }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id })
+        override suspend fun getNewCards(limit: Int): List<Card> =
+            cards.filter { it.state == CardState.NEW }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
         override suspend fun getByNoteAndType(noteId: Long, cardType: CardType): Card? = cards.firstOrNull { it.noteId == noteId && it.cardType == cardType }
-        override suspend fun countDue(now: Long): Int = cards.count { it.due <= now }
-        override suspend fun countDueByQueue(now: Long, queue: Queue): Int = cards.count { it.due <= now && it.queue == queue }
+        override suspend fun countDue(now: Long): Int = cards.count { it.due <= now && it.state != CardState.NEW }
+        override suspend fun countDueByQueue(now: Long, queue: Queue): Int = cards.count { it.due <= now && it.queue == queue && it.state != CardState.NEW }
         override suspend fun countByQueue(queue: Queue): Int = cards.count { it.queue == queue }
         override suspend fun getGrammarCardsForNounCategory(gramCase: String, gramGender: String, gramNumber: String): List<Card> =
             cards.filter { it.queue == Queue.GRAMMAR && it.gramCase == gramCase && it.gramGender == gramGender && it.gramNumber == gramNumber }
@@ -243,9 +371,13 @@ class LearningRepositoryTest {
         override suspend fun getAspectCards(): List<Card> = cards.filter { it.queue == Queue.GRAMMAR && it.cardType == CardType.ASPECT_SELECT }
         override suspend fun getAllGrammarCards(): List<Card> = cards.filter { it.queue == Queue.GRAMMAR }
         override suspend fun getCaseDrillCards(gramCase: String, gramGender: String, gramNumber: String, limit: Int): List<Card> =
-            cards.filter { it.queue == Queue.GRAMMAR && it.cardType == CardType.CASE_FILL && it.gramCase == gramCase && it.gramGender == gramGender && it.gramNumber == gramNumber }.take(limit)
-        override suspend fun getGrammarDrillCards(limit: Int): List<Card> = cards.filter { it.queue == Queue.GRAMMAR }.take(limit)
+            cards.filter { it.queue == Queue.GRAMMAR && it.cardType == CardType.CASE_FILL && it.gramCase == gramCase && it.gramGender == gramGender && it.gramNumber == gramNumber }
+                .sortedWith(compareBy<Card> { it.due }.thenBy { it.id })
+                .take(limit)
+        override suspend fun getGrammarDrillCards(limit: Int): List<Card> =
+            cards.filter { it.queue == Queue.GRAMMAR }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
         override suspend fun getCardsForNote(noteId: Long): List<Card> = cards.filter { it.noteId == noteId }
+        override suspend fun getAllVocabCards(): List<Card> = cards.filter { it.queue == Queue.VOCAB }
         override suspend fun update(card: Card) {
             cards.replaceAll { if (it.id == card.id) card else it }
         }
@@ -269,6 +401,9 @@ class LearningRepositoryTest {
         }
 
         override suspend fun countSince(since: Long): Int = logs.count { it.reviewDatetime >= since }
+        override suspend fun countAll(): Int = logs.size
+        override suspend fun reviewDayBuckets(tzOffset: Long, dayMillis: Long): List<Long> =
+            logs.map { (it.reviewDatetime + tzOffset) / dayMillis }.distinct().sortedDescending()
         override suspend fun nounCategoryRatings(gramCase: String, gramGender: String, gramNumber: String, limit: Int): List<Rating> =
             logs.sortedByDescending { it.reviewDatetime }
                 .filter { log ->

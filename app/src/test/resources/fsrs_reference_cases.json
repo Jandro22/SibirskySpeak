@@ -4,20 +4,20 @@
     "card": {"queue":"VOCAB","type":"RU_TO_MEANING","state":"NEW","stability":0.0,"difficulty":0.0,"lastReview":null},
     "rating":"GOOD",
     "now": 1700000000000,
-    "expected": {"state":"REVIEW","scheduledDays":3,"stability":3.173,"difficulty":5.282434422319005}
+    "expected": {"state":"REVIEW","scheduledDays":2,"stability":2.3065,"difficulty":2.118103970459015}
   },
   {
     "name": "review_easy_vocab",
     "card": {"queue":"VOCAB","type":"RU_TO_MEANING","state":"REVIEW","stability":20.0,"difficulty":5.0,"lastReview":1698704000000},
     "rating":"EASY",
     "now": 1700000000000,
-    "expected": {"state":"REVIEW","scheduledDays":130}
+    "expected": {"state":"REVIEW","scheduledDays":96,"stability":96.09132220195957,"difficulty":3.320233}
   },
   {
     "name": "review_easy_grammar_capped",
     "card": {"queue":"GRAMMAR","type":"CASE_FILL","state":"REVIEW","stability":20.0,"difficulty":5.0,"lastReview":1698704000000},
     "rating":"EASY",
     "now": 1700000000000,
-    "expected": {"state":"REVIEW","scheduledDays":10}
+    "expected": {"state":"REVIEW","scheduledDays":10,"stability":96.09132220195957,"difficulty":3.320233}
   }
 ]

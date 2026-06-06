@@ -8,28 +8,28 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface CardDao {
-    @Query("SELECT * FROM cards WHERE due <= :now ORDER BY due ASC LIMIT :limit")
+    @Query("SELECT * FROM cards WHERE due <= :now AND state != 'NEW' ORDER BY due ASC, id ASC LIMIT :limit")
     suspend fun getDueCards(now: Long, limit: Int = 100): List<Card>
 
-    @Query("SELECT * FROM cards WHERE due <= :now AND queue = :queue ORDER BY due ASC LIMIT :limit")
+    @Query("SELECT * FROM cards WHERE due <= :now AND queue = :queue AND state != 'NEW' ORDER BY due ASC, id ASC LIMIT :limit")
     suspend fun getDueCardsByQueue(now: Long, queue: Queue, limit: Int = 100): List<Card>
 
-    @Query("SELECT * FROM cards WHERE due <= :cutoff ORDER BY due ASC LIMIT :limit")
+    @Query("SELECT * FROM cards WHERE due <= :cutoff AND state != 'NEW' ORDER BY due ASC, id ASC LIMIT :limit")
     suspend fun getOverdueCards(cutoff: Long, limit: Int = 100): List<Card>
 
-    @Query("SELECT * FROM cards WHERE due <= :now ORDER BY due ASC")
+    @Query("SELECT * FROM cards WHERE due <= :now AND state != 'NEW' ORDER BY due ASC, id ASC")
     suspend fun getAllDueCards(now: Long): List<Card>
 
-    @Query("SELECT * FROM cards WHERE state = 'NEW' ORDER BY due ASC LIMIT :limit")
+    @Query("SELECT * FROM cards WHERE state = 'NEW' ORDER BY due ASC, id ASC LIMIT :limit")
     suspend fun getNewCards(limit: Int): List<Card>
 
     @Query("SELECT * FROM cards WHERE noteId = :noteId AND cardType = :cardType LIMIT 1")
     suspend fun getByNoteAndType(noteId: Long, cardType: CardType): Card?
 
-    @Query("SELECT COUNT(*) FROM cards WHERE due <= :now")
+    @Query("SELECT COUNT(*) FROM cards WHERE due <= :now AND state != 'NEW'")
     suspend fun countDue(now: Long): Int
 
-    @Query("SELECT COUNT(*) FROM cards WHERE due <= :now AND queue = :queue")
+    @Query("SELECT COUNT(*) FROM cards WHERE due <= :now AND queue = :queue AND state != 'NEW'")
     suspend fun countDueByQueue(now: Long, queue: Queue): Int
 
     @Query("SELECT COUNT(*) FROM cards WHERE queue = :queue")
@@ -47,14 +47,17 @@ interface CardDao {
     @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR'")
     suspend fun getAllGrammarCards(): List<Card>
 
-    @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR' AND cardType = 'CASE_FILL' AND gramCase = :gramCase AND gramGender = :gramGender AND gramNumber = :gramNumber ORDER BY due ASC LIMIT :limit")
+    @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR' AND cardType = 'CASE_FILL' AND gramCase = :gramCase AND gramGender = :gramGender AND gramNumber = :gramNumber ORDER BY due ASC, id ASC LIMIT :limit")
     suspend fun getCaseDrillCards(gramCase: String, gramGender: String, gramNumber: String, limit: Int): List<Card>
 
-    @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR' ORDER BY due ASC LIMIT :limit")
+    @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR' ORDER BY due ASC, id ASC LIMIT :limit")
     suspend fun getGrammarDrillCards(limit: Int): List<Card>
 
     @Query("SELECT * FROM cards WHERE noteId = :noteId")
     suspend fun getCardsForNote(noteId: Long): List<Card>
+
+    @Query("SELECT * FROM cards WHERE queue = 'VOCAB'")
+    suspend fun getAllVocabCards(): List<Card>
 
     @Update
     suspend fun update(card: Card)
@@ -100,6 +103,14 @@ interface ReviewLogDao {
 
     @Query("SELECT COUNT(*) FROM review_logs WHERE reviewDatetime >= :since")
     suspend fun countSince(since: Long): Int
+
+    @Query("SELECT COUNT(*) FROM review_logs")
+    suspend fun countAll(): Int
+
+    // Distinct local-day buckets that have at least one review, newest first.
+    // Used for streak and active-day stats without loading every log row.
+    @Query("SELECT DISTINCT (reviewDatetime + :tzOffset) / :dayMillis AS day FROM review_logs ORDER BY day DESC")
+    suspend fun reviewDayBuckets(tzOffset: Long, dayMillis: Long): List<Long>
 
     @Query("""
         SELECT rl.rating FROM review_logs rl
