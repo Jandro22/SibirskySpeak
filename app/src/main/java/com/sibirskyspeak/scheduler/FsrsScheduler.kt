@@ -6,7 +6,6 @@ import com.sibirskyspeak.data.Queue
 import com.sibirskyspeak.data.Rating
 import com.sibirskyspeak.data.ReviewLog
 import com.sibirskyspeak.data.ReviewSource
-import kotlin.math.ceil
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.pow
@@ -89,10 +88,12 @@ class FsrsScheduler(
     }
 
     private fun retrievability(elapsedDays: Int, stability: Double): Double =
-        (1.0 + FACTOR * elapsedDays / stability).pow(DECAY)
+        (1.0 + factor() * elapsedDays / stability).pow(-decay())
 
-    private fun sameDayStability(stability: Double, rating: Rating): Double =
-        stability * exp(weights[17] * (rating.value - 3 + weights[18]))
+    private fun sameDayStability(stability: Double, rating: Rating): Double {
+        val increase = exp(weights[17] * (rating.value - 3 + weights[18])) * stability.pow(-weights[19])
+        return stability * if (rating.value >= Rating.GOOD.value) max(1.0, increase) else increase
+    }
 
     private fun recallStability(difficulty: Double, stability: Double, retrievability: Double, rating: Rating): Double {
         val hardPenalty = if (rating == Rating.HARD) weights[15] else 1.0
@@ -113,9 +114,13 @@ class FsrsScheduler(
             exp(weights[14] * (1.0 - retrievability))
 
     private fun interval(stability: Double): Int {
-        val raw = stability / FACTOR * (desiredRetention.pow(1.0 / DECAY) - 1.0)
+        val raw = stability / factor() * (desiredRetention.pow(-1.0 / decay()) - 1.0)
         return raw.roundToInt().coerceIn(1, maximumIntervalDays)
     }
+
+    private fun decay(): Double = weights[20]
+
+    private fun factor(): Double = 0.9.pow(-1.0 / decay()) - 1.0
 
     private fun scheduledDays(stability: Double, rating: Rating, state: CardState): Int =
         when {
@@ -145,7 +150,7 @@ class FsrsScheduler(
 
     private fun elapsedDays(card: Card, now: Long): Int {
         val previous = card.lastReview ?: return 0
-        return max(0, ceil((now - previous).toDouble() / DAY_MILLIS).toInt())
+        return max(0, ((now - previous) / DAY_MILLIS).toInt())
     }
 
     private fun Double.clampDifficulty(): Double = coerceIn(1.0, 10.0)
@@ -154,14 +159,12 @@ class FsrsScheduler(
         private const val DAY_MILLIS = 86_400_000L
         private const val MINUTE_MILLIS = 60_000L
         private const val GRAMMAR_INTERVAL_CEILING_DAYS = 10
-        private const val DECAY = -0.5
-        private const val FACTOR = 19.0 / 81.0
         private const val MIN_STABILITY = 0.01
 
         val DEFAULT_WEIGHTS: DoubleArray = doubleArrayOf(
-            0.40255, 1.18385, 3.173, 15.69105, 7.1949, 0.5345, 1.4604,
-            0.0046, 1.54575, 0.1192, 1.01925, 1.9395, 0.11, 0.29605,
-            2.2698, 0.2315, 2.9898, 0.51655, 0.6621
+            0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194,
+            0.001, 1.8722, 0.1666, 0.796, 1.4835, 0.0614, 0.2629,
+            1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542
         )
     }
 }

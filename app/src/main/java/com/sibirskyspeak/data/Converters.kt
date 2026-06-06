@@ -32,4 +32,10 @@ class Converters {
 
     @TypeConverter
     fun stringToReviewSource(value: String): ReviewSource = ReviewSource.valueOf(value)
+
+    @TypeConverter
+    fun wordStatusToString(value: WordStatus): String = value.name
+
+    @TypeConverter
+    fun stringToWordStatus(value: String): WordStatus = WordStatus.valueOf(value)
 }

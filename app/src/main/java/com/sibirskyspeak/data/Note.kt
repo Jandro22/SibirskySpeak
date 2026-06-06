@@ -22,5 +22,6 @@ data class Note(
     val generalFreqRank: Int? = null,
     val domainFreqRank: Int? = null,
     val encounterCount: Int = 0,
+    val status: WordStatus = WordStatus.NEW,
     val tags: String = ""
 )

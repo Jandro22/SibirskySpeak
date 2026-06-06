@@ -1,46 +1,47 @@
 package com.sibirskyspeak.data
 
+import java.text.Normalizer
 import java.util.Locale
 
 /**
- * Lightweight Russian form derivation used by the reader (to recognise
- * inflected tokens) and the aspect drill (to present finite past-tense
- * choices). This is deliberately rule-based and partial: it covers the
- * regular past tense and the nominal paradigm forms that already ship in
- * each Note's declension table. It never invents irregular stems — callers
- * fall back to the citation form when a verb is irregular.
+ * Lightweight Russian form derivation used by the reader and aspect drills.
+ * It only derives regular forms; irregular verbs fall back to stored data.
  */
 object RussianForms {
-
     private val ruLocale = Locale("ru")
 
-    fun normalize(value: String): String =
-        value.trim().lowercase(ruLocale).replace("́", "").replace('ё', 'е')
+    fun normalize(value: String): String {
+        val decomposed = Normalizer.normalize(value.trim().lowercase(ruLocale).replace('ё', 'е'), Normalizer.Form.NFD)
+        return decomposed
+            .replace("\u0301", "")
+            .replace("\u0308", "")
+    }
 
-    /** Masculine past tense, e.g. писать -> писал, развернуть -> развернул. */
     fun pastMasculine(infinitive: String): String? {
-        val w = normalize(infinitive)
+        val word = normalize(infinitive)
         return when {
-            w.endsWith("ться") -> w.dropLast(4) + "лся"
-            w.endsWith("ть") -> w.dropLast(2) + "л"
-            else -> null // -ти / -чь and other irregular stems: don't guess
+            word.endsWith("ться") -> word.dropLast(4) + "лся"
+            word.endsWith("ть") -> word.dropLast(2) + "л"
+            else -> null
         }
     }
 
-    /** Regular past-tense forms (m/f/n/pl) for reader matching. Empty if irregular. */
     fun pastForms(infinitive: String): List<String> {
-        val w = normalize(infinitive)
-        val refl = w.endsWith("ться")
+        val word = normalize(infinitive)
+        val reflexive = word.endsWith("ться")
         val stem = when {
-            refl -> w.dropLast(4)
-            w.endsWith("ть") -> w.dropLast(2)
+            reflexive -> word.dropLast(4)
+            word.endsWith("ть") -> word.dropLast(2)
             else -> return emptyList()
         }
-        val suffixes = if (refl) listOf("лся", "лась", "лось", "лись") else listOf("л", "ла", "ло", "ли")
+        val suffixes = if (reflexive) {
+            listOf("лся", "лась", "лось", "лись")
+        } else {
+            listOf("л", "ла", "ло", "ли")
+        }
         return suffixes.map { stem + it }
     }
 
-    /** All recognisable surface forms for a Note, normalized for matching. */
     fun surfaceForms(note: Note): Set<String> {
         val forms = linkedSetOf(normalize(note.russian), normalize(note.lemma))
         note.declensionJson?.let { json ->
@@ -48,8 +49,8 @@ object RussianForms {
                 val obj = org.json.JSONObject(json)
                 val table = if (obj.has("cases")) obj.getJSONObject("cases") else obj
                 table.keys().forEach { key ->
-                    val v = table.optString(key)
-                    if (v.isNotBlank()) forms += normalize(v)
+                    val value = table.optString(key)
+                    if (value.isNotBlank()) forms += normalize(value)
                 }
             }
         }
