@@ -1,0 +1,4 @@
+beautifulsoup4>=4.12
+requests>=2.31
+pymorphy2>=0.9.1
+pytest>=8.0

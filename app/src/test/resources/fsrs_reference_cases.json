@@ -1,0 +1,23 @@
+[
+  {
+    "name": "new_good_vocab",
+    "card": {"queue":"VOCAB","type":"RU_TO_MEANING","state":"NEW","stability":0.0,"difficulty":0.0,"lastReview":null},
+    "rating":"GOOD",
+    "now": 1700000000000,
+    "expected": {"state":"REVIEW","scheduledDays":3,"stability":3.173,"difficulty":5.282434422319005}
+  },
+  {
+    "name": "review_easy_vocab",
+    "card": {"queue":"VOCAB","type":"RU_TO_MEANING","state":"REVIEW","stability":20.0,"difficulty":5.0,"lastReview":1698704000000},
+    "rating":"EASY",
+    "now": 1700000000000,
+    "expected": {"state":"REVIEW","scheduledDays":130}
+  },
+  {
+    "name": "review_easy_grammar_capped",
+    "card": {"queue":"GRAMMAR","type":"CASE_FILL","state":"REVIEW","stability":20.0,"difficulty":5.0,"lastReview":1698704000000},
+    "rating":"EASY",
+    "now": 1700000000000,
+    "expected": {"state":"REVIEW","scheduledDays":10}
+  }
+]
