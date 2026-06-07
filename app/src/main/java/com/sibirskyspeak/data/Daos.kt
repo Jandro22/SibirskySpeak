@@ -130,6 +130,9 @@ interface CardDao {
     @Query("SELECT * FROM cards WHERE noteId = :noteId")
     suspend fun getCardsForNote(noteId: Long): List<Card>
 
+    @Query("SELECT * FROM cards WHERE noteId IN (:noteIds)")
+    suspend fun getCardsForNotes(noteIds: List<Long>): List<Card>
+
     @Query("SELECT * FROM cards WHERE queue = 'VOCAB'")
     suspend fun getAllVocabCards(): List<Card>
 
@@ -244,8 +247,14 @@ interface NoteDao {
     @Query("SELECT * FROM notes")
     suspend fun getAll(): List<Note>
 
+    @Query("SELECT * FROM notes WHERE cefrLevel IN (:levels)")
+    suspend fun getByCefrLevels(levels: List<String>): List<Note>
+
     @Update
     suspend fun update(note: Note)
+
+    @Update
+    suspend fun updateAll(notes: List<Note>)
 }
 
 @Dao

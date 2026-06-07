@@ -152,6 +152,10 @@ class ReviewViewModel(
         mutableState.value = mutableState.value.copy(newlyUnlocked = emptyList())
     }
 
+    fun dismissStatusMessage() {
+        mutableState.value = mutableState.value.copy(statusMessage = null)
+    }
+
     // --- Deck search --------------------------------------------------------
 
     fun setSearchQuery(value: String) {
@@ -185,7 +189,8 @@ class ReviewViewModel(
                 val correct = isEnglishAnswerCorrect(prompt.expectedAnswer, mutableState.value.typedAnswer)
                 AnswerEvaluation(if (correct) AnswerMatch.EXACT else AnswerMatch.WRONG, prompt.expectedAnswer)
             }
-            AnswerMode.RUSSIAN_TYPED, AnswerMode.AUDIO_ONLY -> evaluateRussianAnswer(prompt.expectedAnswer, mutableState.value.typedAnswer)
+            AnswerMode.RUSSIAN_TYPED, AnswerMode.AUDIO_ONLY, AnswerMode.SPEAK -> evaluateRussianAnswer(prompt.expectedAnswer, mutableState.value.typedAnswer)
+            AnswerMode.RUSSIAN_STRESS_TYPED -> evaluateRussianAnswer(prompt.expectedAnswer, mutableState.value.typedAnswer, ignoreStress = false)
             AnswerMode.CHOICE -> {
                 val correct = mutableState.value.typedAnswer.trim().equals(prompt.expectedAnswer.trim(), ignoreCase = true)
                 AnswerEvaluation(if (correct) AnswerMatch.EXACT else AnswerMatch.WRONG, prompt.expectedAnswer)
@@ -197,7 +202,7 @@ class ReviewViewModel(
             revealed = true,
             isAnswerCorrect = evaluation.accepted,
             answerMatch = evaluation.match,
-            answerFeedback = evaluation.message
+            answerFeedback = if (evaluation.accepted) evaluation.message else diagnosticFeedbackFor(prompt, mutableState.value.typedAnswer) ?: evaluation.message
         )
         if (!evaluation.accepted) {
             mutableState.value = mutableState.value.copy(ratingInProgress = true)
@@ -277,6 +282,14 @@ class ReviewViewModel(
             runCatching { repository.suspendCard(prompt.card) }
                 .onSuccess { loadSession(status = "Card suspended — it won't come back.") }
                 .onFailure { mutableState.value = mutableState.value.copy(statusMessage = it.message ?: "Could not suspend card") }
+        }
+    }
+
+    fun placeAfterLevel(level: String) {
+        viewModelScope.launch {
+            runCatching { repository.placeAfterLevel(level) }
+                .onSuccess { count -> loadSession(keepStep = SessionStep.IMPORT, status = "Placed after $level: marked $count notes known") }
+                .onFailure { mutableState.value = mutableState.value.copy(statusMessage = it.message ?: "Could not place level") }
         }
     }
 

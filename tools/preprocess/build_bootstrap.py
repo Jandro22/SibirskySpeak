@@ -15,6 +15,7 @@ from pathlib import Path
 
 from russian_morph import (decline_adjective, decline_noun,
                            decline_plurale_tantum, past_masculine, strip_stress)
+from present_verb_forms import present_forms_for
 import domain_wordlist as wl
 
 ASSETS = Path(__file__).resolve().parents[2] / "app" / "src" / "main" / "assets"
@@ -309,6 +310,7 @@ def verb_rows(start_rank: int):
 def _verb_note(citation, _unused, translation, aktionsart, aspect, partner_lemma, tags, rank):
     inf = strip_stress(citation)
     ex_ru, ex_en = verb_example(citation, translation, rank)
+    present_forms = present_forms_for(inf)
     note = {
         "russian": citation,
         "lemma": inf,
@@ -324,6 +326,8 @@ def _verb_note(citation, _unused, translation, aktionsart, aspect, partner_lemma
         "tier": 2,
         "tags": tags,
     }
+    if present_forms:
+        note["declensionJson"] = {"verbForms": present_forms}
     if partner_lemma:
         note["aspectPartner"] = partner_lemma
     return note
@@ -371,6 +375,32 @@ def all_reader_texts():
     except ImportError:
         pass
     return texts
+
+
+# Cumulative CEFR frequency benchmarks used to label the promoted course band.
+CEFR_BY_RANK = ((800, "A1"), (1500, "A2"), (2750, "B1"), (4500, "B2"))
+
+
+def promote_to_course(general, target=4750, per_unit=40, start_unit=100):
+    """Promote the top-frequency reading-matrix words into the gated tier-0 course.
+
+    The original frequency layer is "sorted by frequency" but not "gated by unit" —
+    it's a flat dictionary. This lifts the top [target] words into the structured
+    course: frequency-sorted, assigned to numbered units (so the app gates them like
+    course material) and CEFR levels (by frequency benchmark). They REUSE the
+    deck-verified gloss/example/declension — no generated Russian, honoring
+    correctness-first — and keep the "matrix" tag, so the morphology-drill guard
+    (see cardsFor) still skips them: they become vocab/comprehension study cards
+    whose tables serve the reader index only. Returns (promoted, remaining).
+    """
+    ranked = sorted(general, key=lambda g: g.get("generalFreqRank") or 10 ** 9)
+    promoted, remaining = ranked[:target], ranked[target:]
+    for i, g in enumerate(promoted):
+        g["tier"] = 0
+        g["unit"] = start_unit + i // per_unit
+        rank = g.get("generalFreqRank") or 10 ** 9
+        g["cefrLevel"] = next((lvl for thresh, lvl in CEFR_BY_RANK if rank <= thresh), "C1")
+    return promoted, remaining
 
 
 def write_jsonl(path: Path, rows):
@@ -430,7 +460,14 @@ def main():
     except ImportError:
         pass
 
-    notes = a1_notes + domain + general
+    # Promote the top-frequency words into the gated tier-0 course (frequency-sorted,
+    # unit-gated, CEFR-labelled). The hand-authored spine (a1_notes) leads with
+    # controlled comprehensible input; the promoted band extends the course to ~5k
+    # words using deck-verified data.
+    promoted, general = promote_to_course(general)
+
+    course = a1_notes + promoted
+    notes = course + domain + general
     reader_texts = a1_readers + all_reader_texts()
     write_jsonl(ASSETS / "bootstrap_notes.jsonl", notes)
     write_jsonl(ASSETS / "bootstrap_reader_texts.jsonl", reader_texts)
@@ -438,11 +475,12 @@ def main():
     aspect_ready = sum(1 for v in verbs if "aspectPartner" in v)
     a1_lessons = sum(1 for n in a1_notes if n.get("pos") == "lesson")
     by_level = {}
-    for n in a1_notes:
+    for n in course:
         by_level[n.get("cefrLevel")] = by_level.get(n.get("cefrLevel"), 0) + 1
-    print(f"notes: {len(notes)}  (curriculum={len(a1_notes)}: lessons={a1_lessons}, "
-          f"levels={by_level}; domain={len(domain)}: nominal={nominal}, "
-          f"verbs={len(verbs)}, aspect-ready={aspect_ready}; general={len(general)})")
+    print(f"notes: {len(notes)}  (tier-0 course={len(course)} [spine={len(a1_notes)} + "
+          f"promoted={len(promoted)}], lessons={a1_lessons}, levels={by_level}; "
+          f"domain={len(domain)}: nominal={nominal}, verbs={len(verbs)}, "
+          f"aspect-ready={aspect_ready}; general(reading-fuel)={len(general)})")
     print(f"reader texts: {len(reader_texts)}")
     print(f"wrote -> {ASSETS}")
 

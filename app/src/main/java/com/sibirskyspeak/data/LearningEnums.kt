@@ -5,11 +5,20 @@ enum class CardType {
     MEANING_TO_RU,
     CLOZE,
     AUDIO_TO_RU,
+    // Pronunciation/production practice: the learner says the Russian aloud and
+    // on-device speech recognition checks it (the only card that trains speaking).
+    SPEAK,
+    DICTATION,
+    SENTENCE_BUILD,
+    STRESS_MARK,
     CASE_FILL,
     VERB_FORM,
     ADJ_AGREE,
     GENDER_ID,
     ASPECT_SELECT,
+    // Authored grammar practice for concepts that are not safely derivable from a
+    // single word form (upper-level syntax, participles, register, idiom, etc.).
+    CONCEPT_DRILL,
     // A teaching card: shows a grammar concept's explanation and a worked example
     // BEFORE any drill on that concept. Has no real answer ("Got it" only). Seeing
     // it flips the concept to "introduced", which is what lets its drills surface.

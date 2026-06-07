@@ -18,14 +18,15 @@ data class AnswerEvaluation(
 }
 
 fun normalizeRussian(input: String, ignoreStress: Boolean = true): String {
-    var value = input.trim().lowercase(Locale("ru")).replace('ё', 'е')
+    var value = input.trim().lowercase(Locale("ru"))
+    if (ignoreStress) value = value.replace('ё', 'е')
     value = Normalizer.normalize(value, Normalizer.Form.NFD)
     if (ignoreStress) {
         value = value.replace("\u0301", "")
     }
     return value
-        .replace("\u0308", "")
-        .replace(Regex("""[^\p{L}\p{N}\s-]"""), "")
+        .let { if (ignoreStress) it.replace("\u0308", "") else it }
+        .replace(if (ignoreStress) Regex("""[^\p{L}\p{N}\s-]""") else Regex("""[^\p{L}\p{N}\u0301\u0308\s-]"""), "")
         .replace(Regex("""\s+"""), " ")
         .trim()
 }
@@ -45,6 +46,9 @@ fun evaluateRussianAnswer(expected: String, actual: String, ignoreStress: Boolea
     val exact = normalizedExpected.firstOrNull { it.second == normalizedActual }
     if (exact != null) {
         return AnswerEvaluation(AnswerMatch.EXACT, exact.first)
+    }
+    if (!ignoreStress) {
+        return AnswerEvaluation(AnswerMatch.WRONG, expected)
     }
 
     val closest = normalizedExpected

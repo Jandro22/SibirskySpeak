@@ -21,6 +21,7 @@ A grammar concept declared on a unit produces one ``pos:"lesson"`` note whose
 """
 from __future__ import annotations
 
+from present_verb_forms import present_forms_for
 from russian_morph import decline_adjective, decline_noun, strip_stress
 
 # Lesson note display titles. Keys/ids must match GrammarConcepts.kt.
@@ -35,6 +36,7 @@ CONCEPT_TITLES = {
     "INS": "The instrumental (\"with/by\")",
     "PAST": "The past tense",
     "ADJ_AGREE": "Adjective agreement",
+    "PRESENT": "The present tense",
     "ASPECT": "Verb aspect",
     # A2
     "FUTURE": "The future tense",
@@ -66,6 +68,22 @@ CONCEPT_TITLES = {
 }
 
 
+def _example_fields(ex_ru, ex_en, extras=None):
+    """Primary + up to two additional (example, translation) pairs.
+
+    `extras` is an optional list of (ru, en) tuples giving the word multiple
+    contexts (depth). They map to exampleSentence2/3 + exampleTranslation2/3, which
+    the app rotates through on review."""
+    fields = {"exampleSentence": ex_ru, "exampleTranslation": ex_en}
+    for i, pair in enumerate(extras or [], start=2):
+        if i > 3:
+            break
+        ru, en = pair
+        fields[f"exampleSentence{i}"] = ru
+        fields[f"exampleTranslation{i}"] = en
+    return fields
+
+
 def _decline_safe(lemma, cls, animate, sg_only=False):
     """Full SG+PL table when the engine supports it, else SG-only, else no table.
     Keeps a noun usable (singular declension/drills) even when its plural class
@@ -89,6 +107,7 @@ def _noun_note(entry, unit, rank, level):
     #             plurals (письмо→писем) so no incorrect drill ever ships.
     citation, cls, gender, animate, translation, ex_ru, ex_en = entry[:7]
     override = entry[7] if len(entry) > 7 else None
+    extras = entry[8] if len(entry) > 8 else None  # [(ru, en), ...] extra contexts
     lemma = strip_stress(citation).lower()
     if override == "sg":
         table = _decline_safe(lemma, cls, animate, sg_only=True)
@@ -99,20 +118,22 @@ def _noun_note(entry, unit, rank, level):
     return {
         "russian": citation, "lemma": lemma, "pos": "noun",
         "translation": translation, "gender": gender, "declensionJson": table,
-        "generalFreqRank": rank, "exampleSentence": ex_ru,
-        "exampleTranslation": ex_en, "tier": 0, "unit": unit,
+        "generalFreqRank": rank, "tier": 0, "unit": unit,
         "cefrLevel": level, "tags": f"a1 noun {level.lower()}",
+        **_example_fields(ex_ru, ex_en, extras),
     }
 
 
 def _adj_note(entry, unit, rank, level):
-    citation, translation, ex_ru, ex_en = entry
+    citation, translation, ex_ru, ex_en = entry[:4]
+    extras = entry[4] if len(entry) > 4 else None
     lemma = strip_stress(citation).lower()
     note = {
         "russian": citation, "lemma": lemma, "pos": "adjective",
         "translation": translation, "gender": "M", "generalFreqRank": rank,
-        "exampleSentence": ex_ru, "exampleTranslation": ex_en, "tier": 0,
-        "unit": unit, "cefrLevel": level, "tags": f"adjective {level.lower()}",
+        "tier": 0, "unit": unit, "cefrLevel": level,
+        "tags": f"adjective {level.lower()}",
+        **_example_fields(ex_ru, ex_en, extras),
     }
     try:
         note["declensionJson"] = decline_adjective(citation)
@@ -122,27 +143,32 @@ def _adj_note(entry, unit, rank, level):
 
 
 def _verb_note(entry, unit, rank, level):
-    citation, translation, ex_ru, ex_en, aspect, aktionsart, partner = entry
+    citation, translation, ex_ru, ex_en, aspect, aktionsart, partner = entry[:7]
+    extras = entry[7] if len(entry) > 7 else None
     lemma = strip_stress(citation).lower()
+    present_forms = present_forms_for(lemma)
     note = {
         "russian": citation, "lemma": lemma, "pos": "verb",
         "translation": translation, "aspect": aspect, "aktionsart": aktionsart,
-        "aktionsartConfidence": "manual", "generalFreqRank": rank,
-        "exampleSentence": ex_ru, "exampleTranslation": ex_en, "tier": 0,
+        "aktionsartConfidence": "manual", "generalFreqRank": rank, "tier": 0,
         "unit": unit, "cefrLevel": level, "tags": f"verb {level.lower()}",
+        **_example_fields(ex_ru, ex_en, extras),
     }
+    if present_forms:
+        note["declensionJson"] = {"verbForms": present_forms}
     if partner:
         note["aspectPartner"] = strip_stress(partner).lower()
     return note
 
 
 def _word_note(entry, unit, rank, level):
-    citation, pos, translation, ex_ru, ex_en = entry
+    citation, pos, translation, ex_ru, ex_en = entry[:5]
+    extras = entry[5] if len(entry) > 5 else None
     return {
         "russian": citation, "lemma": strip_stress(citation).lower(), "pos": pos,
-        "translation": translation, "generalFreqRank": rank,
-        "exampleSentence": ex_ru, "exampleTranslation": ex_en, "tier": 0,
+        "translation": translation, "generalFreqRank": rank, "tier": 0,
         "unit": unit, "cefrLevel": level, "tags": f"word {level.lower()}",
+        **_example_fields(ex_ru, ex_en, extras),
     }
 
 

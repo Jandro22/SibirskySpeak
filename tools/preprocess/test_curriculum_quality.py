@@ -59,26 +59,34 @@ def test_citations_have_stress_marks():
     assert not bad, f"citations missing stress marks: {bad}"
 
 
+def _examples(note):
+    out = []
+    for suffix in ("", "2", "3"):
+        ex = note.get(f"exampleSentence{suffix}")
+        if ex:
+            out.append(ex)
+    return out
+
+
 def test_example_sentences_have_stress_marks():
     bad = []
     for note in all_rows():
         if note["pos"] == "lesson":
             continue
-        ex = note.get("exampleSentence", "")
-        # Every polysyllabic word in the example should be stressed, so a learner
+        # Every polysyllabic word in every example should be stressed, so a learner
         # can read it aloud correctly.
-        for token in WORD_RE.findall(ex):
-            if _needs_stress(token):
-                bad.append((note["cefrLevel"], note["lemma"], token, ex))
-                break
+        for ex in _examples(note):
+            for token in WORD_RE.findall(ex):
+                if _needs_stress(token):
+                    bad.append((note["cefrLevel"], note["lemma"], token, ex))
+                    break
     assert not bad, f"example words missing stress: {bad[:20]}"
 
 
 def test_examples_are_varied():
     """No single example sentence is reused across many notes (monotony guard)."""
     counts = Counter(
-        n["exampleSentence"] for n in all_rows()
-        if n["pos"] != "lesson" and n.get("exampleSentence")
+        ex for n in all_rows() if n["pos"] != "lesson" for ex in _examples(n)
     )
     overused = {ex: c for ex, c in counts.items() if c > 2}
     assert not overused, f"example sentences reused >2x: {overused}"
@@ -160,6 +168,16 @@ def test_known_irregular_plurals_are_correct():
             assert table.get(key) == form, (
                 f"{lemma}.{key} = {table.get(key)!r}, expected {form!r}"
             )
+
+
+def test_curriculum_has_multi_context_depth():
+    """A meaningful share of curated words ships >1 example (multiple contexts),
+    not just a single frozen sentence. Guards the depth feature against regressing."""
+    multi = sum(
+        1 for n in all_rows()
+        if n["pos"] != "lesson" and n.get("exampleSentence2")
+    )
+    assert multi >= 20, f"only {multi} notes have a 2nd example; expected richer depth"
 
 
 def test_readers_have_titles_and_stress():

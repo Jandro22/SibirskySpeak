@@ -1,4 +1,4 @@
-﻿package com.sibirskyspeak.data
+package com.sibirskyspeak.data
 
 import com.sibirskyspeak.review.ReviewPrompt
 import com.sibirskyspeak.review.buildPrompt
@@ -61,7 +61,12 @@ data class ReaderToken(
     val aktionsart: String?,
     val stressForm: String?,
     val translation: String?,
-    val exampleSentence: String?
+    val exampleSentence: String?,
+    val exampleTranslation: String? = null,
+    val exampleSentence2: String? = null,
+    val exampleTranslation2: String? = null,
+    val exampleSentence3: String? = null,
+    val exampleTranslation3: String? = null
 )
 
 data class DashboardStats(
@@ -237,7 +242,10 @@ class LearningRepository(
     }
 
     suspend fun seedIfEmpty() {
-        if (noteDao.count() > 0) return
+        if (noteDao.count() > 0) {
+            syncMissingConceptDrillCards()
+            return
+        }
         val runner = transactionRunner ?: { block -> block() }
         // Safety net first: if a local backup exists, the empty DB is almost
         // certainly the result of a wipe (destructive migration / reinstall), not a
@@ -367,6 +375,10 @@ class LearningRepository(
                         encounterCount = json.optInt("encounterCount", 0),
                         exampleSentence = json.optCleanString("exampleSentence"),
                         exampleTranslation = json.optCleanString("exampleTranslation"),
+                        exampleSentence2 = json.optCleanString("exampleSentence2"),
+                        exampleTranslation2 = json.optCleanString("exampleTranslation2"),
+                        exampleSentence3 = json.optCleanString("exampleSentence3"),
+                        exampleTranslation3 = json.optCleanString("exampleTranslation3"),
                         audioPath = json.optCleanString("audioPath"),
                         tags = json.optString("tags", ""),
                         tier = json.optInt("tier", 1),
@@ -411,7 +423,8 @@ class LearningRepository(
                 val partner = noteDao.getByLemma(partnerLemma) ?: return@forEach
                 noteDao.update(note.copy(aspectPartner = partner.id))
                 confusablePairDao.insert(ConfusablePair(firstNoteId = note.id, secondNoteId = partner.id, reason = "aspect_partner"))
-                // Re-run cardsFor so BI/no_aspect_pair guards apply and both NO_CUE + HAS_CUE are added
+                // Re-run cardsFor so BI/no_aspect_pair guards apply and every
+                // aspect context cue is added.
                 insertMissingAspectCards(note.id)
             }
         }
@@ -426,6 +439,30 @@ class LearningRepository(
             .toSet()
         val missing = cardsFor(noteDao.getById(noteId) ?: return)
             .filter { it.cardType == CardType.ASPECT_SELECT && it.gramContextCue !in existingAspectCues }
+        if (missing.isNotEmpty()) cardDao.insertAll(missing)
+    }
+
+    private suspend fun syncMissingConceptDrillCards() {
+        val missing = allNotesCached()
+            .filter { it.partOfSpeech.equals("lesson", ignoreCase = true) }
+            .flatMap { note ->
+                val existingCues = cardDao.getCardsForNote(note.id)
+                    .filter { it.cardType == CardType.CONCEPT_DRILL }
+                    .mapNotNull { it.gramContextCue }
+                    .toSet()
+                ConceptDrills.forConcept(note.conceptId)
+                    .filter { it.id !in existingCues }
+                    .map { drill ->
+                        Card(
+                            noteId = note.id,
+                            cardType = CardType.CONCEPT_DRILL,
+                            queue = Queue.GRAMMAR,
+                            due = 0L,
+                            gramContextCue = drill.id,
+                            gramConcept = drill.conceptId
+                        )
+                    }
+            }
         if (missing.isNotEmpty()) cardDao.insertAll(missing)
     }
 
@@ -459,6 +496,10 @@ class LearningRepository(
                     put("encounterCount", note.encounterCount)
                     put("exampleSentence", note.exampleSentence)
                     put("exampleTranslation", note.exampleTranslation)
+                    put("exampleSentence2", note.exampleSentence2)
+                    put("exampleTranslation2", note.exampleTranslation2)
+                    put("exampleSentence3", note.exampleSentence3)
+                    put("exampleTranslation3", note.exampleTranslation3)
                     put("audioPath", note.audioPath)
                     put("tags", note.tags)
                     put("tier", note.tier)
@@ -581,7 +622,12 @@ class LearningRepository(
                 aktionsart = note?.aktionsart,
                 stressForm = note?.russian,
                 translation = note?.translation,
-                exampleSentence = note?.exampleSentence
+                exampleSentence = note?.exampleSentence,
+                exampleTranslation = note?.exampleTranslation,
+                exampleSentence2 = note?.exampleSentence2,
+                exampleTranslation2 = note?.exampleTranslation2,
+                exampleSentence3 = note?.exampleSentence3,
+                exampleTranslation3 = note?.exampleTranslation3
             )
         }
     }
@@ -914,6 +960,36 @@ class LearningRepository(
         invalidateNoteState()
     }
 
+    suspend fun placeAfterLevel(level: String, now: Long = System.currentTimeMillis()): Int {
+        val normalized = level.uppercase(Locale.ROOT)
+        val index = CEFR_LEVELS.indexOf(normalized)
+        if (index < 0) return 0
+        val levels = CEFR_LEVELS.take(index + 1)
+        val notes = noteDao.getByCefrLevels(levels)
+            .filterNot { it.partOfSpeech.equals("lesson", ignoreCase = true) }
+        if (notes.isEmpty()) return 0
+        val noteIds = notes.map { it.id }
+        val cards = cardDao.getCardsForNotes(noteIds)
+        cardDao.updateAll(cards.map { card ->
+            card.copy(
+                state = CardState.GRADUATED,
+                due = now + 365L * DAY_MILLIS,
+                scheduledDays = maxOf(card.scheduledDays, 365),
+                reps = maxOf(card.reps, 1),
+                consecutiveCorrect = maxOf(card.consecutiveCorrect, 1),
+                lastReview = now
+            )
+        })
+        noteDao.updateAll(notes.map { note ->
+            note.copy(
+                status = WordStatus.KNOWN,
+                encounterCount = maxOf(note.encounterCount, VOCAB_GRADUATION_ENCOUNTERS)
+            )
+        })
+        invalidateNoteState()
+        return notes.size
+    }
+
     suspend fun searchNotes(query: String, limit: Int = 50): List<Note> {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return emptyList()
@@ -1111,7 +1187,7 @@ class LearningRepository(
     private fun introductionTier(card: Card): Int = when (card.cardType) {
         CardType.LESSON -> -1
         CardType.RU_TO_MEANING, CardType.AUDIO_TO_RU -> 0
-        CardType.MEANING_TO_RU, CardType.CLOZE -> 1
+        CardType.MEANING_TO_RU, CardType.CLOZE, CardType.STRESS_MARK -> 1
         else -> 2
     }
 
@@ -1176,38 +1252,65 @@ class LearningRepository(
         // concept's drills (concept gating).
         if (note.partOfSpeech.equals("lesson", ignoreCase = true)) {
             add(Card(noteId = note.id, cardType = CardType.LESSON, queue = Queue.GRAMMAR, due = 0L, gramConcept = note.conceptId))
+            ConceptDrills.forConcept(note.conceptId).forEach { drill ->
+                add(
+                    Card(
+                        noteId = note.id,
+                        cardType = CardType.CONCEPT_DRILL,
+                        queue = Queue.GRAMMAR,
+                        due = 0L,
+                        gramContextCue = drill.id,
+                        gramConcept = drill.conceptId
+                    )
+                )
+            }
             return@buildList
         }
-        // The general reading-matrix layer carries declension tables purely to
-        // feed the reader form index (coverage); grammar drilling stays focused
-        // on the curated domain corpus, so general notes get only vocab cards.
-        val isGeneral = note.tags.contains("general")
+        // The frequency "reading-matrix" layer (tag contains "matrix") gets rich vocab
+        // and comprehension study cards AND keeps its declension tables — but ONLY to
+        // feed the reader coverage index, never to generate morphology drills. Its
+        // tables are rule-engine output (decline_noun(animate=False), oblique cases
+        // unvalidated against the deck), so case/gender/agreement/aspect drills built
+        // from them would teach wrong forms. Morphology drilling stays restricted to
+        // the verified curated course (tier 0) and the domain corpus. We key on the
+        // "matrix" tag, not tier, because the default tier (1) also covers imported /
+        // test notes that legitimately need grammar drills.
+        val isReadingMatrix = note.tags.contains("matrix")
         add(Card(noteId = note.id, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB))
         add(Card(noteId = note.id, cardType = CardType.MEANING_TO_RU, queue = Queue.VOCAB))
         // Cloze blanks a word inside the example sentence — only useful if the learner
         // can read that sentence, i.e. it ships with a real sentence-level translation.
-        if (hasReadableExample(note)) add(Card(noteId = note.id, cardType = CardType.CLOZE, queue = Queue.VOCAB))
-        // Listening: a real audio asset, or any curated domain word (the on-device
-        // Russian TTS supplies the audio at review time, so no asset is needed).
-        if (!note.audioPath.isNullOrBlank() || !isGeneral) {
-            add(Card(noteId = note.id, cardType = CardType.AUDIO_TO_RU, queue = Queue.VOCAB))
+        if (hasReadableExample(note)) {
+            add(Card(noteId = note.id, cardType = CardType.CLOZE, queue = Queue.VOCAB))
+            add(Card(noteId = note.id, cardType = CardType.SENTENCE_BUILD, queue = Queue.GRAMMAR, gramConcept = note.conceptId))
+            add(Card(noteId = note.id, cardType = CardType.DICTATION, queue = Queue.VOCAB))
         }
-        if (!isGeneral) caseCards(note).forEach(::add)
-        if (!isGeneral) verbFormCards(note).forEach(::add)
-        if (!isGeneral) adjectiveAgreementCards(note).forEach(::add)
-        if (!isGeneral) genderCard(note)?.let(::add)
+        // Listening via on-device Russian TTS works for any word, no audio asset needed.
+        add(Card(noteId = note.id, cardType = CardType.AUDIO_TO_RU, queue = Queue.VOCAB))
+        // Speaking: the learner says the word aloud and on-device speech recognition
+        // checks it — the only card that trains production/pronunciation. Restricted to
+        // the curated course (tier 0) so it stays focused on active study vocabulary.
+        if (note.tier == 0) {
+            add(Card(noteId = note.id, cardType = CardType.SPEAK, queue = Queue.VOCAB))
+        }
+        stressCard(note)?.let(::add)
+        if (!isReadingMatrix) caseCards(note).forEach(::add)
+        if (!isReadingMatrix) verbFormCards(note).forEach(::add)
+        if (!isReadingMatrix) adjectiveAgreementCards(note).forEach(::add)
+        if (!isReadingMatrix) genderCard(note)?.let(::add)
         // ASPECT_SELECT requires a verified Aktionsart (design F8): the drill's
         // whole point is reasoning from inherent temporal structure, so a verb
         // without Aktionsart never produces a half-formed aspect card.
-        val isAspectDrillable = !isGeneral &&
+        val isAspectDrillable = !isReadingMatrix &&
             note.aspect != "BI" &&
             !note.tags.contains("no_aspect_pair") &&
             !note.aktionsart.isNullOrBlank() &&
             note.aspectPartner != null &&
             !note.aspect.isNullOrBlank()
         if (isAspectDrillable) {
-            add(Card(noteId = note.id, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, due = 0L, gramContextCue = "NO_CUE", gramConcept = GrammarConcepts.ASPECT.id))
-            add(Card(noteId = note.id, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, due = 0L, gramContextCue = "HAS_CUE", gramConcept = GrammarConcepts.ASPECT.id))
+            ASPECT_CONTEXT_CUES.forEach { cue ->
+                add(Card(noteId = note.id, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, due = 0L, gramContextCue = cue, gramConcept = GrammarConcepts.ASPECT.id))
+            }
         }
     }
 
@@ -1224,6 +1327,14 @@ class LearningRepository(
         // A real translation of a sentence has multiple words.
         return gloss.split(Regex("\\s+")).size >= 2
     }
+
+    private fun stressCard(note: Note): Card? {
+        if (!note.hasStressTarget()) return null
+        return Card(noteId = note.id, cardType = CardType.STRESS_MARK, queue = Queue.VOCAB)
+    }
+
+    private fun Note.hasStressTarget(): Boolean =
+        russian.contains('\u0301') || russian.contains('ё', ignoreCase = true)
 
     // Adjective–noun agreement: produce the feminine, neuter, and plural nominative
     // forms (the masculine is the citation form). Russian agreement is one of the
@@ -1283,15 +1394,12 @@ class LearningRepository(
             .toList()
     }
 
-    // Only drill the past-tense paradigm. Russian past tense is regular (stem + л
-    // with gender/number agreement), so derived answers are trustworthy. Present
-    // tense is riddled with consonant mutation (писать→пишу, любить→люблю) that we
-    // cannot derive from the infinitive, and the deck ships no present tables — so
-    // drilling it would teach learners incorrect forms. Past-only keeps the grammar
-    // sense (gender/number agreement) without ever presenting a wrong answer.
+    // Past tense can be derived safely; present/future conjugations appear only
+    // when the note ships an explicit verified table in declensionJson. This
+    // keeps productive practice for пишу/люблю/вижу without teaching guesses.
     private fun verbFormCards(note: Note): List<Card> {
         if (!note.partOfSpeech.equals("verb", ignoreCase = true)) return emptyList()
-        return RussianForms.verbForms(note.lemma).keys
+        return RussianForms.verbForms(note).keys
             .filter { key -> key in VERB_FORM_KEYS }
             .map { key ->
                 Card(
@@ -1299,10 +1407,17 @@ class LearningRepository(
                     cardType = CardType.VERB_FORM,
                     queue = Queue.GRAMMAR,
                     gramContextCue = key,
-                    gramConcept = GrammarConcepts.PAST.id
+                    gramConcept = verbFormConcept(note, key)
                 )
             }
     }
+
+    private fun verbFormConcept(note: Note, key: String): String =
+        when {
+            key.startsWith("PRES_") && note.aspect == "PF" -> GrammarConcepts.FUTURE.id
+            key.startsWith("PRES_") -> GrammarConcepts.PRESENT.id
+            else -> GrammarConcepts.PAST.id
+        }
 
     private suspend fun accuracyCategoriesCached(): List<CategoryKey> {
         val reviewCount = reviewLogDao.countAll()
@@ -1498,8 +1613,11 @@ class LearningRepository(
         private val CASES = setOf("NOM", "ACC", "GEN", "DAT", "INS", "PREP")
         private val NUMBERS = setOf("SG", "PL")
         private val NOUN_GENDERS = setOf("M", "F", "N", "PL")
-        // Past-tense only: see verbFormCards. Present tense can't be derived
-        // reliably from the infinitive, so we don't drill it.
-        private val VERB_FORM_KEYS = setOf("PAST_M", "PAST_F", "PAST_N", "PAST_PL")
+        private val CEFR_LEVELS = listOf("A1", "A2", "B1", "B2", "C1")
+        private val ASPECT_CONTEXT_CUES = listOf("PROCESS", "HABITUAL", "COMPLETED", "RESULT", "SINGLE_EVENT")
+        private val VERB_FORM_KEYS = setOf(
+            "PAST_M", "PAST_F", "PAST_N", "PAST_PL",
+            "PRES_1SG", "PRES_2SG", "PRES_3SG", "PRES_1PL", "PRES_2PL", "PRES_3PL"
+        )
     }
 }

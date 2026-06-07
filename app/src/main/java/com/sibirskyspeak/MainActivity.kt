@@ -69,8 +69,10 @@ import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.AssistChip
@@ -81,6 +83,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -138,8 +141,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardOptions
+import com.sibirskyspeak.audio.RussianSpeechRecognizer
 import com.sibirskyspeak.audio.RussianTextToSpeech
 import com.sibirskyspeak.data.CardType
+import com.sibirskyspeak.data.GrammarConcept
+import com.sibirskyspeak.data.GrammarConcepts
+import com.sibirskyspeak.data.Note
 import com.sibirskyspeak.data.Rating
 import com.sibirskyspeak.data.ReaderRecommendation
 import com.sibirskyspeak.data.Achievement
@@ -267,7 +274,10 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
     val tts = rememberRussianTts()
     val context = LocalContext.current
     var studyActive by rememberSaveable { mutableStateOf(false) }
+    var settingsArea by rememberSaveable { mutableStateOf(SettingsArea.STUDY) }
+    var showReference by rememberSaveable { mutableStateOf(false) }
     BackHandler(enabled = studyActive) { studyActive = false }
+    BackHandler(enabled = showReference && !studyActive) { showReference = false }
 
     val activeTab = state.sessionStep.mainTab()
     // The reader word card stays pinned to the bottom while the story scrolls.
@@ -290,7 +300,14 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
-                )
+                ),
+                actions = {
+                    if (!studyActive) {
+                        IconButton(onClick = { showReference = !showReference }) {
+                            Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "Grammar reference")
+                        }
+                    }
+                }
             )
         },
         bottomBar = {
@@ -342,7 +359,7 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             onReveal = viewModel::reveal,
                             onRate = viewModel::rate,
                             onContinue = viewModel::continueAfterRating,
-                            onSpeak = { p -> tts.speak(p.lesson?.exampleRu?.takeIf { it.isNotBlank() } ?: p.note.russian) },
+                            onSpeak = { p -> tts.speak(p.speechText()) },
                             onExit = { studyActive = false },
                             onUndo = viewModel::undoLastReview,
                             onKnewIt = viewModel::overrideKnewIt,
@@ -363,11 +380,26 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             onOpen = viewModel::openReaderText,
                             onClose = viewModel::closeReaderText,
                             onMarkVisible = viewModel::markVisibleWords,
-                            onProgress = viewModel::recordReaderProgress
+                            onProgress = viewModel::recordReaderProgress,
+                            onAddText = {
+                                settingsArea = SettingsArea.READER
+                                viewModel.setSessionStep(SessionStep.IMPORT)
+                            },
+                            onSpeakRussian = tts::speak
                         )
-                        SessionStep.DASHBOARD -> DashboardPanel(state)
+                        SessionStep.DASHBOARD -> DashboardPanel(
+                            state = state,
+                            onStart = { studyActive = true },
+                            onOpenReader = { id ->
+                                viewModel.setSessionStep(SessionStep.READER)
+                                viewModel.openReaderText(id)
+                            },
+                            onRead = { viewModel.setSessionStep(SessionStep.READER) }
+                        )
                         SessionStep.IMPORT -> ImportExportPanel(
                             state = state,
+                            selectedArea = settingsArea,
+                            onSelectedArea = { settingsArea = it },
                             onImportText = viewModel::setImportText,
                             onImport = viewModel::importJsonLines,
                             onExport = viewModel::exportJsonLines,
@@ -379,6 +411,7 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             onSessionSize = viewModel::setSessionSize,
                             onNewCardsPerDay = viewModel::setNewCardsPerDay,
                             onRetention = viewModel::setRetention,
+                            onPlaceAfterLevel = viewModel::placeAfterLevel,
                             onReminderEnabled = { enabled ->
                                 viewModel.setReminderEnabled(enabled)
                                 Reminders.schedule(context)
@@ -388,7 +421,8 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                                 Reminders.schedule(context)
                             },
                             onFontScale = viewModel::setReaderFontScale,
-                            onSearch = viewModel::setSearchQuery
+                            onSearch = viewModel::setSearchQuery,
+                            onSpeakRussian = tts::speak
                         )
                         else -> PracticeScreen(
                             state = state,
@@ -401,7 +435,7 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                         )
                     }
                 }
-                state.statusMessage?.let { StatusBanner(it) }
+                state.statusMessage?.let { StatusBanner(it, onDismiss = viewModel::dismissStatusMessage) }
                 // Leave room so the story doesn't hide behind the pinned word card.
                 Spacer(Modifier.height(if (showWordCard) 300.dp else 8.dp))
             }
@@ -417,7 +451,8 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             token = token,
                             state = state,
                             onSetStatus = viewModel::setReaderWordStatus,
-                            onClearSelection = viewModel::clearSelectedToken
+                            onClearSelection = viewModel::clearSelectedToken,
+                            onSpeakRussian = tts::speak
                         )
                     }
                 }
@@ -427,6 +462,17 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                 onDismiss = viewModel::dismissNewlyUnlocked,
                 modifier = Modifier.align(Alignment.TopCenter)
             )
+            // Grammar reference overlay (drawn on top of the active tab).
+            if (showReference && !studyActive) {
+                GrammarReferenceScreen(
+                    query = state.searchQuery,
+                    results = state.searchResults,
+                    onQuery = viewModel::setSearchQuery,
+                    onSpeak = tts::speak,
+                    onClose = { showReference = false },
+                    modifier = Modifier.matchParentSize()
+                )
+            }
         }
     }
 }
@@ -606,26 +652,33 @@ private fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: ()
         Spacer(Modifier.height(18.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(
-                onClick = onStart,
-                enabled = sessionSize > 0,
+                onClick = {
+                    if (sessionSize > 0) {
+                        onStart()
+                    } else {
+                        reader?.let { onOpenReader(it.text.id) } ?: onRead()
+                    }
+                },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.onPrimary,
                     contentColor = MaterialTheme.colorScheme.primary
                 )
             ) {
-                Icon(Icons.Filled.School, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(if (sessionSize > 0) Icons.Filled.School else Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(if (sessionSize > 0) "Start ${sessionSize}-Card Session" else "All Clear", fontWeight = FontWeight.SemiBold)
+                Text(if (sessionSize > 0) "Start ${sessionSize}-Card Session" else "Read Next", fontWeight = FontWeight.SemiBold)
             }
-            OutlinedButton(
-                onClick = { reader?.let { onOpenReader(it.text.id) } ?: onRead() },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f))
-            ) {
-                Icon(Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Read")
+            if (sessionSize > 0) {
+                OutlinedButton(
+                    onClick = { reader?.let { onOpenReader(it.text.id) } ?: onRead() },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f))
+                ) {
+                    Icon(Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Read")
+                }
             }
         }
         if (backlog > sessionSize && sessionSize > 0) {
@@ -770,9 +823,9 @@ private fun ReadingSuggestion(state: ReviewUiState, onOpenReader: (Long) -> Unit
 @Composable
 private fun ReaderStatusChip(status: ReaderStatus) {
     val (label, color) = when (status) {
-        ReaderStatus.TOO_HARD -> "hard" to MaterialTheme.colorScheme.error.copy(alpha = 0.14f)
-        ReaderStatus.PRODUCTIVE -> "good fit" to MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-        ReaderStatus.EASY -> "easy" to MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f)
+        ReaderStatus.TOO_HARD -> "Hard" to MaterialTheme.colorScheme.error.copy(alpha = 0.14f)
+        ReaderStatus.PRODUCTIVE -> "Good fit" to MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+        ReaderStatus.EASY -> "Easy" to MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f)
     }
     Surface(shape = MaterialTheme.shapes.small, color = color) {
         Text(
@@ -815,7 +868,7 @@ private fun StudySessionScreen(
     val headerMessage = when {
         prompt == null -> "Session complete."
         state.revealed -> "Check the answer, then rate your recall."
-        prompt.answerMode == AnswerMode.AUDIO_ONLY -> "Listen first, then type what you heard."
+        prompt.answerMode == AnswerMode.AUDIO_ONLY -> "Audio started automatically. Type what you heard."
         sessionSize > 0 -> "$sessionSize cards ready now. ${state.reviewedToday}/$dailyGoal reviews today."
         else -> "Answer, check, then rate recall."
     }
@@ -836,7 +889,13 @@ private fun StudySessionScreen(
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("Practice", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                            PracticeStageChip(if (state.revealed) "Rate" else "Answer")
+                            PracticeStageChip(
+                                when {
+                                    prompt == null -> "Done"
+                                    state.revealed -> "Rate"
+                                    else -> "Answer"
+                                }
+                            )
                         }
                         Text(
                             headerMessage,
@@ -869,6 +928,14 @@ private fun StudySessionScreen(
                     color = MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant
                 )
+                if (prompt != null) {
+                    SessionProgressStrip(
+                        remaining = sessionSize,
+                        prompt = prompt,
+                        dailyGoal = dailyGoal,
+                        reviewedToday = state.reviewedToday
+                    )
+                }
             }
         }
         AnimatedContent(
@@ -881,7 +948,7 @@ private fun StudySessionScreen(
             label = "review-card"
         ) {
             if (prompt == null) {
-                SessionCompleteCard(state.sessionPlan?.gamification ?: GamificationStats.EMPTY)
+                SessionCompleteCard(state.sessionPlan?.gamification ?: GamificationStats.EMPTY, onDone = onExit)
             } else {
                 ReviewContent(
                     state = state,
@@ -896,6 +963,24 @@ private fun StudySessionScreen(
                 )
             }
         }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SessionProgressStrip(
+    remaining: Int,
+    prompt: ReviewPrompt,
+    dailyGoal: Int,
+    reviewedToday: Int
+) {
+    val concept = prompt.teachingHint?.takeIf { prompt.card.queue.name == "GRAMMAR" }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        PracticeFocusChip("$remaining left", null)
+        PracticeFocusChip("${reviewedToday.coerceAtMost(dailyGoal)} / $dailyGoal today", null)
+        PracticeFocusChip(if (prompt.card.queue.name == "VOCAB") "Vocabulary" else "Grammar", null)
+        PracticeFocusChip(prompt.answerMode.modeLabel(), null)
+        concept?.let { PracticeFocusChip(it, null) }
     }
 }
 
@@ -935,6 +1020,13 @@ private fun PracticeStageChip(label: String) {
     }
 }
 
+@Composable
+private fun AutoPlayCardAudio(cardId: Long, onSpeak: () -> Unit) {
+    LaunchedEffect(cardId) {
+        onSpeak()
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun ReviewContent(
@@ -948,13 +1040,16 @@ private fun ReviewContent(
     onSpeak: () -> Unit,
     onKnewIt: () -> Unit
 ) {
+    AutoPlayCardAudio(cardId = prompt.card.id, onSpeak = onSpeak)
     // A lesson is a teaching screen, not a quiz: render it on its own and bail out
     // of the normal answer/reveal flow.
     prompt.lesson?.let { lesson ->
         LessonCard(lesson = lesson, onSpeak = onSpeak, onGotIt = { onRate(Rating.GOOD) }, ratingInProgress = state.ratingInProgress)
         return
     }
-    var keyboardMode by rememberSaveable(prompt.card.id) { mutableStateOf(prompt.answerMode == AnswerMode.ENGLISH) }
+
+    val supportsTiles = prompt.answerMode == AnswerMode.RUSSIAN_TYPED
+    var keyboardMode by rememberSaveable(prompt.card.id) { mutableStateOf(!supportsTiles) }
     SectionCard(emphasis = true) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -970,7 +1065,7 @@ private fun ReviewContent(
                 StatusTag(if (prompt.card.queue.name == "VOCAB") "Vocab" else "Grammar")
                 if (prompt.note.tier == 0 && prompt.note.unit != null) {
                     Text(
-                        "${prompt.note.cefrLevel ?: "A1"} · Unit ${prompt.note.unit}",
+                        "${prompt.note.cefrLevel ?: "A1"} - Unit ${prompt.note.unit}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold
@@ -992,7 +1087,9 @@ private fun ReviewContent(
                         when (prompt.answerMode) {
                             AnswerMode.ENGLISH -> "English"
                             AnswerMode.RUSSIAN_TYPED -> "Russian"
+                            AnswerMode.RUSSIAN_STRESS_TYPED -> "Stress"
                             AnswerMode.AUDIO_ONLY -> "Listening"
+                            AnswerMode.SPEAK -> "Speaking"
                             AnswerMode.CHOICE -> "Choice"
                             AnswerMode.LESSON -> "Lesson"
                         }
@@ -1040,8 +1137,8 @@ private fun ReviewContent(
         if (prompt.answerMode == AnswerMode.CHOICE) {
             if (!state.revealed) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    prompt.choices.forEach { choice ->
-                        ChoiceAnswerButton(choice = choice, onClick = { onChoice(choice) })
+                    prompt.choices.forEachIndexed { index, choice ->
+                        ChoiceAnswerButton(choice = choice, index = index, onClick = { onChoice(choice) })
                     }
                 }
             }
@@ -1053,44 +1150,60 @@ private fun ReviewContent(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
             ) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    InputModeToggle(
-                        keyboardMode = keyboardMode,
-                        onKeyboard = {
-                            if (!keyboardMode) {
-                                keyboardMode = true
-                                onAnswerChanged("")
-                            }
-                        },
-                        onTiles = {
-                            if (keyboardMode) {
-                                keyboardMode = false
-                                onAnswerChanged("")
-                            }
-                        }
-                    )
-                    AnimatedContent(
-                        targetState = keyboardMode,
-                        transitionSpec = {
-                            (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { if (targetState) -it / 8 else it / 8 })
-                                .togetherWith(fadeOut(tween(120)) + slideOutHorizontally(tween(180)) { if (targetState) it / 8 else -it / 8 })
-                                .using(SizeTransform(clip = false))
-                        },
-                        label = "answer-mode"
-                    ) { useKeyboard ->
-                        if (useKeyboard) {
-                            KeyboardAnswerInput(
-                                value = state.typedAnswer,
-                                prompt = prompt,
-                                onChange = onAnswerChanged,
-                                onDone = onReveal
+                    if (prompt.answerMode == AnswerMode.SPEAK) {
+                        SpeakingAnswerInput(
+                            cardId = prompt.card.id,
+                            recognized = state.typedAnswer,
+                            onRecognized = onAnswerChanged
+                        )
+                    } else {
+                        if (supportsTiles) {
+                            InputModeToggle(
+                                keyboardMode = keyboardMode,
+                                onKeyboard = {
+                                    if (!keyboardMode) {
+                                        keyboardMode = true
+                                        onAnswerChanged("")
+                                    }
+                                },
+                                onTiles = {
+                                    if (keyboardMode) {
+                                        keyboardMode = false
+                                        onAnswerChanged("")
+                                    }
+                                }
                             )
                         } else {
-                            LetterTileBank(
-                                expected = prompt.expectedAnswer,
-                                cardId = prompt.card.id,
-                                hint = answerHint(prompt),
-                                onChange = onAnswerChanged
+                            Text(
+                                "Type your answer. Audio plays automatically when the card appears.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+                        AnimatedContent(
+                            targetState = keyboardMode,
+                            transitionSpec = {
+                                (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { if (targetState) -it / 8 else it / 8 })
+                                    .togetherWith(fadeOut(tween(120)) + slideOutHorizontally(tween(180)) { if (targetState) it / 8 else -it / 8 })
+                                    .using(SizeTransform(clip = false))
+                            },
+                            label = "answer-mode"
+                        ) { useKeyboard ->
+                            if (useKeyboard) {
+                                KeyboardAnswerInput(
+                                    value = state.typedAnswer,
+                                    prompt = prompt,
+                                    onChange = onAnswerChanged,
+                                    onDone = onReveal
+                                )
+                            } else {
+                                LetterTileBank(
+                                    expected = prompt.expectedAnswer,
+                                    cardId = prompt.card.id,
+                                    hint = answerHint(prompt),
+                                    onChange = onAnswerChanged
+                                )
+                            }
                         }
                     }
                 }
@@ -1114,9 +1227,123 @@ private fun ReviewContent(
             enter = fadeIn(tween(200)) + slideInVertically(spring(stiffness = Spring.StiffnessMediumLow)) { it / 6 },
             exit = fadeOut(tween(120))
         ) {
-            RevealPanel(state, prompt, onRate, onContinue, onKnewIt)
+            RevealPanel(state, prompt, onRate, onContinue, onKnewIt, onSpeak)
         }
     }
+}
+
+@Composable
+private fun SpeakingAnswerInput(
+    cardId: Long,
+    recognized: String,
+    onRecognized: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val recognitionAvailable = remember { RussianSpeechRecognizer.isAvailable(context) }
+    val recognizer = rememberRussianSpeechRecognizer()
+    var listening by rememberSaveable(cardId) { mutableStateOf(false) }
+    var helperText by rememberSaveable(cardId) { mutableStateOf("Tap the mic and say the Russian aloud.") }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            helperText = "Microphone ready. Tap the mic and say the Russian aloud."
+        } else {
+            helperText = "Microphone permission is needed for speaking practice."
+        }
+    }
+
+    fun startListening() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        helperText = "Listening..."
+        recognizer.startListening(
+            onResult = { result ->
+                listening = false
+                if (result.isBlank()) {
+                    helperText = "Nothing recognized. Try once more."
+                } else {
+                    onRecognized(result)
+                    helperText = "Recognized. Check the answer when it looks right."
+                }
+            },
+            onPartial = { partial ->
+                if (partial.isNotBlank()) onRecognized(partial)
+            },
+            onError = { error ->
+                listening = false
+                helperText = error
+            },
+            onReadyForSpeech = {
+                listening = true
+                helperText = "Listening..."
+            },
+            onEndOfSpeech = {
+                listening = false
+                helperText = "Processing speech..."
+            }
+        )
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (!recognitionAvailable) {
+            Text(
+                "Speech recognition is not available on this device. Type the Russian instead.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedTextField(
+                value = recognized,
+                onValueChange = onRecognized,
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+                singleLine = true,
+                label = { Text("Russian you said") }
+            )
+        } else {
+            Text(helperText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Button(
+                onClick = {
+                    if (listening) {
+                        recognizer.stop()
+                        listening = false
+                        helperText = "Stopped. Tap the mic to try again."
+                    } else {
+                        startListening()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 14.dp)
+            ) {
+                Icon(Icons.Filled.Mic, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (listening) "Listening..." else "Start Mic", fontWeight = FontWeight.SemiBold)
+            }
+        }
+        if (recognized.isNotBlank()) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Recognized", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text(recognized, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun rememberRussianSpeechRecognizer(): RussianSpeechRecognizer {
+    val context = LocalContext.current
+    val recognizer = remember { RussianSpeechRecognizer(context) }
+    DisposableEffect(recognizer) {
+        onDispose { recognizer.shutdown() }
+    }
+    return recognizer
 }
 
 @Composable
@@ -1203,7 +1430,7 @@ private fun AudioPracticeButton(onClick: () -> Unit) {
 }
 
 @Composable
-private fun ChoiceAnswerButton(choice: String, onClick: () -> Unit) {
+private fun ChoiceAnswerButton(choice: String, index: Int, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -1221,7 +1448,21 @@ private fun ChoiceAnswerButton(choice: String, onClick: () -> Unit) {
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = if (pressed) 0.7f else 0.35f)),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 14.dp)
     ) {
-        Text(choice, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, fontWeight = FontWeight.SemiBold)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(
+                shape = RoundedCornerShape(99.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                contentColor = MaterialTheme.colorScheme.primary
+            ) {
+                Text(
+                    ('A' + index).toString(),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(choice, modifier = Modifier.weight(1f), textAlign = TextAlign.Start, fontWeight = FontWeight.SemiBold)
+        }
     }
 }
 
@@ -1360,10 +1601,10 @@ private fun KeyboardAnswerInput(
 }
 
 @Composable
-private fun RevealPanel(state: ReviewUiState, prompt: ReviewPrompt, onRate: (Rating) -> Unit, onContinue: () -> Unit, onKnewIt: () -> Unit) {
+private fun RevealPanel(state: ReviewUiState, prompt: ReviewPrompt, onRate: (Rating) -> Unit, onContinue: () -> Unit, onKnewIt: () -> Unit, onSpeak: () -> Unit) {
     val haptics = LocalHapticFeedback.current
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ResultBanner(state, prompt)
+        ResultBanner(state, prompt, onSpeak)
         prompt.explanation?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -1394,6 +1635,7 @@ private fun RevealPanel(state: ReviewUiState, prompt: ReviewPrompt, onRate: (Rat
             Text("How well did you recall it?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text("Use the interval as a preview of when this card returns.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        RatingDecisionGuide(state)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Rating.entries.chunked(2).forEach { row ->
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1413,6 +1655,33 @@ private fun RevealPanel(state: ReviewUiState, prompt: ReviewPrompt, onRate: (Rat
                     }
                     if (row.size == 1) Spacer(Modifier.weight(1f))
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RatingDecisionGuide(state: ReviewUiState) {
+    val (label, body) = when (state.answerMatch) {
+        AnswerMatch.CLOSE -> "Close answer" to "Hard is usually right if you had to think or spelling was rough. Use Good if the form was clear."
+        AnswerMatch.EXACT -> "Correct answer" to "Good is the default for solid recall. Use Easy only when it came instantly."
+        else -> "Recall check" to "Rate the effort you actually felt; the interval preview shows the scheduling result."
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(Icons.Filled.Insights, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -1473,7 +1742,7 @@ private fun RatingButton(
 }
 
 @Composable
-private fun ResultBanner(state: ReviewUiState, prompt: ReviewPrompt) {
+private fun ResultBanner(state: ReviewUiState, prompt: ReviewPrompt, onSpeak: () -> Unit) {
     val matched = state.isAnswerCorrect == true
     val color = if (matched) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
     val title = when (state.answerMatch) {
@@ -1501,7 +1770,7 @@ private fun ResultBanner(state: ReviewUiState, prompt: ReviewPrompt) {
                 tint = color,
                 modifier = Modifier.size(28.dp)
             )
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title, style = MaterialTheme.typography.labelLarge, color = color, fontWeight = FontWeight.SemiBold)
                 SelectionContainer {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1515,8 +1784,42 @@ private fun ResultBanner(state: ReviewUiState, prompt: ReviewPrompt) {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            IconButton(onClick = onSpeak) {
+                Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Hear answer", tint = color)
+            }
         }
     }
+}
+
+private fun ReviewPrompt.speechText(): String =
+    when (answerMode) {
+        AnswerMode.ENGLISH -> note.russian
+        AnswerMode.AUDIO_ONLY -> expectedAnswer
+        AnswerMode.SPEAK -> expectedAnswer
+        AnswerMode.RUSSIAN_STRESS_TYPED -> expectedAnswer
+        AnswerMode.RUSSIAN_TYPED -> listOfNotNull(
+            exampleSentence,
+            prompt.russianLinesForSpeech(),
+            expectedAnswer
+        ).firstOrNull { it.hasRussianTextForSpeech() } ?: expectedAnswer
+        AnswerMode.CHOICE -> listOfNotNull(
+            prompt.russianLinesForSpeech(),
+            expectedAnswer
+        ).firstOrNull { it.hasRussianTextForSpeech() }
+            ?: expectedAnswer
+        AnswerMode.LESSON -> lesson?.exampleRu?.takeIf { it.isNotBlank() } ?: note.russian
+    }
+
+private fun String.hasRussianTextForSpeech(): Boolean =
+    Regex("""\p{IsCyrillic}+""").containsMatchIn(this)
+
+private fun String.russianLinesForSpeech(): String? {
+    val cyrillic = Regex("""\p{IsCyrillic}+""")
+    return lineSequence()
+        .map { it.trim() }
+        .filter { cyrillic.containsMatchIn(it) }
+        .joinToString(" ")
+        .takeIf { it.isNotBlank() }
 }
 
 // ---------------------------------------------------------------------------
@@ -1530,19 +1833,26 @@ private fun ReaderPanel(
     onOpen: (Long) -> Unit,
     onClose: () -> Unit,
     onMarkVisible: (List<String>, WordStatus) -> Unit,
-    onProgress: (Int) -> Unit
+    onProgress: (Int) -> Unit,
+    onAddText: () -> Unit,
+    onSpeakRussian: (String) -> Unit
 ) {
     val selected = state.selectedReaderTextId?.let { id -> state.allReaderTexts.firstOrNull { it.text.id == id } }
     if (selected == null) {
-        ReaderBookshelf(state, onOpen)
+        ReaderBookshelf(state, onOpen, onAddText, onSpeakRussian)
     } else {
-        ReaderTextScreen(state, selected, onLookup, onClose, onMarkVisible, onProgress)
+        ReaderTextScreen(state, selected, onLookup, onClose, onMarkVisible, onProgress, onSpeakRussian)
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ReaderBookshelf(state: ReviewUiState, onOpen: (Long) -> Unit) {
+private fun ReaderBookshelf(
+    state: ReviewUiState,
+    onOpen: (Long) -> Unit,
+    onAddText: () -> Unit,
+    onSpeakRussian: (String) -> Unit
+) {
     val texts = state.allReaderTexts.sortedWith(compareByDescending<ReaderRecommendation> { it.coverage }.thenBy { it.text.title })
     val recommended = state.readerRecommendation
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -1560,13 +1870,24 @@ private fun ReaderBookshelf(state: ReviewUiState, onOpen: (Long) -> Unit) {
             }
             if (recommended != null) {
                 Spacer(Modifier.height(14.dp))
-                ReaderRecommendationCard(recommended, onOpen)
+                ReaderRecommendationCard(recommended, onOpen, onSpeakRussian)
             }
         }
         if (texts.isEmpty()) {
             SectionCard {
-                Text("No reader texts yet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("Add texts from Settings.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Icon(Icons.Filled.AutoStories, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(34.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("No reader texts yet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text("Add a Russian text, then come back here for tap-to-learn reading and audio preview.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Button(onClick = onAddText, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Filled.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Add Reader Text")
+                }
             }
         } else {
             // A real shelf: each text is a tappable book standing on the boards.
@@ -1595,7 +1916,7 @@ private fun ReaderBookshelf(state: ReviewUiState, onOpen: (Long) -> Unit) {
 }
 
 @Composable
-private fun ReaderRecommendationCard(item: ReaderRecommendation, onOpen: (Long) -> Unit) {
+private fun ReaderRecommendationCard(item: ReaderRecommendation, onOpen: (Long) -> Unit, onSpeakRussian: (String) -> Unit) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -1621,6 +1942,9 @@ private fun ReaderRecommendationCard(item: ReaderRecommendation, onOpen: (Long) 
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+            IconButton(onClick = { onSpeakRussian(item.text.body) }) {
+                Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Preview recommended text")
             }
         }
     }
@@ -1733,7 +2057,8 @@ private fun ReaderTextScreen(
     onLookup: (String) -> Unit,
     onClose: () -> Unit,
     onMarkVisible: (List<String>, WordStatus) -> Unit,
-    onProgress: (Int) -> Unit
+    onProgress: (Int) -> Unit,
+    onSpeakRussian: (String) -> Unit
 ) {
     val tokenCount = state.readerTokens.size.coerceAtLeast(1)
     val progress = (state.readerProgressIndex.toFloat() / tokenCount).coerceIn(0f, 1f)
@@ -1748,6 +2073,15 @@ private fun ReaderTextScreen(
         .filter { it.status == WordStatus.NEW }
         .distinctBy { it.normalized }
         .map { it.surface }
+    // Sentence-by-sentence "Listen" mode: its own TTS engine so it doesn't clash with
+    // the tap-a-word pronunciation, with karaoke-style current-sentence highlighting.
+    val readerTts = rememberRussianTts()
+    val sentences = remember(selected.text.id) { splitIntoSentences(selected.text.body) }
+    var playingSentence by remember(selected.text.id) { mutableStateOf(-1) }
+    var isPlaying by remember(selected.text.id) { mutableStateOf(false) }
+    LaunchedEffect(selected.text.id) {
+        readerTts.stopSpeaking(); isPlaying = false; playingSentence = -1
+    }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -1769,7 +2103,41 @@ private fun ReaderTextScreen(
                         }
                         Text("Tap any word for meaning, status, and examples.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    OutlinedButton(onClick = onClose) { Text("Shelf") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = {
+                            if (isPlaying) {
+                                readerTts.stopSpeaking(); isPlaying = false; playingSentence = -1
+                            } else {
+                                isPlaying = true; playingSentence = -1
+                                readerTts.speakSentences(
+                                    sentences,
+                                    onSentenceStart = { playingSentence = it },
+                                    onDone = { isPlaying = false; playingSentence = -1 }
+                                )
+                            }
+                        }) {
+                            Icon(
+                                if (isPlaying) Icons.Filled.Close else Icons.AutoMirrored.Filled.VolumeUp,
+                                contentDescription = if (isPlaying) "Stop reading" else "Listen to the text"
+                            )
+                        }
+                        OutlinedButton(onClick = onClose) { Text("Shelf") }
+                    }
+                }
+                if (isPlaying && playingSentence in sentences.indices) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        Text(
+                            sentences[playingSentence],
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
                 LinearProgressIndicator(
                     progress = { animatedProgress },
@@ -1790,6 +2158,11 @@ private fun ReaderTextScreen(
             }
         }
         WordLegend()
+        ReaderContinueCard(
+            tokens = state.readerTokens,
+            progressIndex = state.readerProgressIndex,
+            onSpeakRussian = onSpeakRussian
+        )
         // Paper-like reading surface: words flow as real text, not buttons.
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -1813,6 +2186,7 @@ private fun ReaderTextScreen(
                         onClick = {
                             onProgress(index)
                             onLookup(token.surface)
+                            onSpeakRussian(token.stressForm ?: token.surface)
                         }
                     )
                 }
@@ -1841,6 +2215,55 @@ private fun ReaderTextScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReaderContinueCard(
+    tokens: List<ReaderToken>,
+    progressIndex: Int,
+    onSpeakRussian: (String) -> Unit
+) {
+    if (tokens.isEmpty() || progressIndex <= 0) return
+    val start = progressIndex.coerceIn(0, tokens.lastIndex)
+    val preview = tokens
+        .drop(start)
+        .take(16)
+        .joinToString(" ") { it.stressForm ?: it.surface }
+        .takeIf { it.isNotBlank() }
+        ?: return
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.22f))
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(Icons.Filled.AutoStories, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("Continue Reading", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    "Around word ${formatCount(start + 1)} of ${formatCount(tokens.size)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    preview,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            IconButton(onClick = { onSpeakRussian(preview) }) {
+                Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Hear continue preview")
             }
         }
     }
@@ -1940,7 +2363,8 @@ private fun WordDetailCard(
     token: ReaderToken,
     state: ReviewUiState,
     onSetStatus: (WordStatus) -> Unit,
-    onClearSelection: () -> Unit
+    onClearSelection: () -> Unit,
+    onSpeakRussian: (String) -> Unit
 ) {
     SectionCard(emphasis = true) {
         Row(
@@ -1950,12 +2374,16 @@ private fun WordDetailCard(
         ) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(token.stressForm ?: token.surface, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    val spokenHeadword = token.stressForm ?: token.surface
+                    Text(spokenHeadword, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = { onSpeakRussian(spokenHeadword) }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Hear word", modifier = Modifier.size(20.dp))
+                    }
                     CurrentWordStatusPill(token.status)
                 }
                 val gloss = token.translation?.takeIf { it != "lookup pending" }
                 Text(
-                    gloss ?: "Not in your deck yet — mark it to start tracking.",
+                    gloss ?: "Not in your deck yet. Mark it to start tracking.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = if (gloss == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
                 )
@@ -1987,24 +2415,49 @@ private fun WordDetailCard(
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(99.dp)))
         }
         Spacer(Modifier.height(14.dp))
-        Text("Mark this word", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Word status", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            "New stays highlighted. Learning tracks it. Known counts toward reader coverage. Ignore hides names or noise.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(Modifier.height(8.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            WordStatusChip("New", WordStatus.NEW, token.status, onSetStatus)
             WordStatusChip("Learning", WordStatus.LEARNING, token.status, onSetStatus)
             WordStatusChip("Known", WordStatus.KNOWN, token.status, onSetStatus)
-            WordStatusChip("New", WordStatus.NEW, token.status, onSetStatus)
             WordStatusChip("Ignore", WordStatus.IGNORED, token.status, onSetStatus)
         }
-        token.exampleSentence?.takeIf { it.isNotBlank() }?.let { example ->
+        val examples = listOf(
+            token.exampleSentence to token.exampleTranslation,
+            token.exampleSentence2 to token.exampleTranslation2,
+            token.exampleSentence3 to token.exampleTranslation3
+        ).filter { !it.first.isNullOrBlank() }
+
+        if (examples.isNotEmpty()) {
             Spacer(Modifier.height(14.dp))
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.surface
             ) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Example", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                    Text(example, style = MaterialTheme.typography.bodyMedium)
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val header = if (examples.size > 1) "Examples" else "Example"
+                    Text(header, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                    examples.forEachIndexed { idx, (ru, en) ->
+                        val prefix = if (examples.size > 1) "${idx + 1}. " else ""
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(prefix + ru, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                                IconButton(onClick = { ru?.let(onSpeakRussian) }, modifier = Modifier.size(34.dp)) {
+                                    Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Hear example", modifier = Modifier.size(18.dp))
+                                }
+                            }
+                            if (!en.isNullOrBlank()) {
+                                Text(en, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -2068,12 +2521,18 @@ private fun WordStatusChip(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun DashboardPanel(state: ReviewUiState) {
+private fun DashboardPanel(
+    state: ReviewUiState,
+    onStart: () -> Unit,
+    onOpenReader: (Long) -> Unit,
+    onRead: () -> Unit
+) {
     val stats = state.dashboardStats ?: return
     val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
     var showDetails by rememberSaveable { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         LevelCard(game)
+        DashboardNextActionCard(state, onStart, onOpenReader, onRead)
         StreakCard(game)
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             DailyGoalCard(Modifier.weight(1f), game)
@@ -2081,6 +2540,71 @@ private fun DashboardPanel(state: ReviewUiState) {
         }
         AchievementsCard(game)
         DetailsSection(stats, showDetails) { showDetails = !showDetails }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DashboardNextActionCard(
+    state: ReviewUiState,
+    onStart: () -> Unit,
+    onOpenReader: (Long) -> Unit,
+    onRead: () -> Unit
+) {
+    val prompts = state.sessionPlan?.reviewQueue.orEmpty()
+    val reader = state.readerRecommendation
+    val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
+    val remainingGoal = (game.dailyGoal - state.reviewedToday).coerceAtLeast(0)
+    val grammarCount = prompts.count { it.card.queue.name == "GRAMMAR" }
+    val newCount = prompts.count { it.card.state.name == "NEW" }
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Filled.Insights, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Next Best Step", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    when {
+                        prompts.isNotEmpty() && remainingGoal > 0 -> "${prompts.size} cards are ready. $remainingGoal more reviews completes today's goal."
+                        prompts.isNotEmpty() -> "${prompts.size} cards are ready for extra practice."
+                        reader != null -> "Reviews are clear. Reading keeps Russian input flowing."
+                        else -> "Reviews are clear. Add reader text or import notes when you want new material."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            PracticeFocusChip(if (prompts.isEmpty()) "Reviews clear" else "${prompts.size} ready", null)
+            if (newCount > 0) PracticeFocusChip("$newCount new", null)
+            if (grammarCount > 0) PracticeFocusChip("$grammarCount grammar", null)
+            if (reader != null) PracticeFocusChip("${(reader.coverage * 100).toInt()}% reader fit", null)
+        }
+        Spacer(Modifier.height(14.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Button(
+                onClick = {
+                    if (prompts.isNotEmpty()) {
+                        onStart()
+                    } else {
+                        reader?.let { onOpenReader(it.text.id) } ?: onRead()
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(if (prompts.isNotEmpty()) Icons.Filled.School else Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (prompts.isEmpty()) "Read Next" else "Practice")
+            }
+            if (prompts.isNotEmpty()) {
+                OutlinedButton(onClick = { reader?.let { onOpenReader(it.text.id) } ?: onRead() }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Read")
+                }
+            }
+        }
     }
 }
 
@@ -2162,7 +2686,7 @@ private fun StreakCard(game: GamificationStats) {
             }
         }
         Spacer(Modifier.height(4.dp))
-        Text("Last 7 days · ${game.activeDays} active days total", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Last 7 days - ${game.activeDays} active days total", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -2217,7 +2741,8 @@ private fun WordsKnownCard(modifier: Modifier, game: GamificationStats) {
 @Composable
 private fun AchievementsCard(game: GamificationStats) {
     val unlocked = game.achievements.count { it.unlocked }
-    var expanded by rememberSaveable { mutableStateOf(true) }
+    val preview = game.achievements.filter { it.unlocked }.takeLast(3)
+    var expanded by rememberSaveable { mutableStateOf(false) }
     SectionCard {
         Row(
             modifier = Modifier
@@ -2237,6 +2762,14 @@ private fun AchievementsCard(game: GamificationStats) {
                     .graphicsLayer { rotationZ = if (expanded) 180f else 0f },
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+        if (!expanded && preview.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                preview.forEach { achievement ->
+                    PracticeFocusChip(achievement.title, null)
+                }
+            }
         }
         AnimatedVisibility(visible = expanded) {
             Column {
@@ -2351,10 +2884,18 @@ private fun DetailsSection(stats: com.sibirskyspeak.data.DashboardStats, expande
 // Settings / import-export
 // ---------------------------------------------------------------------------
 
+private enum class SettingsArea(val label: String, val summary: String) {
+    STUDY("Study", "Pace, placement, and reminders"),
+    READER("Reader", "Text size, new texts, and deck search"),
+    DATA("Data", "Import, export, and backups")
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ImportExportPanel(
     state: ReviewUiState,
+    selectedArea: SettingsArea,
+    onSelectedArea: (SettingsArea) -> Unit,
     onImportText: (String) -> Unit,
     onImport: () -> Unit,
     onExport: () -> Unit,
@@ -2366,10 +2907,12 @@ private fun ImportExportPanel(
     onSessionSize: (Int) -> Unit,
     onNewCardsPerDay: (Int) -> Unit,
     onRetention: (Double) -> Unit,
+    onPlaceAfterLevel: (String) -> Unit,
     onReminderEnabled: (Boolean) -> Unit,
     onReminderHour: (Int) -> Unit,
     onFontScale: (Float) -> Unit,
-    onSearch: (String) -> Unit
+    onSearch: (String) -> Unit,
+    onSpeakRussian: (String) -> Unit
 ) {
     val context = LocalContext.current
     // Save the exported JSON Lines to a user-chosen file via the system picker.
@@ -2387,137 +2930,229 @@ private fun ImportExportPanel(
             Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Text(
-                "Tune your study pace, reminders, and reader, then manage your local data.",
+                selectedArea.summary,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        }
-        SectionCard {
-            Text("Study Pace", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(12.dp))
-            SettingSlider(
-                label = "Daily goal",
-                valueLabel = "${state.dailyGoalSetting} cards",
-                value = state.dailyGoalSetting.toFloat(),
-                range = SettingsStore.MIN_DAILY_GOAL.toFloat()..SettingsStore.MAX_DAILY_GOAL.toFloat(),
-                onChange = { onDailyGoal(it.toInt()) }
-            )
-            Spacer(Modifier.height(10.dp))
-            SettingSlider(
-                label = "Cards per session",
-                valueLabel = "${state.sessionSizeSetting}",
-                value = state.sessionSizeSetting.toFloat(),
-                range = SettingsStore.MIN_SESSION_SIZE.toFloat()..SettingsStore.MAX_SESSION_SIZE.toFloat(),
-                onChange = { onSessionSize(it.toInt()) }
-            )
-            Spacer(Modifier.height(10.dp))
-            SettingSlider(
-                label = "New cards per day",
-                valueLabel = "${state.newCardsPerDaySetting}",
-                value = state.newCardsPerDaySetting.toFloat(),
-                range = SettingsStore.MIN_NEW_CARDS_PER_DAY.toFloat()..SettingsStore.MAX_NEW_CARDS_PER_DAY.toFloat(),
-                onChange = { onNewCardsPerDay(it.toInt()) }
-            )
-            Spacer(Modifier.height(10.dp))
-            SettingSlider(
-                label = "Target retention",
-                valueLabel = "${(state.retentionSetting * 100).toInt()}%",
-                value = state.retentionSetting.toFloat(),
-                range = SettingsStore.MIN_RETENTION.toFloat()..SettingsStore.MAX_RETENTION.toFloat(),
-                onChange = { onRetention(it.toDouble()) }
-            )
-            Text(
-                "Higher retention means shorter intervals and more reviews.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            SettingsAreaPicker(selected = selectedArea, onSelect = onSelectedArea)
         }
-        SectionCard {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Daily reminder", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                Switch(checked = state.reminderEnabled, onCheckedChange = onReminderEnabled)
-            }
-            if (state.reminderEnabled) {
-                Spacer(Modifier.height(10.dp))
-                SettingSlider(
-                    label = "Reminder time",
-                    valueLabel = "%02d:00".format(state.reminderHour),
-                    value = state.reminderHour.toFloat(),
-                    range = 0f..23f,
-                    onChange = { onReminderHour(it.toInt()) }
-                )
-            }
-        }
-        SectionCard {
-            Text("Reader", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(12.dp))
-            SettingSlider(
-                label = "Text size",
-                valueLabel = "${(state.readerFontScale * 100).toInt()}%",
-                value = state.readerFontScale,
-                range = SettingsStore.MIN_FONT_SCALE..SettingsStore.MAX_FONT_SCALE,
-                onChange = onFontScale
-            )
-        }
-        SectionCard {
-            Text("Search Deck", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = state.searchQuery,
-                onValueChange = onSearch,
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.small,
-                singleLine = true,
-                label = { Text("Russian, lemma, or meaning") }
-            )
-            if (state.searchQuery.isNotBlank()) {
-                Spacer(Modifier.height(10.dp))
-                if (state.searchResults.isEmpty()) {
-                    Text("No matches.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        state.searchResults.take(20).forEach { note ->
-                            Column {
-                                Text(note.russian, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                                Text(note.translation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        AnimatedContent(
+            targetState = selectedArea,
+            transitionSpec = {
+                (fadeIn(tween(160)) + slideInHorizontally(tween(180)) { it / 10 })
+                    .togetherWith(fadeOut(tween(120)) + slideOutHorizontally(tween(140)) { -it / 12 })
+                    .using(SizeTransform(clip = false))
+            },
+            label = "settings-area"
+        ) { area ->
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                when (area) {
+                    SettingsArea.STUDY -> {
+                        SectionCard {
+                            Text("Study Pace", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(12.dp))
+                            SettingSlider(
+                                label = "Daily goal",
+                                valueLabel = "${state.dailyGoalSetting} cards",
+                                value = state.dailyGoalSetting.toFloat(),
+                                range = SettingsStore.MIN_DAILY_GOAL.toFloat()..SettingsStore.MAX_DAILY_GOAL.toFloat(),
+                                onChange = { onDailyGoal(it.toInt()) }
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            SettingSlider(
+                                label = "Cards per session",
+                                valueLabel = "${state.sessionSizeSetting}",
+                                value = state.sessionSizeSetting.toFloat(),
+                                range = SettingsStore.MIN_SESSION_SIZE.toFloat()..SettingsStore.MAX_SESSION_SIZE.toFloat(),
+                                onChange = { onSessionSize(it.toInt()) }
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            SettingSlider(
+                                label = "New cards per day",
+                                valueLabel = "${state.newCardsPerDaySetting}",
+                                value = state.newCardsPerDaySetting.toFloat(),
+                                range = SettingsStore.MIN_NEW_CARDS_PER_DAY.toFloat()..SettingsStore.MAX_NEW_CARDS_PER_DAY.toFloat(),
+                                onChange = { onNewCardsPerDay(it.toInt()) }
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            SettingSlider(
+                                label = "Target retention",
+                                valueLabel = "${(state.retentionSetting * 100).toInt()}%",
+                                value = state.retentionSetting.toFloat(),
+                                range = SettingsStore.MIN_RETENTION.toFloat()..SettingsStore.MAX_RETENTION.toFloat(),
+                                rangeLabel = { "${(it * 100).toInt()}%" },
+                                onChange = { onRetention(it.toDouble()) }
+                            )
+                            Text(
+                                "Higher retention means shorter intervals and more reviews.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        SectionCard {
+                            Text("Placement", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Already know earlier course material? Start after a level and mark those notes known.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                listOf("A1", "A2", "B1", "B2").forEach { level ->
+                                    OutlinedButton(onClick = { onPlaceAfterLevel(level) }) {
+                                        Text("After $level")
+                                    }
+                                }
+                            }
+                        }
+                        SectionCard {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Daily reminder", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                Switch(checked = state.reminderEnabled, onCheckedChange = onReminderEnabled)
+                            }
+                            if (state.reminderEnabled) {
+                                Spacer(Modifier.height(10.dp))
+                                SettingSlider(
+                                label = "Reminder time",
+                                valueLabel = "%02d:00".format(state.reminderHour),
+                                value = state.reminderHour.toFloat(),
+                                range = 0f..23f,
+                                rangeLabel = { "%02d:00".format(it.toInt()) },
+                                onChange = { onReminderHour(it.toInt()) }
+                            )
+                            }
+                        }
+                    }
+                    SettingsArea.READER -> {
+                        SectionCard {
+                            Text("Reader", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(12.dp))
+                            SettingSlider(
+                                label = "Text size",
+                                valueLabel = "${(state.readerFontScale * 100).toInt()}%",
+                                value = state.readerFontScale,
+                                range = SettingsStore.MIN_FONT_SCALE..SettingsStore.MAX_FONT_SCALE,
+                                rangeLabel = { "${(it * 100).toInt()}%" },
+                                onChange = onFontScale
+                            )
+                        }
+                        SectionCard {
+                            Text("Add Reader Text", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(12.dp))
+                            val readerBodyReady = state.readerBody.isNotBlank()
+                            val readerWordCount = state.readerBody.trim().split(Regex("\\s+")).count { it.isNotBlank() }
+                            OutlinedTextField(value = state.readerTitle, onValueChange = onTitle, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small, label = { Text("Text title") })
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedTextField(value = state.readerBody, onValueChange = onBody, modifier = Modifier.fillMaxWidth(), minLines = 4, shape = MaterialTheme.shapes.small, label = { Text("Russian text") })
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                if (readerBodyReady) "${formatCount(readerWordCount)} words ready for tap-to-learn reading." else "Paste Russian text to enable reader import.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedButton(onClick = { onSpeakRussian(state.readerBody) }, enabled = readerBodyReady) {
+                                    Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Preview Audio")
+                                }
+                                Button(onClick = onAdd, enabled = readerBodyReady) { Text("Add Text") }
+                            }
+                        }
+                        SectionCard {
+                            Text("Search Deck", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedTextField(
+                                value = state.searchQuery,
+                                onValueChange = onSearch,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = MaterialTheme.shapes.small,
+                                singleLine = true,
+                                label = { Text("Russian, lemma, or meaning") }
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            if (state.searchQuery.isBlank()) {
+                                Text(
+                                    "Search your deck before reading to preview forms and hear words aloud.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                if (state.searchResults.isEmpty()) {
+                                    Text("No deck matches for this search.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                } else {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        state.searchResults.take(20).forEach { note ->
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Column(Modifier.weight(1f)) {
+                                                    Text(note.russian, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                                    Text(note.translation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                                IconButton(onClick = { onSpeakRussian(note.russian) }) {
+                                                    Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Hear word")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    SettingsArea.DATA -> {
+                        SectionCard {
+                            Text("Import / Export", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Paste JSON Lines to add notes, or export a copy of your deck and review state.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            OutlinedTextField(value = state.importText, onValueChange = onImportText, modifier = Modifier.fillMaxWidth(), minLines = 6, shape = MaterialTheme.shapes.small, label = { Text("JSON Lines notes") })
+                            Text(
+                                "Import is additive; existing notes and scheduling stay intact.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(onClick = onImport, enabled = state.importText.isNotBlank()) { Text("Import Notes") }
+                                OutlinedButton(onClick = onExport) { Text("Export") }
+                                OutlinedButton(onClick = onFullBackup) { Text("Full Backup") }
+                                if (state.exportText.isNotBlank()) {
+                                    OutlinedButton(onClick = { saveLauncher.launch("sibirskyspeak-export.jsonl") }) { Text("Save to File") }
+                                }
+                            }
+                            Text(
+                                "Export saves note content. Full Backup also includes SRS scheduling.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (state.exportText.isNotBlank()) {
+                                Spacer(Modifier.height(12.dp))
+                                OutlinedTextField(value = state.exportText, onValueChange = {}, modifier = Modifier.fillMaxWidth(), minLines = 6, shape = MaterialTheme.shapes.small, label = { Text("Exported JSON Lines") })
                             }
                         }
                     }
                 }
             }
         }
-        SectionCard {
-            Text("Add Reader Text", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(value = state.readerTitle, onValueChange = onTitle, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small, label = { Text("Text title") })
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(value = state.readerBody, onValueChange = onBody, modifier = Modifier.fillMaxWidth(), minLines = 4, shape = MaterialTheme.shapes.small, label = { Text("Russian text") })
-            Spacer(Modifier.height(12.dp))
-            Button(onClick = onAdd, modifier = Modifier.align(Alignment.End)) { Text("Add Text") }
-        }
-        SectionCard {
-            Text("Import / Export", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Import adds notes. Export saves content only. Full Backup includes scheduling state.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SettingsAreaPicker(selected: SettingsArea, onSelect: (SettingsArea) -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SettingsArea.entries.forEach { area ->
+            FilterChip(
+                selected = selected == area,
+                onClick = { onSelect(area) },
+                label = { Text(area.label) }
             )
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(value = state.importText, onValueChange = onImportText, modifier = Modifier.fillMaxWidth(), minLines = 6, shape = MaterialTheme.shapes.small, label = { Text("JSON Lines notes") })
-            Spacer(Modifier.height(12.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = onImport) { Text("Import") }
-                OutlinedButton(onClick = onExport) { Text("Export") }
-                OutlinedButton(onClick = onFullBackup) { Text("Full Backup") }
-                if (state.exportText.isNotBlank()) {
-                    OutlinedButton(onClick = { saveLauncher.launch("sibirskyspeak-export.jsonl") }) { Text("Save to File") }
-                }
-            }
-            if (state.exportText.isNotBlank()) {
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(value = state.exportText, onValueChange = {}, modifier = Modifier.fillMaxWidth(), minLines = 6, shape = MaterialTheme.shapes.small, label = { Text("Exported JSON Lines") })
-            }
         }
     }
 }
@@ -2528,6 +3163,7 @@ private fun SettingSlider(
     valueLabel: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,
+    rangeLabel: (Float) -> String = { it.settingRangeLabel() },
     onChange: (Float) -> Unit
 ) {
     Column {
@@ -2536,15 +3172,22 @@ private fun SettingSlider(
             Text(valueLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
         }
         Slider(value = value.coerceIn(range.start, range.endInclusive), onValueChange = onChange, valueRange = range)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(rangeLabel(range.start), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(rangeLabel(range.endInclusive), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
+
+private fun Float.settingRangeLabel(): String =
+    if (this % 1f == 0f) toInt().toString() else "${(this * 100).toInt()}%"
 
 // ---------------------------------------------------------------------------
 // Shared building blocks
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun SessionCompleteCard(game: GamificationStats) {
+private fun SessionCompleteCard(game: GamificationStats, onDone: () -> Unit) {
     val pop by animateFloatAsState(
         targetValue = 1f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
@@ -2560,7 +3203,7 @@ private fun SessionCompleteCard(game: GamificationStats) {
         ) {
             Icon(Icons.Filled.EmojiEvents, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(52.dp))
             Text(
-                if (game.goalReached) "Daily goal smashed! 🎉" else "Session complete! 🎉",
+                if (game.goalReached) "Daily goal complete" else "Session complete",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onPrimary
@@ -2575,6 +3218,18 @@ private fun SessionCompleteCard(game: GamificationStats) {
                 HeroPill("${game.currentStreak}", "day streak")
                 HeroPill("Lvl ${game.level}", "level")
                 HeroPill("${game.knownWords}", "words known")
+            }
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = onDone,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.onPrimary,
+                    contentColor = MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Icon(Icons.Filled.School, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Back to Practice", fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -2635,15 +3290,27 @@ private fun SectionCard(emphasis: Boolean = false, content: @Composable ColumnSc
 }
 
 @Composable
-private fun StatusBanner(message: String) {
-    Box(
+private fun StatusBanner(message: String, onDismiss: (() -> Unit)? = null) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.small)
             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+        Text(
+            message,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary
+        )
+        if (onDismiss != null) {
+            IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Filled.Close, contentDescription = "Dismiss message", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            }
+        }
     }
 }
 
@@ -2936,11 +3603,16 @@ private fun reviewTaskTitle(prompt: ReviewPrompt): String =
         CardType.MEANING_TO_RU -> "Recall the Russian word"
         CardType.CLOZE -> "Fill in the missing Russian word"
         CardType.AUDIO_TO_RU -> "Listen and type the Russian"
+        CardType.SPEAK -> "Say the Russian aloud"
         CardType.CASE_FILL -> "Choose the right Russian form"
         CardType.VERB_FORM -> "Conjugate this Russian verb"
         CardType.ADJ_AGREE -> "Make the adjective agree"
         CardType.GENDER_ID -> "Identify the noun gender"
         CardType.ASPECT_SELECT -> "Pick the verb form that fits"
+        CardType.CONCEPT_DRILL -> "Practice the grammar concept"
+        CardType.DICTATION -> "Dictation: listen and type"
+        CardType.SENTENCE_BUILD -> "Build the Russian sentence"
+        CardType.STRESS_MARK -> "Mark the stress"
         CardType.LESSON -> "Read the grammar lesson"
     }
 
@@ -2949,12 +3621,17 @@ private fun reviewTaskHelp(prompt: ReviewPrompt): String =
         CardType.RU_TO_MEANING -> "Type the English meaning. The Russian word is the thing being tested."
         CardType.MEANING_TO_RU -> "Type the Russian word for this English meaning."
         CardType.CLOZE -> "Use the sentence context and type the missing Russian word."
-        CardType.AUDIO_TO_RU -> "Tap Hear Russian, then type what you hear."
+        CardType.AUDIO_TO_RU -> "Audio plays automatically. Type what you hear."
+        CardType.SPEAK -> "Use the mic to say the Russian word or phrase aloud."
         CardType.CASE_FILL -> "Use the sentence and case label to type the inflected form."
         CardType.VERB_FORM -> "Use the grammar label to type the conjugated verb form."
         CardType.ADJ_AGREE -> "Use the noun context to type the matching adjective form."
         CardType.GENDER_ID -> "Choose the gender that fits this noun."
         CardType.ASPECT_SELECT -> "Choose the form that matches whether the action is bounded or ongoing."
+        CardType.CONCEPT_DRILL -> "Use the rule from the lesson to answer this authored grammar prompt."
+        CardType.DICTATION -> "Listen to the Russian sentence and type what you hear."
+        CardType.SENTENCE_BUILD -> "Translate the English sentence by writing the Russian sentence."
+        CardType.STRESS_MARK -> "Type the word with its stressed vowel marked."
         CardType.LESSON -> "Read the explanation, then continue when it feels familiar."
     }
 
@@ -2962,9 +3639,22 @@ private fun answerHint(prompt: ReviewPrompt): String =
     when (prompt.answerMode) {
         AnswerMode.ENGLISH -> "Type the English meaning."
         AnswerMode.RUSSIAN_TYPED -> "Type in Russian. Stress marks and small spelling slips are okay."
+        AnswerMode.RUSSIAN_STRESS_TYPED -> "Type Russian with the stress mark."
         AnswerMode.AUDIO_ONLY -> "Type the Russian you heard. Small spelling slips are okay."
+        AnswerMode.SPEAK -> "Tap the mic and say it aloud."
         AnswerMode.CHOICE -> "Pick one of the choices."
         AnswerMode.LESSON -> "Read the lesson, then tap Got it."
+    }
+
+private fun AnswerMode.modeLabel(): String =
+    when (this) {
+        AnswerMode.ENGLISH -> "English recall"
+        AnswerMode.RUSSIAN_TYPED -> "Russian typing"
+        AnswerMode.RUSSIAN_STRESS_TYPED -> "Stress mark"
+        AnswerMode.AUDIO_ONLY -> "Listening"
+        AnswerMode.SPEAK -> "Speaking"
+        AnswerMode.CHOICE -> "Multiple choice"
+        AnswerMode.LESSON -> "Lesson"
     }
 
 /**
@@ -2972,7 +3662,7 @@ private fun answerHint(prompt: ReviewPrompt): String =
  * not merely the headword), so it can be shown as comprehensible input.
  */
 private fun ReviewPrompt.hasSentenceGloss(): Boolean {
-    val gloss = note.exampleTranslation?.trim().orEmpty()
+    val gloss = exampleTranslation?.trim().orEmpty()
     return gloss.isNotBlank() &&
         !gloss.equals(note.translation.trim(), ignoreCase = true) &&
         gloss.split(Regex("\\s+")).size >= 2
@@ -2982,16 +3672,19 @@ private fun reviewContext(prompt: ReviewPrompt): String? =
     when (prompt.card.cardType) {
         // Recognition: show the example sentence and, if we have one, its translation,
         // so the learner sees the word living in a sentence they can actually read.
-        CardType.RU_TO_MEANING -> prompt.note.exampleSentence?.let { ru ->
-            if (prompt.hasSentenceGloss()) "$ru\n${prompt.note.exampleTranslation}" else "Example: $ru"
+        CardType.RU_TO_MEANING -> prompt.exampleSentence?.let { ru ->
+            if (prompt.hasSentenceGloss()) "$ru\n${prompt.exampleTranslation}" else "Example: $ru"
         }
         CardType.MEANING_TO_RU -> null
         // Cloze/case/verb drills already show the Russian carrier in the prompt; add
         // the full English meaning beneath it so the sentence is comprehensible.
-        CardType.CLOZE, CardType.CASE_FILL, CardType.VERB_FORM, CardType.ADJ_AGREE, CardType.ASPECT_SELECT ->
-            if (prompt.hasSentenceGloss()) "Meaning: ${prompt.note.exampleTranslation}" else null
+        CardType.CLOZE, CardType.CASE_FILL, CardType.VERB_FORM, CardType.ADJ_AGREE, CardType.ASPECT_SELECT, CardType.CONCEPT_DRILL, CardType.STRESS_MARK ->
+            if (prompt.hasSentenceGloss()) "Meaning: ${prompt.exampleTranslation}" else null
         CardType.GENDER_ID -> null
         CardType.AUDIO_TO_RU -> null
+        CardType.SPEAK -> prompt.exampleTranslation?.takeIf { it.isNotBlank() }?.let { "Meaning: $it" }
+        CardType.DICTATION -> null
+        CardType.SENTENCE_BUILD -> null
         CardType.LESSON -> null
     }
 
@@ -3022,3 +3715,194 @@ private fun ReaderStatus.label(): String =
 
 private fun formatCount(value: Int): String =
     "%,d".format(value)
+
+/** Split a reader passage into sentences for sentence-by-sentence audio playback. */
+private fun splitIntoSentences(text: String): List<String> =
+    text.split(Regex("(?<=[.!?…])\\s+"))
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+
+// --- Grammar reference ------------------------------------------------------
+
+/** Human label for a declension/conjugation table key (e.g. GEN_SG -> "Genitive sg"). */
+private fun paradigmKeyLabel(key: String): String {
+    val caseNames = mapOf(
+        "NOM" to "Nominative", "GEN" to "Genitive", "DAT" to "Dative",
+        "ACC" to "Accusative", "INS" to "Instrumental", "PREP" to "Prepositional",
+        "FEM" to "Feminine", "NEUT" to "Neuter", "PL" to "Plural", "M" to "Masculine"
+    )
+    val verbNames = mapOf(
+        "PRES_1SG" to "I (я)", "PRES_2SG" to "you (ты)", "PRES_3SG" to "he/she (он)",
+        "PRES_1PL" to "we (мы)", "PRES_2PL" to "you (вы)", "PRES_3PL" to "they (они)",
+        "PAST_M" to "past (m.)", "PAST_F" to "past (f.)", "PAST_N" to "past (n.)", "PAST_PL" to "past (pl.)"
+    )
+    verbNames[key]?.let { return it }
+    val parts = key.split("_")
+    val main = caseNames[parts.getOrNull(0)] ?: parts.getOrNull(0).orEmpty()
+    val num = when (parts.getOrNull(1)) { "SG" -> "sg"; "PL" -> "pl"; else -> "" }
+    return listOf(main, num).filter { it.isNotBlank() }.joinToString(" ")
+}
+
+/** Parse a note's declensionJson into ordered (label, form) rows for display. */
+private fun paradigmRows(declensionJson: String?): List<Pair<String, String>> {
+    if (declensionJson.isNullOrBlank()) return emptyList()
+    val json = runCatching { org.json.JSONObject(declensionJson) }.getOrNull() ?: return emptyList()
+    val table = when {
+        json.has("cases") -> json.optJSONObject("cases")
+        json.has("verbForms") -> json.optJSONObject("verbForms")
+        else -> json
+    } ?: return emptyList()
+    val order = listOf(
+        "NOM_SG", "GEN_SG", "DAT_SG", "ACC_SG", "INS_SG", "PREP_SG",
+        "NOM_PL", "GEN_PL", "DAT_PL", "ACC_PL", "INS_PL", "PREP_PL",
+        "FEM_NOM", "NEUT_NOM", "PL_NOM",
+        "PRES_1SG", "PRES_2SG", "PRES_3SG", "PRES_1PL", "PRES_2PL", "PRES_3PL",
+        "PAST_M", "PAST_F", "PAST_N", "PAST_PL"
+    )
+    val keys = table.keys().asSequence().toList()
+    val sorted = keys.sortedBy { order.indexOf(it).let { i -> if (i < 0) Int.MAX_VALUE else i } }
+    return sorted.mapNotNull { k ->
+        val v = table.optString(k).takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        paradigmKeyLabel(k) to v
+    }
+}
+
+@Composable
+private fun GrammarReferenceScreen(
+    query: String,
+    results: List<Note>,
+    onQuery: (String) -> Unit,
+    onSpeak: (String) -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Grammar reference", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            OutlinedButton(onClick = onClose) { Text("Done") }
+        }
+
+        // --- Word paradigm lookup ---
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQuery,
+            singleLine = true,
+            label = { Text("Look up a word's forms") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (query.isBlank()) {
+            Text(
+                "Search a deck word to inspect declension or conjugation tables. The concept cards below are always available.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            val withTables = results.filter { paradigmRows(it.declensionJson).isNotEmpty() }
+            if (withTables.isEmpty()) {
+                Text(
+                    "No form table for this search yet. Try the dictionary form, or use the concept reference below.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                withTables.take(5).forEach { note -> ParadigmCard(note = note, onSpeak = onSpeak) }
+            }
+        }
+
+        // --- Concept browser (all grammar rules) ---
+        Text("All grammar concepts", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        com.sibirskyspeak.data.GrammarConcepts.ALL.forEach { concept ->
+            ConceptReferenceCard(concept = concept, onSpeak = onSpeak)
+        }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun ParadigmCard(note: Note, onSpeak: (String) -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(note.russian, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                IconButton(onClick = { onSpeak(note.russian) }, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Hear", modifier = Modifier.size(18.dp))
+                }
+            }
+            Text(note.translation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(4.dp))
+            paradigmRows(note.declensionJson).forEach { (label, form) ->
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    Text(form, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConceptReferenceCard(concept: com.sibirskyspeak.data.GrammarConcept, onSpeak: (String) -> Unit) {
+    var expanded by rememberSaveable(concept.id) { mutableStateOf(false) }
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(concept.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Icon(
+                    Icons.Filled.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Collapse concept" else "Expand concept",
+                    modifier = Modifier.graphicsLayer { rotationZ = if (expanded) 180f else 0f }
+                )
+            }
+            if (!expanded) {
+                Text(concept.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                Text(concept.lesson, style = MaterialTheme.typography.bodyMedium)
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(concept.exampleRu, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            Text(concept.exampleEn, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(onClick = { onSpeak(concept.exampleRu) }) {
+                            Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Hear example")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

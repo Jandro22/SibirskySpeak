@@ -14,6 +14,15 @@ class AnswerNormalizerTest {
     }
 
     @Test
+    fun stressSensitiveModeRequiresStressMarks() {
+        val stressed = "\u043c\u043e\u043b\u043e\u043a\u043e\u0301"
+        val unstressed = "\u043c\u043e\u043b\u043e\u043a\u043e"
+
+        assertFalse(evaluateRussianAnswer(stressed, unstressed, ignoreStress = false).accepted)
+        assertTrue(evaluateRussianAnswer(stressed, stressed, ignoreStress = false).accepted)
+    }
+
+    @Test
     fun acceptsEnglishTranslationAlternatives() {
         assertTrue(isEnglishAnswerCorrect("state, government", "state"))
         assertTrue(isEnglishAnswerCorrect("to write / to complete writing", "to complete writing"))

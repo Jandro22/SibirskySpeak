@@ -115,13 +115,31 @@ def _adj_surface_forms(note):
     return forms
 
 
+def _example_pairs(note):
+    """All (sentence, translation) example pairs on a note (slots 1–3)."""
+    pairs = []
+    for suffix in ("", "2", "3"):
+        ru = note.get(f"exampleSentence{suffix}")
+        en = note.get(f"exampleTranslation{suffix}")
+        if ru:
+            pairs.append((ru, en or ""))
+    return pairs
+
+
+def _flatten_form_strings(value, out):
+    """Collect every string form in a declension/verbForms table, including the
+    nested {"verbForms": {...}} / {"cases": {...}} sub-tables."""
+    if isinstance(value, str):
+        if value:
+            out.add(_norm(value))
+    elif isinstance(value, dict):
+        for v in value.values():
+            _flatten_form_strings(v, out)
+
+
 def _surface_forms(note):
     forms = {_norm(note["lemma"]), _norm(note["russian"])}
-    table = note.get("declensionJson")
-    if isinstance(table, dict):
-        for v in table.values():
-            if isinstance(v, str) and v:
-                forms.add(_norm(v))
+    _flatten_form_strings(note.get("declensionJson"), forms)
     if note["pos"] == "verb":
         forms |= _verb_surface_forms(note["lemma"])
     if note["pos"] == "adjective":
@@ -133,12 +151,13 @@ def test_every_vocab_note_has_a_real_sentence_gloss():
     for note in all_rows():
         if note["pos"] == "lesson":
             continue
-        ru = note.get("exampleSentence", "")
-        en = note.get("exampleTranslation", "")
-        assert ru, f"{note['lemma']} ({note['cefrLevel']}) has no example"
-        assert en, f"{note['lemma']} ({note['cefrLevel']}) has no gloss"
-        assert en.strip().lower() != note["translation"].strip().lower()
-        assert len(en.split()) >= 2, f"{note['lemma']}: gloss not a sentence: {en!r}"
+        pairs = _example_pairs(note)
+        assert pairs, f"{note['lemma']} ({note['cefrLevel']}) has no example"
+        for ru, en in pairs:
+            assert ru, f"{note['lemma']} ({note['cefrLevel']}) has empty example"
+            assert en, f"{note['lemma']} ({note['cefrLevel']}) example has no gloss"
+            assert en.strip().lower() != note["translation"].strip().lower()
+            assert len(en.split()) >= 2, f"{note['lemma']}: gloss not a sentence: {en!r}"
 
 
 def test_cumulative_controlled_vocabulary():
@@ -154,12 +173,12 @@ def test_cumulative_controlled_vocabulary():
             if note["pos"] != "lesson":
                 known |= _surface_forms(note)
         for note in by_unit[unit]:
-            ru = note.get("exampleSentence", "")
-            for token in WORD_RE.findall(_norm(ru)):
-                assert token in known, (
-                    f"unit {unit} {note['cefrLevel']} ({note['lemma']}): "
-                    f"uncontrolled word {token!r} in {ru!r}"
-                )
+            for ru, _en in _example_pairs(note):
+                for token in WORD_RE.findall(_norm(ru)):
+                    assert token in known, (
+                        f"unit {unit} {note['cefrLevel']} ({note['lemma']}): "
+                        f"uncontrolled word {token!r} in {ru!r}"
+                    )
 
 
 def test_units_are_monotonic_per_level_and_lessons_lead():

@@ -139,6 +139,16 @@ object GrammarConcepts {
         spine = false
     )
 
+    val PRESENT = GrammarConcept(
+        id = "PRESENT",
+        title = "The present tense",
+        lesson = "Russian present tense uses six personal forms: я, ты, он/она/оно, мы, вы, они. The hard part is the stem: common verbs change consonants or vowels, so learn the full mini-paradigm instead of guessing from the infinitive.",
+        exampleRu = "писать -> пишу, пишешь, пишет; любить -> люблю, любишь, любит",
+        exampleEn = "to write -> I write, you write, he writes; to love -> I love, you love, he loves",
+        hint = "Present: learn the stored stem pattern; watch mutations like писать -> пишу, любить -> люблю.",
+        order = 85
+    )
+
     val ASPECT = GrammarConcept(
         id = "ASPECT",
         title = "Verb aspect",
@@ -419,7 +429,7 @@ object GrammarConcepts {
     val ALL: List<GrammarConcept> =
         listOf(
             // A1 core spine
-            GENDER, NOM_PL, ACC, GEN, PREP, DAT, INS, PAST, ADJ_AGREE, ASPECT,
+            GENDER, NOM_PL, ACC, GEN, PREP, DAT, INS, PAST, PRESENT, ADJ_AGREE, ASPECT,
             // A2
             FUTURE, IMPERATIVE, REFLEXIVE, COMPARATIVE, MODAL, MOTION, POSSESSIVE_SVOJ,
             // B1
@@ -449,7 +459,11 @@ object GrammarConcepts {
             CardType.GENDER_ID -> GENDER
             CardType.ADJ_AGREE -> ADJ_AGREE
             CardType.ASPECT_SELECT -> ASPECT
-            CardType.VERB_FORM -> PAST
+            CardType.CONCEPT_DRILL -> byId[card.gramConcept]
+            CardType.VERB_FORM -> when {
+                card.gramContextCue?.startsWith("PRES_") == true -> PRESENT
+                else -> PAST
+            }
             else -> null
         }
     }

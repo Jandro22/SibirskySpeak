@@ -32,16 +32,26 @@ python tools\preprocess\build_bootstrap.py
 
 This emits ~10,300 real notes in three layers:
 
-- **CEFR course layer (tier 0, ~250 notes, A1→C1):** the progressive course in
+- **CEFR course layer (tier 0, A1→C1):** the progressive course in
   `a1_starter.py`, `a2_starter.py`, `b1_starter.py`, `b2_starter.py`, `c1_starter.py`
   (shared builders in `curriculum_common.py`). Concrete vocabulary grouped into
   numbered units with fully readable example sentences (real translations, controlled
   cumulative vocabulary) and a teach-before-test grammar spine of `pos:"lesson"` notes
-  (one per concept, ids matching `GrammarConcepts` in the app). `test_curriculum.py`
-  validates the whole course: every example is comprehensible and uses only words
-  introduced in this or an earlier unit, across all levels; `test_a1_starter.py`
-  keeps the A1 level independently checkable. Edit a level module and re-run
-  `python -m pytest -q tools\preprocess` before rebuilding.
+  (one per concept, ids matching `GrammarConcepts` in the app).
+
+  **Multiple contexts (depth):** any vocab entry may carry extra example sentences —
+  append a trailing list of `(ru, en)` tuples (after the noun override slot, or as the
+  last element for verbs/adjs/words). These become `exampleSentence2/3` which the app
+  rotates through. **Verbs** carry verified present/future paradigms from
+  `present_verb_forms.py` (`declensionJson.verbForms`) for production drills.
+
+  **Authoring loop:** `python audit_curriculum.py` reports *every* violation at once
+  (uncontrolled vocabulary, missing stress, weak gloss) so a batch of new content can
+  be fixed in one pass. `test_curriculum.py` validates the whole course is
+  comprehensible and cumulatively controlled (all example slots); `test_curriculum_quality.py`
+  enforces stress marks, example variety, aspect-pair symmetry, multi-context depth,
+  and verified irregular forms. Edit a level module, run `python audit_curriculum.py`,
+  then `python -m pytest -q tools\preprocess`, then rebuild.
 
 
 - **Domain layer (~779 notes):** the curated `domain_wordlist.py` plus the `extended_*` modules — 514 nouns/adjectives with full case tables and 265 verbs (224 aspect-ready with manually-verified Aktionsart). Domain frequency ranks come from `domain_freq_list.tsv`; authentic target-source reader passages from `reader_texts.py`. These get the full grammar treatment (CASE_FILL + ASPECT_SELECT drills).

@@ -31,12 +31,32 @@ object RussianForms {
 
     fun verbForm(infinitive: String, key: String): String? = verbForms(infinitive)[key]
 
+    fun verbForm(note: Note, key: String): String? = verbForms(note)[key]
+
+    fun verbForms(note: Note): Map<String, String> {
+        val forms = linkedMapOf<String, String>()
+        regularPastForms(normalize(note.lemma)).forEach { (key, form) -> forms[key] = form }
+        storedVerbForms(note).forEach { (key, form) -> forms[key] = normalize(form) }
+        return forms
+    }
+
     fun verbForms(infinitive: String): Map<String, String> {
         val word = normalize(infinitive)
         val forms = linkedMapOf<String, String>()
         regularPastForms(word).forEach { (key, form) -> forms[key] = form }
-        regularPresentForms(word).forEach { (key, form) -> forms[key] = form }
         return forms
+    }
+
+    private fun storedVerbForms(note: Note): Map<String, String> {
+        val raw = note.declensionJson ?: return emptyMap()
+        return runCatching {
+            val obj = org.json.JSONObject(raw)
+            val forms = if (obj.has("verbForms")) obj.getJSONObject("verbForms") else obj
+            forms.keys().asSequence()
+                .filter { key -> key.startsWith("PRES_") || key.startsWith("FUT_") || key.startsWith("IMP_") }
+                .mapNotNull { key -> forms.optString(key).takeIf { it.isNotBlank() }?.let { key to it } }
+                .toMap()
+        }.getOrElse { emptyMap() }
     }
 
     private fun regularPastForms(infinitive: String): Map<String, String> {
@@ -91,7 +111,7 @@ object RussianForms {
             }
         }
         if (note.partOfSpeech.equals("verb", ignoreCase = true)) {
-            forms += verbForms(note.lemma).values
+            forms += verbForms(note).values
         }
         forms.removeAll { it.isBlank() }
         return forms

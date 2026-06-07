@@ -13,6 +13,30 @@ import org.junit.Test
 
 class LearningRepositoryTest {
     @Test
+    fun authoredConceptDrillsCoverUpperLevelGrammarConcepts() {
+        val upperConceptIds = setOf(
+            GrammarConcepts.MOTION_PREFIX.id,
+            GrammarConcepts.CONDITIONAL.id,
+            GrammarConcepts.RELATIVE.id,
+            GrammarConcepts.SUPERLATIVE.id,
+            GrammarConcepts.PURPOSE.id,
+            GrammarConcepts.NUMERAL_CASE.id,
+            GrammarConcepts.PARTICIPLE_ACTIVE.id,
+            GrammarConcepts.PARTICIPLE_PASSIVE.id,
+            GrammarConcepts.GERUND.id,
+            GrammarConcepts.PASSIVE.id,
+            GrammarConcepts.REPORTED.id,
+            GrammarConcepts.COMPLEX_SYNTAX.id,
+            GrammarConcepts.NOMINALIZATION.id,
+            GrammarConcepts.ASPECT_NUANCE.id,
+            GrammarConcepts.REGISTER.id,
+            GrammarConcepts.IDIOM.id
+        )
+
+        assertEquals(upperConceptIds, ConceptDrills.coveredConceptIds())
+    }
+
+    @Test
     fun jsonImportCreatesCardsQueuesTagsAndAspectPartner() = runTest {
         val fixture = RepoFixture()
         val jsonl = """
@@ -73,6 +97,41 @@ class LearningRepositoryTest {
     }
 
     @Test
+    fun importCreatesVerifiedPresentVerbFormDrills() = runTest {
+        val fixture = RepoFixture()
+        val jsonl = """
+            {"russian":"\u043f\u0438\u0441\u0430\u0442\u044c","lemma":"\u043f\u0438\u0441\u0430\u0442\u044c","pos":"verb","translation":"to write","aspect":"IPF","aktionsart":"activity","aktionsartConfidence":"high","domainFreqRank":1,"exampleSentence":"\u042f \u043f\u0438\u0448\u0443 \u043f\u0438\u0441\u044c\u043c\u043e.","declensionJson":{"verbForms":{"PRES_1SG":"\u043f\u0438\u0448\u0443","PRES_2SG":"\u043f\u0438\u0448\u0435\u0448\u044c","PRES_3SG":"\u043f\u0438\u0448\u0435\u0442","PRES_1PL":"\u043f\u0438\u0448\u0435\u043c","PRES_2PL":"\u043f\u0438\u0448\u0435\u0442\u0435","PRES_3PL":"\u043f\u0438\u0448\u0443\u0442"}}}
+            {"russian":"\u043d\u0430\u043f\u0438\u0441\u0430\u0442\u044c","lemma":"\u043d\u0430\u043f\u0438\u0441\u0430\u0442\u044c","pos":"verb","translation":"to write (finish)","aspect":"PF","aktionsart":"achievement","aktionsartConfidence":"high","domainFreqRank":2,"exampleSentence":"\u042f \u043d\u0430\u043f\u0438\u0448\u0443 \u043f\u0438\u0441\u044c\u043c\u043e.","declensionJson":{"verbForms":{"PRES_1SG":"\u043d\u0430\u043f\u0438\u0448\u0443","PRES_2SG":"\u043d\u0430\u043f\u0438\u0448\u0435\u0448\u044c","PRES_3SG":"\u043d\u0430\u043f\u0438\u0448\u0435\u0442","PRES_1PL":"\u043d\u0430\u043f\u0438\u0448\u0435\u043c","PRES_2PL":"\u043d\u0430\u043f\u0438\u0448\u0435\u0442\u0435","PRES_3PL":"\u043d\u0430\u043f\u0438\u0448\u0443\u0442"}}}
+        """.trimIndent()
+
+        fixture.repository.importJsonLines(jsonl)
+
+        val ipf = fixture.notes.getByLemma("\u043f\u0438\u0441\u0430\u0442\u044c")
+        val pf = fixture.notes.getByLemma("\u043d\u0430\u043f\u0438\u0441\u0430\u0442\u044c")
+        val presentKeys = setOf("PRES_1SG", "PRES_2SG", "PRES_3SG", "PRES_1PL", "PRES_2PL", "PRES_3PL")
+        val ipfPresent = fixture.cards.cards.filter { it.noteId == ipf?.id && it.gramContextCue in presentKeys }
+        val pfFuture = fixture.cards.cards.filter { it.noteId == pf?.id && it.gramContextCue in presentKeys }
+
+        assertEquals(presentKeys, ipfPresent.mapNotNull { it.gramContextCue }.toSet())
+        assertTrue(ipfPresent.all { it.gramConcept == GrammarConcepts.PRESENT.id })
+        assertEquals(presentKeys, pfFuture.mapNotNull { it.gramContextCue }.toSet())
+        assertTrue(pfFuture.all { it.gramConcept == GrammarConcepts.FUTURE.id })
+    }
+
+    @Test
+    fun importCreatesStressMarkCardsForStressedHeadwords() = runTest {
+        val fixture = RepoFixture()
+        val jsonl = """
+            {"russian":"\u043c\u043e\u043b\u043e\u043a\u043e\u0301","lemma":"\u043c\u043e\u043b\u043e\u043a\u043e","pos":"noun","translation":"milk","tier":0,"exampleSentence":"\u042f \u043f\u044c\u044e \u043c\u043e\u043b\u043e\u043a\u043e\u0301.","exampleTranslation":"I drink milk."}
+        """.trimIndent()
+
+        fixture.repository.importJsonLines(jsonl)
+
+        val note = fixture.notes.getByLemma("\u043c\u043e\u043b\u043e\u043a\u043e")
+        assertTrue(fixture.cards.cards.any { it.noteId == note?.id && it.cardType == CardType.STRESS_MARK })
+    }
+
+    @Test
     fun reviewLogsAndIncrementsEncounters() = runTest {
         val fixture = RepoFixture()
         fixture.repository.seedIfEmpty()
@@ -127,10 +186,12 @@ class LearningRepositoryTest {
         val fixture = RepoFixture()
         fixture.repository.seedIfEmpty()
         val aspectCards = fixture.cards.cards.filter { it.cardType == CardType.ASPECT_SELECT }
-        // Each verb note generates NO_CUE + HAS_CUE = 2 cards per verb; 2 verbs = 4 total
-        assertEquals(4, aspectCards.size)
-        assertTrue("Expected at least one NO_CUE card", aspectCards.any { it.gramContextCue == "NO_CUE" })
-        assertTrue("Expected at least one HAS_CUE card", aspectCards.any { it.gramContextCue == "HAS_CUE" })
+        // Each verb note generates five concrete aspect contexts; 2 verbs = 10 total.
+        assertEquals(10, aspectCards.size)
+        assertEquals(
+            setOf("PROCESS", "HABITUAL", "COMPLETED", "RESULT", "SINGLE_EVENT"),
+            aspectCards.mapNotNull { it.gramContextCue }.toSet()
+        )
 
         val session = fixture.repository.sessionPlan(now = System.currentTimeMillis())
 
@@ -394,6 +455,61 @@ class LearningRepositoryTest {
     }
 
     @Test
+    fun upperLevelLessonNotesCreateLockedConceptDrills() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """
+            {"russian":"Numbers and nouns","lemma":"lesson_numeral_case","pos":"lesson","translation":"Numbers and nouns","conceptId":"NUMERAL_CASE","tier":0,"unit":26,"generalFreqRank":0}
+            """.trimIndent()
+        )
+
+        val lessonNote = fixture.notes.getByLemma("lesson_numeral_case")!!
+        val lessonCards = fixture.cards.cards.filter { it.noteId == lessonNote.id }
+        assertTrue(lessonCards.any { it.cardType == CardType.LESSON && it.gramConcept == "NUMERAL_CASE" })
+        assertTrue(
+            lessonCards.any {
+                it.cardType == CardType.CONCEPT_DRILL &&
+                    it.gramConcept == "NUMERAL_CASE" &&
+                    it.gramContextCue == "NUMERAL_CASE_TWO_BOOKS"
+            }
+        )
+
+        val before = fixture.repository.sessionPlan(now = 0L).reviewQueue
+        assertTrue(before.any { it.card.cardType == CardType.LESSON })
+        assertFalse(before.any { it.card.cardType == CardType.CONCEPT_DRILL })
+
+        fixture.repository.review(before.first { it.card.cardType == CardType.LESSON }.card, Rating.GOOD, now = 1_000L)
+
+        val after = fixture.repository.sessionPlan(now = 2_000L).reviewQueue
+        assertTrue(after.any { it.card.cardType == CardType.CONCEPT_DRILL })
+    }
+
+    @Test
+    fun existingLessonNotesGainMissingConceptDrillsOnStartupSync() = runTest {
+        val fixture = RepoFixture()
+        val noteId = fixture.notes.insert(
+            Note(
+                russian = "Numbers and nouns",
+                lemma = "lesson_numeral_case",
+                translation = "Numbers and nouns",
+                partOfSpeech = "lesson",
+                conceptId = "NUMERAL_CASE"
+            )
+        )
+        fixture.cards.insert(Card(noteId = noteId, cardType = CardType.LESSON, queue = Queue.GRAMMAR, gramConcept = "NUMERAL_CASE"))
+
+        fixture.repository.seedIfEmpty()
+
+        assertTrue(
+            fixture.cards.cards.any {
+                it.noteId == noteId &&
+                    it.cardType == CardType.CONCEPT_DRILL &&
+                    it.gramContextCue == "NUMERAL_CASE_TWO_BOOKS"
+            }
+        )
+    }
+
+    @Test
     fun clozeIsOnlyCreatedWhenTheExampleHasAReadableTranslation() = runTest {
         val fixture = RepoFixture()
         fixture.repository.importJsonLines(
@@ -483,6 +599,63 @@ class LearningRepositoryTest {
         assertTrue(fixture.cards.cards.first { it.id == due }.suspended)
     }
 
+    @Test
+    fun placementAfterLevelGraduatesEarlierCourseMaterial() = runTest {
+        val fixture = RepoFixture()
+        val jsonl = """
+            {"russian":"дом","lemma":"дом","pos":"noun","translation":"house","tier":0,"unit":1,"cefrLevel":"A1","exampleSentence":"Это дом.","exampleTranslation":"This is a house."}
+            {"russian":"урок","lemma":"урок","pos":"noun","translation":"lesson","tier":0,"unit":11,"cefrLevel":"A2","exampleSentence":"Это урок.","exampleTranslation":"This is a lesson."}
+        """.trimIndent()
+        fixture.repository.importJsonLines(jsonl)
+
+        val placed = fixture.repository.placeAfterLevel("A1", now = 10_000L)
+
+        val a1 = fixture.notes.getByLemma("дом")!!
+        val a2 = fixture.notes.getByLemma("урок")!!
+        assertEquals(1, placed)
+        assertEquals(WordStatus.KNOWN, a1.status)
+        assertEquals(WordStatus.NEW, a2.status)
+        assertTrue(fixture.cards.cards.filter { it.noteId == a1.id }.all { it.state == CardState.GRADUATED })
+        assertTrue(fixture.cards.cards.filter { it.noteId == a2.id }.all { it.state == CardState.NEW })
+    }
+
+    @Test
+    fun readingMatrixNotesGetVocabButNoMorphologyDrills() = runTest {
+        val fixture = RepoFixture()
+        // A frequency reading-matrix note: tagged "matrix", carries a declension table
+        // (for reader coverage) and a real example. It must get vocab/comprehension
+        // cards but NO morphology drills built from the unverified engine table.
+        val jsonl = """{"russian":"кни́га","lemma":"книга","pos":"noun","translation":"book","gender":"F","tier":1,"tags":"general curated matrix","declensionJson":{"NOM_SG":"книга","GEN_SG":"книги","DAT_SG":"книге","ACC_SG":"книгу"},"exampleSentence":"Я читаю книгу.","exampleTranslation":"I am reading a book."}"""
+        fixture.repository.importJsonLines(jsonl)
+
+        val note = fixture.notes.getByLemma("книга")
+        val cards = fixture.cards.cards.filter { it.noteId == note?.id }
+        assertTrue("expected recognition card", cards.any { it.cardType == CardType.RU_TO_MEANING })
+        assertTrue("expected production card", cards.any { it.cardType == CardType.MEANING_TO_RU })
+        assertFalse("matrix notes must not get case drills", cards.any { it.cardType == CardType.CASE_FILL })
+        assertFalse("matrix notes must not get gender drills", cards.any { it.cardType == CardType.GENDER_ID })
+        assertFalse("matrix notes must not get agreement drills", cards.any { it.cardType == CardType.ADJ_AGREE })
+        assertFalse("matrix notes must not get verb-form drills", cards.any { it.cardType == CardType.VERB_FORM })
+        assertFalse("matrix notes must not get aspect drills", cards.any { it.cardType == CardType.ASPECT_SELECT })
+    }
+
+    @Test
+    fun speakCardsAreAddedForCourseNotesNotReadingMatrix() = runTest {
+        val fixture = RepoFixture()
+        val jsonl = """
+            {"russian":"дом","lemma":"дом","pos":"noun","translation":"house","tier":0,"unit":1,"cefrLevel":"A1","exampleSentence":"Это дом.","exampleTranslation":"This is a house."}
+            {"russian":"кот","lemma":"кот","pos":"noun","translation":"cat","tier":1,"tags":"general curated matrix"}
+        """.trimIndent()
+        fixture.repository.importJsonLines(jsonl)
+
+        val course = fixture.notes.getByLemma("дом")
+        val matrix = fixture.notes.getByLemma("кот")
+        assertTrue("course note should get a speaking card",
+            fixture.cards.cards.any { it.noteId == course?.id && it.cardType == CardType.SPEAK })
+        assertFalse("reading-matrix note should not get a speaking card",
+            fixture.cards.cards.any { it.noteId == matrix?.id && it.cardType == CardType.SPEAK })
+    }
+
     private fun goodLog(card: Card, time: Long): ReviewLog =
         ReviewLog(
             cardId = card.id,
@@ -537,12 +710,16 @@ class LearningRepositoryTest {
         override suspend fun count(): Int = notes.size
         override fun observeAll(): Flow<List<Note>> = flowOf(notes)
         override suspend fun getAll(): List<Note> = notes.toList()
+        override suspend fun getByCefrLevels(levels: List<String>): List<Note> = notes.filter { it.cefrLevel in levels }
         override suspend fun search(query: String, limit: Int): List<Note> =
             notes.filter {
                 it.russian.contains(query, true) || it.lemma.contains(query, true) || it.translation.contains(query, true)
             }.take(limit)
         override suspend fun update(note: Note) {
             notes.replaceAll { if (it.id == note.id) note else it }
+        }
+        override suspend fun updateAll(notes: List<Note>) {
+            notes.forEach { update(it) }
         }
     }
 
@@ -619,6 +796,7 @@ class LearningRepositoryTest {
         override suspend fun getGrammarDrillCards(limit: Int): List<Card> =
             cards.filter { it.queue == Queue.GRAMMAR }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
         override suspend fun getCardsForNote(noteId: Long): List<Card> = cards.filter { it.noteId == noteId }
+        override suspend fun getCardsForNotes(noteIds: List<Long>): List<Card> = cards.filter { it.noteId in noteIds }
         override suspend fun getAllVocabCards(): List<Card> = cards.filter { it.queue == Queue.VOCAB }
         override suspend fun getKnownVocabNoteIds(): List<Long> =
             cards.filter {

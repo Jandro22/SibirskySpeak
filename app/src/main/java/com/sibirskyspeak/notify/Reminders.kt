@@ -121,21 +121,21 @@ class DailyReminderWorker(
         // Already studied today: a lighter, congratulatory nudge.
         if (studiedToday) {
             val msgs = listOf(
-                "Nicely done today — your streak is safe. A few extra cards never hurt." ,
+                "Nicely done today. Your streak is safe. A few extra cards never hurt.",
                 "Today's goal is in the bag. Want to push your level a little higher?",
                 "Great work today. Reading a short text now would lock it in."
             )
-            return "Молодец! 🎉" to msgs.random()
+            return "Nice work today" to msgs.random()
         }
         // Streak at risk: emphasize the streak.
         if (streak > 0) {
-            return "Don't break your $streak-day streak! 🔥" to
+            return "Keep your $streak-day streak" to
                 if (dueToday > 0) "$dueToday cards are waiting. Two minutes keeps your streak alive."
-                else "Keep the momentum — a quick review keeps your streak going."
+                else "Keep the momentum. A quick review keeps your streak going."
         }
         // No active streak: invite to start.
         val openers = listOf(
-            "Пора учиться! Time for Russian 🇷🇺",
+            "Time for Russian",
             "Your daily Russian is ready",
             "A few minutes of Russian today?"
         )
