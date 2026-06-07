@@ -955,11 +955,14 @@ private fun StudySessionScreen(
                     trackColor = MaterialTheme.colorScheme.surfaceVariant
                 )
                 if (prompt != null) {
+                    val queue = state.sessionPlan?.reviewQueue.orEmpty()
                     SessionProgressStrip(
-                        remaining = sessionSize,
+                        newCount = queue.count { it.card.state.name == "NEW" },
+                        learningCount = queue.count { it.card.state.name == "LEARNING" || it.card.state.name == "RELEARNING" },
+                        reviewCount = queue.count { it.card.state.name == "REVIEW" || it.card.state.name == "GRADUATED" },
                         prompt = prompt,
-                        dailyGoal = dailyGoal,
-                        reviewedToday = state.reviewedToday
+                        reviewedToday = state.reviewedToday,
+                        dailyGoal = dailyGoal
                     )
                 }
             }
@@ -1058,19 +1061,47 @@ private fun EditCardDialog(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SessionProgressStrip(
-    remaining: Int,
+    newCount: Int,
+    learningCount: Int,
+    reviewCount: Int,
     prompt: ReviewPrompt,
-    dailyGoal: Int,
-    reviewedToday: Int
+    reviewedToday: Int,
+    dailyGoal: Int
 ) {
     val concept = prompt.teachingHint?.takeIf { prompt.card.queue.name == "GRAMMAR" }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        // AnkiDroid-style remaining counts: new (blue) · learning (red) · review (green).
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            QueueCount(newCount, Color(0xFF2F73D8))
+            QueueCount(learningCount, Color(0xFFD2453B))
+            QueueCount(reviewCount, Color(0xFF2E9E5B))
+        }
+        Text(
+            "${reviewedToday.coerceAtMost(dailyGoal)} / $dailyGoal today",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        PracticeFocusChip("$remaining left", null)
-        PracticeFocusChip("${reviewedToday.coerceAtMost(dailyGoal)} / $dailyGoal today", null)
         PracticeFocusChip(if (prompt.card.queue.name == "VOCAB") "Vocabulary" else "Grammar", null)
         PracticeFocusChip(prompt.answerMode.modeLabel(), null)
         concept?.let { PracticeFocusChip(it, null) }
     }
+}
+
+/** A single AnkiDroid-style colored remaining-count number. */
+@Composable
+private fun QueueCount(count: Int, color: Color) {
+    Text(
+        count.toString(),
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+        color = if (count > 0) color else color.copy(alpha = 0.35f)
+    )
 }
 
 @Composable
@@ -1778,30 +1809,30 @@ private fun RevealPanel(state: ReviewUiState, prompt: ReviewPrompt, onRate: (Rat
             }
             return
         }
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text("How well did you recall it?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text("Use the interval as a preview of when this card returns.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        // Thin separator between the revealed answer and the grading bar (Anki's
+        // "answer line"), for clearer visual structure.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+        )
         RatingDecisionGuide(state)
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Rating.entries.chunked(2).forEach { row ->
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.forEach { rating ->
-                        RatingButton(
-                            rating = rating,
-                            intervalDays = prompt.intervalPreview[rating] ?: 0,
-                            saving = state.ratingInProgress,
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(72.dp),
-                            onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onRate(rating)
-                            }
-                        )
+        // AnkiDroid-style answer bar: all four grades in a single row across the bottom.
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Rating.entries.forEach { rating ->
+                RatingButton(
+                    rating = rating,
+                    intervalDays = prompt.intervalPreview[rating] ?: 0,
+                    saving = state.ratingInProgress,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(60.dp),
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onRate(rating)
                     }
-                    if (row.size == 1) Spacer(Modifier.weight(1f))
-                }
+                )
             }
         }
     }
@@ -1859,30 +1890,25 @@ private fun RatingButton(
         enabled = !saving,
         interactionSource = interaction,
         modifier = modifier.scale(scale),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 10.dp, horizontal = 10.dp),
+        shape = MaterialTheme.shapes.small,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp, horizontal = 4.dp),
         colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = Color.White)
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        // AnkiDroid-style: the next interval on top, the grade label below it.
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
-                if (saving) "Saving..." else rating.name.lowercase().replaceFirstChar { it.titlecase() },
+                formatDays(intervalDays),
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                color = Color.White.copy(alpha = 0.85f)
+            )
+            Text(
+                if (saving) "…" else rating.name.lowercase().replaceFirstChar { it.titlecase() },
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 maxLines = 1
-            )
-            Text(
-                rating.recallCaption(),
-                style = MaterialTheme.typography.labelSmall,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                color = Color.White.copy(alpha = 0.9f)
-            )
-            Text(
-                "Next ${formatDays(intervalDays)}",
-                style = MaterialTheme.typography.labelSmall,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                color = Color.White.copy(alpha = 0.82f)
             )
         }
     }
