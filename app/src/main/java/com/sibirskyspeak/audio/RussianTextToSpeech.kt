@@ -118,8 +118,21 @@ class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
     private fun String.cleanForSpeech(): String =
         replace("\u0301", "")
             .replace(Regex("_{3,}"), " ")
+            .dropNonRussianWords()
             .replace(Regex("\\s+"), " ")
             .trim()
+
+    /**
+     * Drop any whitespace-separated token that contains a Latin letter, so the
+     * ru-RU engine never tries to pronounce English (e.g. a translation or a
+     * parenthetical gloss that leaked into the text). Cyrillic words, digits, and
+     * punctuation are kept; a fully-English string becomes empty (silent), which is
+     * preferable to mangled English.
+     */
+    private fun String.dropNonRussianWords(): String =
+        split(Regex("\\s+"))
+            .filterNot { token -> token.any { it in 'a'..'z' || it in 'A'..'Z' } }
+            .joinToString(" ")
 
     private fun String.chunkForSpeech(maxLength: Int = 3500): List<String> {
         if (isBlank()) return emptyList()

@@ -45,4 +45,35 @@ class AnswerNormalizerTest {
     fun rejectsShortRussianWordsUnlessExact() {
         assertFalse(isRussianAnswerCorrect("он", "она"))
     }
+
+    @Test
+    fun acceptsEnglishInfinitiveWithOrWithoutTo() {
+        assertTrue(isEnglishAnswerCorrect("to go", "go"))
+        assertTrue(isEnglishAnswerCorrect("go", "to go"))
+    }
+
+    @Test
+    fun acceptsEnglishGlossIgnoringParenthetical() {
+        assertTrue(isEnglishAnswerCorrect("book (notebook)", "book"))
+        assertTrue(isEnglishAnswerCorrect("house (building)", "house"))
+    }
+
+    @Test
+    fun acceptsRussianIliAndParentheticalAlternatives() {
+        assertTrue(isRussianAnswerCorrect("большой или крупный", "крупный"))
+        assertTrue(isRussianAnswerCorrect("идти (пешком)", "идти"))
+    }
+
+    @Test
+    fun toleratesSmallEnglishTypos() {
+        assertTrue(isEnglishAnswerCorrect("government", "goverment"))
+        assertTrue(isEnglishAnswerCorrect("receive", "recieve"))
+        assertTrue(isEnglishAnswerCorrect("beautiful", "beatiful"))
+    }
+
+    @Test
+    fun stillRejectsWrongShortEnglishWords() {
+        assertFalse(isEnglishAnswerCorrect("go", "do"))
+        assertFalse(isEnglishAnswerCorrect("cat", "dog"))
+    }
 }

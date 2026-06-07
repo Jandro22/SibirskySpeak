@@ -66,13 +66,38 @@ fun evaluateRussianAnswer(expected: String, actual: String, ignoreStress: Boolea
 }
 
 fun isEnglishAnswerCorrect(expected: String, actual: String): Boolean {
-    val normalizedActual = normalizeEnglish(actual)
-    if (normalizedActual.isBlank()) return false
-    val acceptable = expected
-        .split(",", ";", "/", " or ")
-        .map(::normalizeEnglish)
-        .filter { it.isNotBlank() }
-    return normalizedActual == normalizeEnglish(expected) || normalizedActual in acceptable
+    if (normalizeEnglish(actual).isBlank()) return false
+    val actualVariants = englishVariants(actual)
+    val acceptable = (listOf(expected) + expected.split(",", ";", "/", " or "))
+        .flatMap { englishVariants(it) }
+        .toSet()
+    if (actualVariants.any { it in acceptable }) return true
+    // Typo tolerance (parity with Russian grading): accept a near-miss within a small,
+    // length-scaled edit budget so "goverment"/"recieve" aren't marked wrong on a card
+    // you actually knew. Short words still require an exact match (budget 0).
+    return actualVariants.any { typed ->
+        acceptable.any { target ->
+            levenshteinDistance(typed, target) <= allowedTypoDistance(typed, target)
+        }
+    }
+}
+
+/**
+ * Normalized acceptable variants of an English gloss so trivially-correct answers
+ * aren't marked wrong: as written, with any "(parenthetical)" hint removed, and with a
+ * leading "to " infinitive marker dropped ("to go" ≡ "go"). Operates on raw text
+ * (parentheses are stripped by normalization) and normalizes each variant.
+ */
+private fun englishVariants(raw: String): Set<String> {
+    val out = linkedSetOf<String>()
+    for (form in listOf(raw, raw.replace(Regex("""\([^)]*\)"""), " "))) {
+        val n = normalizeEnglish(form)
+        if (n.isNotBlank()) {
+            out += n
+            if (n.startsWith("to ")) out += n.removePrefix("to ").trim()
+        }
+    }
+    return out
 }
 
 private fun normalizeEnglish(input: String): String =
@@ -84,9 +109,16 @@ private fun normalizeEnglish(input: String): String =
 
 private fun russianAnswerAlternatives(expected: String): List<String> =
     expected
+        .replace(" или ", "/")
         .split("/", ";", ",")
-        .map { it.trim() }
+        .flatMap { part ->
+            val trimmed = part.trim()
+            // Accept both the full form and a parenthetical-stripped form.
+            val noParens = trimmed.replace(Regex("""\([^)]*\)"""), " ").replace(Regex("""\s+"""), " ").trim()
+            listOf(trimmed, noParens)
+        }
         .filter { it.isNotBlank() }
+        .distinct()
         .ifEmpty { listOf(expected) }
 
 private fun allowedTypoDistance(actual: String, expected: String): Int {

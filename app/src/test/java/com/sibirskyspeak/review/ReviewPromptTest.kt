@@ -330,9 +330,11 @@ class ReviewPromptTest {
 
         val prompt = buildPrompt(card, note, emptyMap())
 
-        assertEquals(AnswerMode.RUSSIAN_STRESS_TYPED, prompt.answerMode)
+        // Stress is now tap-the-vowel (CHOICE), not typing a combining accent.
+        assertEquals(AnswerMode.CHOICE, prompt.answerMode)
         assertEquals("\u043c\u043e\u043b\u043e\u043a\u043e\u0301", prompt.expectedAnswer)
         assertTrue(prompt.prompt.contains("\u043c\u043e\u043b\u043e\u043a\u043e"))
+        assertTrue(prompt.choices.contains("\u043c\u043e\u043b\u043e\u043a\u043e\u0301"))
     }
 
     @Test
@@ -479,6 +481,28 @@ class ReviewPromptTest {
         assertEquals(AnswerMode.SPEAK, prompt.answerMode)
         assertEquals("кни́га", prompt.expectedAnswer)
         assertTrue(prompt.prompt.contains("кни́га"))
+    }
+
+    @Test
+    fun stressCardIsTapTheVowelChoiceNotTyping() {
+        val note = Note(
+            id = 1,
+            russian = "молоко́",
+            lemma = "молоко",
+            translation = "milk",
+            partOfSpeech = "noun"
+        )
+        val card = Card(noteId = 1, cardType = CardType.STRESS_MARK, queue = Queue.VOCAB)
+
+        val prompt = buildPrompt(card, note, emptyMap())
+
+        // No typing: the learner taps the correctly-stressed spelling.
+        assertEquals(AnswerMode.CHOICE, prompt.answerMode)
+        assertEquals("молоко́", prompt.expectedAnswer)
+        assertTrue("correct stressed form must be a choice", prompt.choices.contains("молоко́"))
+        assertTrue("should offer multiple stress placements", prompt.choices.size >= 2)
+        // Every choice is the same letters, differing only by where the accent sits.
+        assertTrue(prompt.choices.all { it.replace("́", "") == "молоко" })
     }
 
     @Test

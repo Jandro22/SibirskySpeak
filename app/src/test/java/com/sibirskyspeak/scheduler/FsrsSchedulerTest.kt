@@ -14,6 +14,26 @@ import kotlin.random.Random
 
 class FsrsSchedulerTest {
     @Test
+    fun intervalModifierLengthensAndShortensVocabIntervals() {
+        fun reviewedDays(modifier: Double): Int {
+            val scheduler = FsrsScheduler(intervalModifierProvider = { modifier })
+            val card = Card(
+                noteId = 1,
+                cardType = CardType.RU_TO_MEANING,
+                queue = Queue.VOCAB,
+                stability = 50.0,
+                difficulty = 4.0,
+                state = CardState.REVIEW,
+                lastReview = 0L
+            )
+            return scheduler.review(card, Rating.GOOD, now = 10L * 86_400_000L).first.scheduledDays
+        }
+        val neutral = reviewedDays(1.0)
+        assertTrue("modifier > 1 lengthens intervals", reviewedDays(1.8) > neutral)
+        assertTrue("modifier < 1 shortens intervals", reviewedDays(0.6) < neutral)
+    }
+
+    @Test
     fun capsNonGraduatedGrammarIntervals() {
         val scheduler = FsrsScheduler()
         val card = Card(

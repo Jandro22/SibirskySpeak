@@ -143,15 +143,23 @@ fun buildPrompt(
                 explanation = sentence
             )
         }
-        CardType.STRESS_MARK -> ReviewPrompt(
-            card = card,
-            note = note,
-            prompt = "Add the stress mark.\n${note.russian.withoutStressMarks()}",
-            expectedAnswer = note.russian,
-            answerMode = AnswerMode.RUSSIAN_STRESS_TYPED,
-            intervalPreview = intervalPreview,
-            explanation = "Stress: ${note.russian}"
-        )
+        CardType.STRESS_MARK -> {
+            // Tap the correctly-stressed spelling rather than typing a combining
+            // accent (which is impractical on a normal keyboard). Choices are the
+            // word stressed on each vowel; the learner picks where the stress falls.
+            val plain = note.russian.withoutStressMarks()
+            val choices = stressChoices(note.russian, plain)
+            ReviewPrompt(
+                card = card,
+                note = note,
+                prompt = "Where is the stress?\n$plain",
+                expectedAnswer = note.russian,
+                answerMode = AnswerMode.CHOICE,
+                intervalPreview = intervalPreview,
+                choices = choices,
+                explanation = "Stress: ${note.russian}"
+            )
+        }
         CardType.CASE_FILL -> ReviewPrompt(
             card = card,
             note = note,
@@ -294,6 +302,25 @@ private fun Note.prefersRussianContext(card: Card): Boolean =
 
 private fun String.withoutStressMarks(): String =
     replace("\u0301", "")
+
+private val RUSSIAN_VOWELS = "\u0430\u0435\u0451\u0438\u043e\u0443\u044b\u044d\u044e\u044f\u0410\u0415\u0401\u0418\u041e\u0423\u042b\u042d\u042e\u042f".toSet()
+
+/** Every spelling of [plain] with a stress mark on a single vowel. */
+private fun stressVariants(plain: String): List<String> =
+    plain.mapIndexedNotNull { i, c ->
+        if (c in RUSSIAN_VOWELS) plain.substring(0, i + 1) + "\u0301" + plain.substring(i + 1) else null
+    }
+
+/**
+ * Choices for a stress card: the correct stressed spelling plus up to three decoys
+ * that place the stress on a different vowel, shuffled. Falls back to just the
+ * correct form for single-vowel words.
+ */
+private fun stressChoices(correct: String, plain: String): List<String> {
+    val variants = stressVariants(plain)
+    val decoys = variants.filter { it != correct }.shuffled().take(3)
+    return (decoys + correct).distinct().shuffled()
+}
 
 private fun String.hasMultipleRussianWords(): Boolean =
     Regex("""\p{IsCyrillic}+""").findAll(this).take(2).count() >= 2

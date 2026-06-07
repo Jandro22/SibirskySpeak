@@ -31,6 +31,16 @@ class SettingsStore(context: Context) {
         get() = prefs.getFloat(KEY_RETENTION, DEFAULT_RETENTION.toFloat()).toDouble().coerceIn(MIN_RETENTION, MAX_RETENTION)
         set(value) = prefs.edit().putFloat(KEY_RETENTION, value.coerceIn(MIN_RETENTION, MAX_RETENTION).toFloat()).apply()
 
+    /**
+     * Data-driven FSRS interval multiplier, learned from the user's own mature-card
+     * retention vs their target (a lightweight personalization in place of a full
+     * weight optimizer). 1.0 = neutral; >1 lengthens intervals when you retain better
+     * than target, <1 shortens them when you forget more. Bounded so it can't run away.
+     */
+    var intervalModifier: Double
+        get() = prefs.getFloat(KEY_INTERVAL_MODIFIER, 1.0f).toDouble().coerceIn(MIN_INTERVAL_MODIFIER, MAX_INTERVAL_MODIFIER)
+        set(value) = prefs.edit().putFloat(KEY_INTERVAL_MODIFIER, value.coerceIn(MIN_INTERVAL_MODIFIER, MAX_INTERVAL_MODIFIER).toFloat()).apply()
+
     var reminderEnabled: Boolean
         get() = prefs.getBoolean(KEY_REMINDER_ENABLED, true)
         set(value) = prefs.edit().putBoolean(KEY_REMINDER_ENABLED, value).apply()
@@ -91,6 +101,7 @@ class SettingsStore(context: Context) {
         private const val KEY_UNLOCKED_ACHIEVEMENTS = "unlocked_achievements"
         private const val KEY_ACH_SEEDED = "achievements_seeded"
         private const val KEY_LAST_BACKUP_AT = "last_backup_at"
+        private const val KEY_INTERVAL_MODIFIER = "interval_modifier"
 
         const val DEFAULT_DAILY_GOAL = 20
         const val DEFAULT_SESSION_SIZE = 25
@@ -108,5 +119,7 @@ class SettingsStore(context: Context) {
         const val MAX_RETENTION = 0.97
         const val MIN_FONT_SCALE = 0.8f
         const val MAX_FONT_SCALE = 1.8f
+        const val MIN_INTERVAL_MODIFIER = 0.5
+        const val MAX_INTERVAL_MODIFIER = 2.0
     }
 }

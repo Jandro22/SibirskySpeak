@@ -63,8 +63,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LocalFireDepartment
@@ -75,6 +79,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -158,10 +163,12 @@ import com.sibirskyspeak.data.WordStatus
 import com.sibirskyspeak.review.AnswerMode
 import com.sibirskyspeak.review.AnswerMatch
 import com.sibirskyspeak.review.ReviewPrompt
+import com.sibirskyspeak.review.LeechItem
 import com.sibirskyspeak.review.ReviewUiState
 import com.sibirskyspeak.review.ReviewViewModel
 import com.sibirskyspeak.review.ReviewViewModelFactory
 import com.sibirskyspeak.review.SessionStep
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private val reviewViewModel: ReviewViewModel by viewModels {
@@ -363,7 +370,10 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             onExit = { studyActive = false },
                             onUndo = viewModel::undoLastReview,
                             onKnewIt = viewModel::overrideKnewIt,
-                            onSuspend = viewModel::suspendCurrentCard
+                            onSuspend = viewModel::suspendCurrentCard,
+                            onKnowWord = viewModel::markCurrentWordKnown,
+                            onStartSession = viewModel::startStudySession,
+                            onSaveEdit = viewModel::editCurrentCard
                         )
                         SessionStep.REVIEWS -> PracticeScreen(
                             state = state,
@@ -394,7 +404,9 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                                 viewModel.setSessionStep(SessionStep.READER)
                                 viewModel.openReaderText(id)
                             },
-                            onRead = { viewModel.setSessionStep(SessionStep.READER) }
+                            onRead = { viewModel.setSessionStep(SessionStep.READER) },
+                            onLoadLeeches = viewModel::loadLeeches,
+                            onReleaseLeech = viewModel::releaseLeech
                         )
                         SessionStep.IMPORT -> ImportExportPanel(
                             state = state,
@@ -452,7 +464,8 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             state = state,
                             onSetStatus = viewModel::setReaderWordStatus,
                             onClearSelection = viewModel::clearSelectedToken,
-                            onSpeakRussian = tts::speak
+                            onSpeakRussian = tts::speak,
+                            onMine = viewModel::mineSentence
                         )
                     }
                 }
@@ -853,8 +866,13 @@ private fun StudySessionScreen(
     onExit: () -> Unit,
     onUndo: () -> Unit,
     onKnewIt: () -> Unit,
-    onSuspend: () -> Unit
+    onSuspend: () -> Unit,
+    onKnowWord: () -> Unit,
+    onStartSession: () -> Unit,
+    onSaveEdit: (String?, String?, String?) -> Unit
 ) {
+    LaunchedEffect(Unit) { onStartSession() }
+    var editing by remember { mutableStateOf(false) }
     val sessionSize = state.sessionPlan?.reviewQueue?.size ?: 0
     val prompt = state.prompt
     val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
@@ -904,7 +922,15 @@ private fun StudySessionScreen(
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (prompt != null && prompt.card.queue.name == "VOCAB") {
+                            TextButton(onClick = onKnowWord, enabled = !state.ratingInProgress) {
+                                Text("Know it", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
                         if (prompt != null) {
+                            IconButton(onClick = { editing = true }, enabled = !state.ratingInProgress) {
+                                Icon(Icons.Filled.Edit, contentDescription = "Fix this card")
+                            }
                             TextButton(onClick = onSuspend, enabled = !state.ratingInProgress) {
                                 Text("Suspend", style = MaterialTheme.typography.labelMedium)
                             }
@@ -948,7 +974,12 @@ private fun StudySessionScreen(
             label = "review-card"
         ) {
             if (prompt == null) {
-                SessionCompleteCard(state.sessionPlan?.gamification ?: GamificationStats.EMPTY, onDone = onExit)
+                SessionCompleteCard(
+                    state.sessionPlan?.gamification ?: GamificationStats.EMPTY,
+                    onDone = onExit,
+                    sessionReviewed = state.sessionReviewed,
+                    sessionCorrect = state.sessionCorrect
+                )
             } else {
                 ReviewContent(
                     state = state,
@@ -964,6 +995,64 @@ private fun StudySessionScreen(
             }
         }
     }
+    if (editing && prompt != null) {
+        EditCardDialog(
+            note = prompt.note,
+            onDismiss = { editing = false },
+            onSave = { t, ex, exT ->
+                onSaveEdit(t, ex, exT)
+                editing = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun EditCardDialog(
+    note: Note,
+    onDismiss: () -> Unit,
+    onSave: (String?, String?, String?) -> Unit
+) {
+    var translation by remember(note.id) { mutableStateOf(note.translation) }
+    var example by remember(note.id) { mutableStateOf(note.exampleSentence.orEmpty()) }
+    var exampleTranslation by remember(note.id) { mutableStateOf(note.exampleTranslation.orEmpty()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Fix “${note.russian}”") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = translation,
+                    onValueChange = { translation = it },
+                    label = { Text("Meaning") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = example,
+                    onValueChange = { example = it },
+                    label = { Text("Example (Russian)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = exampleTranslation,
+                    onValueChange = { exampleTranslation = it },
+                    label = { Text("Example translation") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onSave(
+                    translation.trim().takeIf { it.isNotBlank() && it != note.translation },
+                    example.trim().takeIf { it.isNotBlank() && it != note.exampleSentence },
+                    exampleTranslation.trim().takeIf { it.isNotBlank() && it != note.exampleTranslation }
+                )
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -1040,7 +1129,14 @@ private fun ReviewContent(
     onSpeak: () -> Unit,
     onKnewIt: () -> Unit
 ) {
-    AutoPlayCardAudio(cardId = prompt.card.id, onSpeak = onSpeak)
+    // Only auto-play audio when hearing the Russian can't give the answer away:
+    // listening cards (the audio *is* the prompt) and recognition cards (the Russian
+    // word is already shown). For production, cloze, stress, and choice cards, auto-
+    // play would speak the very answer the learner is meant to recall — so it's off;
+    // they can still tap "Hear Russian" any time (and after reveal).
+    if (prompt.answerMode == AnswerMode.AUDIO_ONLY || prompt.answerMode == AnswerMode.ENGLISH) {
+        AutoPlayCardAudio(cardId = prompt.card.id, onSpeak = onSpeak)
+    }
     // A lesson is a teaching screen, not a quiz: render it on its own and bail out
     // of the normal answer/reveal flow.
     prompt.lesson?.let { lesson ->
@@ -1048,7 +1144,11 @@ private fun ReviewContent(
         return
     }
 
-    val supportsTiles = prompt.answerMode == AnswerMode.RUSSIAN_TYPED
+    // Offer tiles for Russian typing and for listening (AUDIO_ONLY) so the learner
+    // rarely needs a Russian keyboard at all. LetterTileBank switches to whole-word
+    // tiles automatically for multi-word answers, so short phrases work too.
+    val supportsTiles = prompt.answerMode == AnswerMode.RUSSIAN_TYPED ||
+        prompt.answerMode == AnswerMode.AUDIO_ONLY
     var keyboardMode by rememberSaveable(prompt.card.id) { mutableStateOf(!supportsTiles) }
     SectionCard(emphasis = true) {
         Row(
@@ -1094,15 +1194,20 @@ private fun ReviewContent(
                             AnswerMode.LESSON -> "Lesson"
                         }
                     )
-                    AssistChip(
-                        onClick = onSpeak,
-                        label = { Text("Hear Russian") },
-                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                        colors = AssistChipDefaults.assistChipColors(
-                            leadingIconContentColor = MaterialTheme.colorScheme.primary,
-                            labelColor = MaterialTheme.colorScheme.onSurface
+                    // Only offer "Hear Russian" before answering on recognition cards,
+                    // where the Russian is the prompt. On production/choice/stress cards
+                    // it would just read out the answer — that audio comes on reveal.
+                    if (prompt.answerMode == AnswerMode.ENGLISH) {
+                        AssistChip(
+                            onClick = onSpeak,
+                            label = { Text("Hear Russian") },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                            colors = AssistChipDefaults.assistChipColors(
+                                leadingIconContentColor = MaterialTheme.colorScheme.primary,
+                                labelColor = MaterialTheme.colorScheme.onSurface
+                            )
                         )
-                    )
+                    }
                 }
                 prompt.teachingHint?.takeIf { prompt.card.queue.name == "GRAMMAR" }?.let { hint ->
                     Surface(
@@ -1117,6 +1222,27 @@ private fun ReviewContent(
                         ) {
                             Icon(Icons.Filled.School, contentDescription = null, modifier = Modifier.size(16.dp))
                             Text(hint, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+                // First-exposure cue: a brand-new word you've never been tested on.
+                // Orients the learner to treat it as a learn-then-reveal moment (and
+                // rate honestly) rather than feeling they failed a word they never saw.
+                if (!state.revealed && prompt.card.queue.name == "VOCAB" &&
+                    prompt.card.state.name == "NEW" && prompt.card.reps == 0
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Text("New word — first time. Try it, then reveal to learn it.", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
                         }
                     }
                 }
@@ -1603,10 +1729,31 @@ private fun KeyboardAnswerInput(
 @Composable
 private fun RevealPanel(state: ReviewUiState, prompt: ReviewPrompt, onRate: (Rating) -> Unit, onContinue: () -> Unit, onKnewIt: () -> Unit, onSpeak: () -> Unit) {
     val haptics = LocalHapticFeedback.current
+    // Reinforce correct pronunciation on reveal for the cards where prompt-side
+    // auto-play was suppressed (production, cloze, choice, stress, speak) — so you
+    // hear the right Russian right after you commit your answer. Recognition/listening
+    // cards already played on the prompt, so don't repeat them.
+    if (prompt.answerMode != AnswerMode.ENGLISH && prompt.answerMode != AnswerMode.AUDIO_ONLY) {
+        LaunchedEffect(prompt.card.id) { onSpeak() }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ResultBanner(state, prompt, onSpeak)
         prompt.explanation?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        // Reinforce with the word in context (and its meaning) now that the answer is in.
+        reviewRevealContext(prompt)?.let { (ru, en) ->
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("In context", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                    Text(ru, style = MaterialTheme.typography.bodyMedium)
+                    en?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            }
         }
         if (state.autoRatedAgain) {
             StatusBanner("Marked Again automatically because the answer was missed.")
@@ -2364,8 +2511,19 @@ private fun WordDetailCard(
     state: ReviewUiState,
     onSetStatus: (WordStatus) -> Unit,
     onClearSelection: () -> Unit,
-    onSpeakRussian: (String) -> Unit
+    onSpeakRussian: (String) -> Unit,
+    onMine: (String) -> Unit = {}
 ) {
+    // The sentence the learner met this word in, for sentence-mining into study.
+    val readerBody = remember(state.selectedReaderTextId, state.allReaderTexts) {
+        state.allReaderTexts.firstOrNull { it.text.id == state.selectedReaderTextId }?.text?.body
+            ?: state.readerRecommendation?.text?.body
+    }
+    val miningSentence = remember(readerBody, token.surface) {
+        readerBody?.let { body ->
+            splitIntoSentences(body).firstOrNull { it.contains(token.surface, ignoreCase = true) }
+        }
+    }
     SectionCard(emphasis = true) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -2427,6 +2585,14 @@ private fun WordDetailCard(
             WordStatusChip("Learning", WordStatus.LEARNING, token.status, onSetStatus)
             WordStatusChip("Known", WordStatus.KNOWN, token.status, onSetStatus)
             WordStatusChip("Ignore", WordStatus.IGNORED, token.status, onSetStatus)
+        }
+        if (miningSentence != null && token.status != WordStatus.KNOWN && token.status != WordStatus.IGNORED) {
+            Spacer(Modifier.height(10.dp))
+            Button(onClick = { onMine(miningSentence) }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Study this word in this sentence")
+            }
         }
         val examples = listOf(
             token.exampleSentence to token.exampleTranslation,
@@ -2525,11 +2691,14 @@ private fun DashboardPanel(
     state: ReviewUiState,
     onStart: () -> Unit,
     onOpenReader: (Long) -> Unit,
-    onRead: () -> Unit
+    onRead: () -> Unit,
+    onLoadLeeches: () -> Unit = {},
+    onReleaseLeech: (LeechItem) -> Unit = {}
 ) {
     val stats = state.dashboardStats ?: return
     val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
     var showDetails by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(stats.leechCount) { if (stats.leechCount > 0) onLoadLeeches() }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         LevelCard(game)
         DashboardNextActionCard(state, onStart, onOpenReader, onRead)
@@ -2539,7 +2708,43 @@ private fun DashboardPanel(
             WordsKnownCard(Modifier.weight(1f), game)
         }
         AchievementsCard(game)
+        if (stats.leechCount > 0) LeechCard(state.leeches, stats.leechCount, onReleaseLeech)
         DetailsSection(stats, showDetails) { showDetails = !showDetails }
+    }
+}
+
+@Composable
+private fun LeechCard(leeches: List<LeechItem>, leechCount: Int, onRelease: (LeechItem) -> Unit) {
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Icon(Icons.Filled.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(26.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Parked leeches ($leechCount)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Cards that kept tripping you up. Fix them in the deck, or release one to try again.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        leeches.take(20).forEach { item ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(item.russian, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${item.translation} · ${item.lapses} lapses",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                TextButton(onClick = { onRelease(item) }) { Text("Release") }
+            }
+        }
     }
 }
 
@@ -2864,6 +3069,33 @@ private fun DetailsSection(stats: com.sibirskyspeak.data.DashboardStats, expande
                     color = if (stats.authenticReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(16.dp))
+                Text("Retention", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(10.dp))
+                FlowRowWithStats(
+                    "True retention" to (stats.matureRetention?.let { "${(it * 100).toInt()}%" } ?: "—"),
+                    "Mature reviews" to stats.matureReviewSample.toString(),
+                    "Leeches" to stats.leechCount.toString(),
+                    "Interval tuning" to String.format(Locale.US, "%.2f×", stats.intervalModifier)
+                )
+                if (stats.matureReviewSample in 1 until 30) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Retention firms up after ~30 mature reviews.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (stats.dueForecast.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    Text("Coming due (next 7 days)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        stats.dueForecast.joinToString(" · ") { it.toString() },
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
                 val report = stats.importQualityReport
                 Text("Import readiness", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(10.dp))
@@ -3187,7 +3419,12 @@ private fun Float.settingRangeLabel(): String =
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun SessionCompleteCard(game: GamificationStats, onDone: () -> Unit) {
+private fun SessionCompleteCard(
+    game: GamificationStats,
+    onDone: () -> Unit,
+    sessionReviewed: Int = 0,
+    sessionCorrect: Int = 0
+) {
     val pop by animateFloatAsState(
         targetValue = 1f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
@@ -3209,15 +3446,18 @@ private fun SessionCompleteCard(game: GamificationStats, onDone: () -> Unit) {
                 color = MaterialTheme.colorScheme.onPrimary
             )
             Text(
-                "You reviewed ${game.reviewedToday} ${if (game.reviewedToday == 1) "card" else "cards"} today.",
+                if (sessionReviewed > 0)
+                    "This sitting: $sessionReviewed ${if (sessionReviewed == 1) "card" else "cards"}, ${(sessionCorrect * 100) / sessionReviewed}% right · ${game.reviewedToday} today."
+                else
+                    "You reviewed ${game.reviewedToday} ${if (game.reviewedToday == 1) "card" else "cards"} today.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
             )
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (sessionReviewed > 0) HeroPill("${(sessionCorrect * 100) / sessionReviewed}%", "this sitting")
                 HeroPill("${game.currentStreak}", "day streak")
                 HeroPill("Lvl ${game.level}", "level")
-                HeroPill("${game.knownWords}", "words known")
             }
             Spacer(Modifier.height(8.dp))
             Button(
@@ -3343,7 +3583,11 @@ private fun LetterTileBank(
     onChange: (String) -> Unit
 ) {
     val haptics = LocalHapticFeedback.current
-    val answer = remember(cardId, expected) { expected.split("/", ";", ",").firstOrNull()?.trim().orEmpty() }
+    // Strip the combining stress mark so it never becomes its own phantom tile;
+    // answers are scored stress-insensitively anyway.
+    val answer = remember(cardId, expected) {
+        expected.split("/", ";", ",").firstOrNull()?.trim().orEmpty().replace("́", "")
+    }
     val wordMode = answer.contains(' ')
     val cyrillic = answer.any { it in 'а'..'я' || it in 'А'..'Я' || it == 'ё' || it == 'Ё' }
     val tiles = remember(cardId, expected) {
@@ -3670,15 +3914,20 @@ private fun ReviewPrompt.hasSentenceGloss(): Boolean {
 
 private fun reviewContext(prompt: ReviewPrompt): String? =
     when (prompt.card.cardType) {
-        // Recognition: show the example sentence and, if we have one, its translation,
-        // so the learner sees the word living in a sentence they can actually read.
-        CardType.RU_TO_MEANING -> prompt.exampleSentence?.let { ru ->
-            if (prompt.hasSentenceGloss()) "$ru\n${prompt.exampleTranslation}" else "Example: $ru"
-        }
+        // Recognition (produce the English meaning): show ONLY the Russian example on
+        // the prompt side — seeing the word in a real sentence aids recognition, but we
+        // must NOT show the English translation here or it gives the answer away and
+        // destroys retrieval practice. The translation is shown on reveal instead.
+        CardType.RU_TO_MEANING -> prompt.exampleSentence?.let { "Example: $it" }
         CardType.MEANING_TO_RU -> null
-        // Cloze/case/verb drills already show the Russian carrier in the prompt; add
-        // the full English meaning beneath it so the sentence is comprehensible.
-        CardType.CLOZE, CardType.CASE_FILL, CardType.VERB_FORM, CardType.ADJ_AGREE, CardType.ASPECT_SELECT, CardType.CONCEPT_DRILL, CardType.STRESS_MARK ->
+        // CLOZE blanks the target word IN its example, so the English translation would
+        // hand over the very word you must produce — withhold it (the Russian carrier is
+        // already comprehensible context) and show the meaning only on reveal.
+        CardType.CLOZE -> null
+        // Case/verb/agreement drills show the Russian carrier in the prompt; the meaning
+        // helps comprehension without revealing the answer (an inflected FORM, not the
+        // dictionary word the gloss names), so keep it.
+        CardType.CASE_FILL, CardType.VERB_FORM, CardType.ADJ_AGREE, CardType.ASPECT_SELECT, CardType.CONCEPT_DRILL, CardType.STRESS_MARK ->
             if (prompt.hasSentenceGloss()) "Meaning: ${prompt.exampleTranslation}" else null
         CardType.GENDER_ID -> null
         CardType.AUDIO_TO_RU -> null
@@ -3686,6 +3935,21 @@ private fun reviewContext(prompt: ReviewPrompt): String? =
         CardType.DICTATION -> null
         CardType.SENTENCE_BUILD -> null
         CardType.LESSON -> null
+    }
+
+/**
+ * Comprehensible-input reinforcement shown on the *reveal* side (after answering), so
+ * the learner sees the word living in a full sentence with its meaning — the part we
+ * deliberately withheld from the recognition prompt to keep retrieval honest. Returns a
+ * Russian line and (when available) its English gloss for the vocab cards.
+ */
+private fun reviewRevealContext(prompt: ReviewPrompt): Pair<String, String?>? =
+    when (prompt.card.cardType) {
+        CardType.RU_TO_MEANING, CardType.MEANING_TO_RU, CardType.CLOZE ->
+            prompt.exampleSentence?.let { ru ->
+                ru to prompt.exampleTranslation?.takeIf { prompt.hasSentenceGloss() }
+            }
+        else -> null
     }
 
 private fun formatDays(days: Int): String =

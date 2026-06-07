@@ -79,7 +79,16 @@ data class DashboardStats(
     val averageReaderCoverage: Double,
     val bestTargetCoverage: Double?,
     val authenticReady: Boolean,
-    val importQualityReport: ImportQualityReport
+    val importQualityReport: ImportQualityReport,
+    // Retention instruments: true retention on mature cards (fraction of mature-card
+    // reviews not lapsed), how many mature reviews that's based on, parked leeches,
+    // and the count of cards coming due over each of the next 7 days.
+    val matureRetention: Double? = null,
+    val matureReviewSample: Int = 0,
+    val leechCount: Int = 0,
+    val dueForecast: List<Int> = emptyList(),
+    // Current data-driven FSRS interval multiplier (1.0 = neutral), surfaced for display.
+    val intervalModifier: Double = 1.0
 )
 
 data class ImportQualityReport(
@@ -265,7 +274,10 @@ class LearningRepository(
             imported = bootstrapNotes?.invoke()?.takeIf { it.isNotBlank() }?.let { importJsonLines(it) } ?: 0
             bootstrapReaderTexts?.invoke()?.takeIf { it.isNotBlank() }?.let { importReaderTextsJsonLines(it) }
         }
-        if (imported > 0) return
+        if (imported > 0) {
+            runCatching { runner { seedConfusablePairs() } }
+            return
+        }
 
         addNote(
             Note(
@@ -440,6 +452,88 @@ class LearningRepository(
         val missing = cardsFor(noteDao.getById(noteId) ?: return)
             .filter { it.cardType == CardType.ASPECT_SELECT && it.gramContextCue !in existingAspectCues }
         if (missing.isNotEmpty()) cardDao.insertAll(missing)
+    }
+
+    /**
+     * Auto-detect confusable word pairs among the curated course (tier 0) so the SRS
+     * surfaces them together for discrimination practice — the most effective fix for
+     * "I always mix these two up." Two kinds: spelling-confusable (one edit apart, e.g.
+     * дом/дым) and meaning-confusable (same English gloss, e.g. большой/крупный). Each
+     * note gets at most one auto-partner to avoid clutter; existing pairs (aspect
+     * partners) are never duplicated. Runs once, at first seed.
+     */
+    private suspend fun seedConfusablePairs() {
+        val core = noteDao.getAll().filter {
+            it.tier == 0 &&
+                !it.partOfSpeech.equals("lesson", ignoreCase = true) &&
+                it.translation != "lookup pending" &&
+                it.russian.isNotBlank()
+        }
+        if (core.size < 2) return
+        val existing = confusablePairDao.getAll().map { setOf(it.firstNoteId, it.secondNoteId) }.toHashSet()
+        val autoPartnered = HashSet<Long>()
+        val pairs = mutableListOf<ConfusablePair>()
+        val cap = 300
+
+        // Spelling-confusable: normalized forms exactly one edit apart.
+        val normalized = core.map { it to normalizeToken(it.russian) }.filter { it.second.length >= 3 }
+        for (x in normalized.indices) {
+            if (pairs.size >= cap) break
+            val (a, sa) = normalized[x]
+            if (a.id in autoPartnered) continue
+            for (y in x + 1 until normalized.size) {
+                val (b, sb) = normalized[y]
+                if (b.id in autoPartnered) continue
+                if (sa.length - sb.length !in -1..1) continue
+                if (withinOneEdit(sa, sb)) {
+                    val key = setOf(a.id, b.id)
+                    if (key !in existing) {
+                        pairs += ConfusablePair(firstNoteId = a.id, secondNoteId = b.id, reason = "confusable_spelling")
+                        existing += key; autoPartnered += a.id; autoPartnered += b.id
+                        break
+                    }
+                }
+            }
+        }
+
+        // Meaning-confusable: notes sharing the same primary English gloss.
+        core.groupBy { it.translation.trim().lowercase(Locale.ROOT).substringBefore(',').substringBefore(';').trim() }
+            .filterKeys { it.isNotBlank() }
+            .values.forEach { group ->
+                val avail = group.filter { it.id !in autoPartnered }
+                var i = 0
+                while (i + 1 < avail.size && pairs.size < cap) {
+                    val a = avail[i]; val b = avail[i + 1]
+                    val key = setOf(a.id, b.id)
+                    if (key !in existing) {
+                        pairs += ConfusablePair(firstNoteId = a.id, secondNoteId = b.id, reason = "confusable_meaning")
+                        existing += key; autoPartnered += a.id; autoPartnered += b.id
+                    }
+                    i += 2
+                }
+            }
+
+        pairs.forEach { confusablePairDao.insert(it) }
+    }
+
+    /** True if [a] and [b] differ by exactly one insertion, deletion, or substitution. */
+    private fun withinOneEdit(a: String, b: String): Boolean {
+        if (a == b) return false
+        val la = a.length; val lb = b.length
+        if (la - lb !in -1..1) return false
+        var i = 0; var j = 0; var edits = 0
+        while (i < la && j < lb) {
+            if (a[i] == b[j]) { i++; j++ } else {
+                if (++edits > 1) return false
+                when {
+                    la > lb -> i++
+                    la < lb -> j++
+                    else -> { i++; j++ }
+                }
+            }
+        }
+        if (i < la || j < lb) edits++
+        return edits <= 1
     }
 
     private suspend fun syncMissingConceptDrillCards() {
@@ -636,13 +730,22 @@ class LearningRepository(
      * Explicitly set the reading status of a tapped word. Creates a lightweight
      * tracking note if the word isn't in the deck yet, so status survives.
      */
-    suspend fun setWordStatus(token: String, status: WordStatus): Note? {
+    suspend fun setWordStatus(token: String, status: WordStatus, now: Long = System.currentTimeMillis()): Note? {
         val normalized = normalizeToken(token)
         val match = formIndex()[normalized] ?: noteDao.getByLemma(normalized)
         if (match != null) {
             // Re-read the live row so we don't write back a stale encounterCount.
             val fresh = noteDao.getById(match.id) ?: match
             noteDao.update(fresh.copy(status = status))
+            // Relay the reader judgement to practice: a word marked KNOWN/IGNORED
+            // stops being quizzed (its vocab cards graduate); marking it LEARNING/NEW
+            // again pulls it back into practice as fresh cards.
+            when (status) {
+                WordStatus.KNOWN, WordStatus.IGNORED ->
+                    cardDao.graduateVocabForNote(match.id, now + 365L * DAY_MILLIS)
+                WordStatus.LEARNING, WordStatus.NEW ->
+                    cardDao.reactivateVocabForNote(match.id)
+            }
             invalidateNoteState()
             return noteDao.getById(match.id)
         }
@@ -659,6 +762,21 @@ class LearningRepository(
         return noteDao.getByLemma(normalized)
     }
 
+    /**
+     * Mark the word behind a card as already known, straight from the review screen.
+     * Graduates all of the note's vocab cards (so it won't resurface) and flips the
+     * note status to KNOWN so the reader reflects it too — the same relay used when a
+     * word is marked known while reading.
+     */
+    suspend fun markWordKnown(noteId: Long, now: Long = System.currentTimeMillis()) {
+        val note = noteDao.getById(noteId) ?: return
+        if (note.status != WordStatus.KNOWN) {
+            noteDao.update(note.copy(status = WordStatus.KNOWN))
+        }
+        cardDao.graduateVocabForNote(noteId, now + 365L * DAY_MILLIS)
+        invalidateNoteState()
+    }
+
     suspend fun dashboardStats(now: Long = System.currentTimeMillis()): DashboardStats =
         dashboardStatsFrom(now, readerTexts())
 
@@ -666,6 +784,11 @@ class LearningRepository(
         val notes = allNotesCached()
         val targetCoverages = recommendations.filter { it.text.source.startsWith("target:", ignoreCase = true) }.map { it.coverage }
         val qualityReport = importQualityReport(notes, recommendations)
+        val matureReviews = reviewLogDao.matureReviewCount()
+        val matureRetained = reviewLogDao.matureRetainedCount()
+        val forecast = (0 until 7).map { day ->
+            cardDao.countDueBetween(now + day * DAY_MILLIS, now + (day + 1) * DAY_MILLIS)
+        }
         return DashboardStats(
             noteCount = notes.size,
             vocabCards = cardDao.countByQueue(Queue.VOCAB),
@@ -676,7 +799,11 @@ class LearningRepository(
             averageReaderCoverage = recommendations.map { it.coverage }.average().takeIf { !it.isNaN() } ?: 0.0,
             bestTargetCoverage = targetCoverages.maxOrNull(),
             authenticReady = targetCoverages.any { it >= AUTHENTIC_READY_COVERAGE },
-            importQualityReport = qualityReport
+            importQualityReport = qualityReport,
+            matureRetention = if (matureReviews > 0) matureRetained.toDouble() / matureReviews else null,
+            matureReviewSample = matureReviews,
+            leechCount = cardDao.getLeechCards(LEECH_LAPSES).size,
+            dueForecast = forecast
         )
     }
 
@@ -894,7 +1021,11 @@ class LearningRepository(
         return (plan.blockedGrammar + plan.interleavedGrammar).take(limit)
     }
 
-    suspend fun review(card: Card, rating: Rating, now: Long = System.currentTimeMillis()) {
+    /**
+     * Apply a rating to a card. Returns true if this review just turned the card into
+     * a leech (auto-parked after [LEECH_LAPSES] lapses) so the UI can tell the learner.
+     */
+    suspend fun review(card: Card, rating: Rating, now: Long = System.currentTimeMillis()): Boolean {
         val note = noteDao.getById(card.noteId)
         // Snapshot the live card + encounter count before mutating, for undo.
         lastUndo = UndoSnapshot(card = card, noteId = card.noteId, priorEncounterCount = note?.encounterCount ?: 0)
@@ -922,14 +1053,20 @@ class LearningRepository(
             )
             note?.let { noteDao.update(it.copy(encounterCount = it.encounterCount + 1)) }
             invalidateNoteState()
-            return
+            return false
         }
         val (updatedCard, log) = scheduler.review(card, rating, now)
-        cardDao.update(updatedCard)
+        // Leech guard: if this card has lapsed too many times it's burning the
+        // learner's time, so park it (suspend) rather than let it recur forever.
+        val becameLeech = !updatedCard.suspended &&
+            updatedCard.state != CardState.GRADUATED &&
+            updatedCard.lapses >= LEECH_LAPSES
+        cardDao.update(if (becameLeech) updatedCard.copy(suspended = true) else updatedCard)
         reviewLogDao.insert(log)
         note?.let { noteDao.update(it.copy(encounterCount = it.encounterCount + 1)) }
         invalidateNoteState()
         refreshGraduationsIfNeeded(force = true)
+        return becameLeech
     }
 
     /** True if there is a review that can be rolled back this session. */
@@ -958,6 +1095,86 @@ class LearningRepository(
     suspend fun suspendCard(card: Card) {
         cardDao.update(card.copy(suspended = true))
         invalidateNoteState()
+    }
+
+    /** Auto-parked leeches (suspended cards that lapsed past the threshold), with
+     *  their notes, so the learner can fix or release them. */
+    suspend fun leechCards(): List<Pair<Card, Note>> =
+        cardDao.getLeechCards(LEECH_LAPSES).mapNotNull { card ->
+            noteDao.getById(card.noteId)?.let { card to it }
+        }
+
+    /** Release a parked leech back into rotation with a clean slate (fresh learning). */
+    suspend fun releaseLeech(card: Card, now: Long = System.currentTimeMillis()) {
+        cardDao.update(
+            card.copy(
+                suspended = false,
+                lapses = 0,
+                state = CardState.NEW,
+                due = now,
+                reps = 0,
+                stability = 0.0,
+                difficulty = 0.0,
+                consecutiveCorrect = 0,
+                lastReview = null
+            )
+        )
+        invalidateNoteState()
+    }
+
+    /**
+     * Edit a note's learner-facing content in place (fix a bad gloss or example
+     * straight from the review screen). Blank fields are left unchanged.
+     */
+    suspend fun updateNoteContent(
+        noteId: Long,
+        translation: String? = null,
+        exampleSentence: String? = null,
+        exampleTranslation: String? = null
+    ) {
+        val note = noteDao.getById(noteId) ?: return
+        noteDao.update(
+            note.copy(
+                translation = translation?.trim()?.takeIf { it.isNotBlank() } ?: note.translation,
+                exampleSentence = exampleSentence?.trim()?.takeIf { it.isNotBlank() } ?: note.exampleSentence,
+                exampleTranslation = exampleTranslation?.trim()?.takeIf { it.isNotBlank() } ?: note.exampleTranslation
+            )
+        )
+        invalidateNoteState()
+    }
+
+    /**
+     * Sentence-mining: take a word the learner just met while reading and the exact
+     * sentence they saw it in, store that sentence as the word's example, and pull the
+     * word into active study (LEARNING). This closes the loop between reading input
+     * and spaced-repetition practice — you study words in the context you met them.
+     * Returns the resolved/created note.
+     */
+    suspend fun mineSentence(
+        token: String,
+        sentence: String,
+        translation: String? = null,
+        now: Long = System.currentTimeMillis()
+    ): Note? {
+        val trimmedSentence = sentence.trim()
+        val note = setWordStatus(token, WordStatus.LEARNING, now) ?: return null
+        val fresh = noteDao.getById(note.id) ?: note
+        noteDao.update(
+            fresh.copy(
+                exampleSentence = trimmedSentence.takeIf { it.isNotBlank() } ?: fresh.exampleSentence,
+                exampleTranslation = translation?.trim()?.takeIf { it.isNotBlank() } ?: fresh.exampleTranslation
+            )
+        )
+        // Ensure the word has a CLOZE card so it's practised in this exact context —
+        // the whole point of sentence-mining. setWordStatus(LEARNING) above already
+        // reactivated any graduated vocab cards; this adds a cloze when none existed
+        // (e.g. a frequency word that shipped without a readable example).
+        if (trimmedSentence.isNotBlank() && cardDao.getByNoteAndType(note.id, CardType.CLOZE) == null) {
+            cardDao.insert(Card(noteId = note.id, cardType = CardType.CLOZE, queue = Queue.VOCAB, due = 0L))
+            invalidateNoteStructure()
+        }
+        invalidateNoteState()
+        return noteDao.getById(note.id)
     }
 
     suspend fun placeAfterLevel(level: String, now: Long = System.currentTimeMillis()): Int {
@@ -1078,10 +1295,13 @@ class LearningRepository(
     }
 
     private suspend fun sessionCards(now: Long, limit: Int, plan: DailyPlan): List<Card> {
+        // Pull extra headroom so sibling-burying (one card per note per session) can
+        // drop duplicates and still fill the session to [limit].
+        val pull = (limit * 3).coerceAtLeast(limit)
         val due = if (plan.triageMode) {
-            cardDao.getOverdueCards(now - 2 * DAY_MILLIS, limit = limit)
+            cardDao.getOverdueCards(now - 2 * DAY_MILLIS, limit = pull)
         } else {
-            cardDao.getDueCards(now, limit = limit)
+            cardDao.getDueCards(now, limit = pull)
         }
         // When real reviews are due we never dilute them with new material; due
         // cards (with their confusable partners) keep their existing ordering.
@@ -1094,15 +1314,30 @@ class LearningRepository(
     private suspend fun dueSessionCards(base: List<Card>, now: Long, limit: Int): List<Card> {
         val session = mutableListOf<Card>()
         val sessionIds = mutableSetOf<Long>()
+        // Bury VOCAB siblings: at most one vocab card per note per session, so the same
+        // word's recognition and production cards never appear back-to-back (a buried
+        // sibling stays due and surfaces next session). GRAMMAR cards are NOT buried —
+        // the dueable grammar drills (aspect cues, case variants) are deliberately
+        // grouped by note for contrast, and confusable partners are different notes.
+        val vocabNotesInSession = mutableSetOf<Long>()
+        fun tryAdd(card: Card): Boolean {
+            if (card.queue == Queue.VOCAB && card.noteId in vocabNotesInSession) return false
+            if (!sessionIds.add(card.id)) return false
+            session += card
+            if (card.queue == Queue.VOCAB) vocabNotesInSession += card.noteId
+            return true
+        }
         for (card in base) {
-            if (sessionIds.add(card.id)) session += card
+            if (session.size >= limit) break
+            tryAdd(card)
             for (pair in confusablePairDao.getForNote(card.noteId)) {
+                if (session.size >= limit) break
                 val partnerNoteId = if (pair.firstNoteId == card.noteId) pair.secondNoteId else pair.firstNoteId
                 val partner = cardDao.getCardsForNote(partnerNoteId)
                     .filter { it.matchesCardVariant(card) && it.id !in sessionIds }
                     .sortedWith(compareBy<Card> { it.due }.thenBy { it.id })
                     .firstOrNull { it.state != CardState.NEW && it.due <= now }
-                if (partner != null && sessionIds.add(partner.id)) session += partner
+                if (partner != null) tryAdd(partner)
             }
         }
         return session.take(limit)
@@ -1282,8 +1517,14 @@ class LearningRepository(
         // can read that sentence, i.e. it ships with a real sentence-level translation.
         if (hasReadableExample(note)) {
             add(Card(noteId = note.id, cardType = CardType.CLOZE, queue = Queue.VOCAB))
-            add(Card(noteId = note.id, cardType = CardType.SENTENCE_BUILD, queue = Queue.GRAMMAR, gramConcept = note.conceptId))
-            add(Card(noteId = note.id, cardType = CardType.DICTATION, queue = Queue.VOCAB))
+            // SENTENCE_BUILD and DICTATION make the learner handle a whole sentence.
+            // Keep them to the hand-authored spine with SHORT, controlled sentences —
+            // not the promoted/reading-matrix layer's arbitrary (often long, hard)
+            // deck sentences, which would be a brutal typing grind.
+            if (!isReadingMatrix && note.hasShortExample()) {
+                add(Card(noteId = note.id, cardType = CardType.SENTENCE_BUILD, queue = Queue.GRAMMAR, gramConcept = note.conceptId))
+                add(Card(noteId = note.id, cardType = CardType.DICTATION, queue = Queue.VOCAB))
+            }
         }
         // Listening via on-device Russian TTS works for any word, no audio asset needed.
         add(Card(noteId = note.id, cardType = CardType.AUDIO_TO_RU, queue = Queue.VOCAB))
@@ -1293,7 +1534,9 @@ class LearningRepository(
         if (note.tier == 0) {
             add(Card(noteId = note.id, cardType = CardType.SPEAK, queue = Queue.VOCAB))
         }
-        stressCard(note)?.let(::add)
+        // Stress practice (tap-the-vowel) on the curated spine/domain, not the huge
+        // reading-matrix layer, to keep the daily load focused.
+        if (!isReadingMatrix) stressCard(note)?.let(::add)
         if (!isReadingMatrix) caseCards(note).forEach(::add)
         if (!isReadingMatrix) verbFormCards(note).forEach(::add)
         if (!isReadingMatrix) adjectiveAgreementCards(note).forEach(::add)
@@ -1333,8 +1576,19 @@ class LearningRepository(
         return Card(noteId = note.id, cardType = CardType.STRESS_MARK, queue = Queue.VOCAB)
     }
 
-    private fun Note.hasStressTarget(): Boolean =
-        russian.contains('\u0301') || russian.contains('ё', ignoreCase = true)
+    private fun Note.hasStressTarget(): Boolean {
+        if (!russian.contains('́')) return false
+        val vowels = russian.count { it.lowercaseChar() in "аеёиоуыэюя" }
+        return vowels >= 2
+    }
+
+    /** True when the note's example is a short (2-7 word) sentence, suitable for
+     *  sentence-building / dictation without becoming a typing grind. */
+    private fun Note.hasShortExample(): Boolean {
+        val s = exampleSentence ?: return false
+        val words = Regex("""\p{IsCyrillic}+""").findAll(s).count()
+        return words in 2..7
+    }
 
     // Adjective–noun agreement: produce the feminine, neuter, and plural nominative
     // forms (the masculine is the citation form). Russian agreement is one of the
@@ -1597,6 +1851,10 @@ class LearningRepository(
 
     companion object {
         private const val DAY_MILLIS = 86_400_000L
+        // A card the learner has lapsed (rated AGAIN) this many times is a "leech":
+        // it keeps tripping them up and burning review time. We auto-park it so it
+        // stops resurfacing; it lands in the Leeches list to fix or release.
+        const val LEECH_LAPSES = 8
         private const val TRIAGE_THRESHOLD = 80
         private const val MIN_ACCURACY_SAMPLE = 30
         private const val GRADUATION_ACCURACY = 0.90

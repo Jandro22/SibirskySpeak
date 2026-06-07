@@ -25,7 +25,11 @@ class SibirskySpeakApp : Application() {
             reviewLogDao = database.reviewLogDao(),
             confusablePairDao = database.confusablePairDao(),
             readerTextDao = database.readerTextDao(),
-            scheduler = FsrsScheduler(desiredRetentionProvider = { settings.desiredRetention }, enableFuzz = true),
+            scheduler = FsrsScheduler(
+                desiredRetentionProvider = { settings.desiredRetention },
+                intervalModifierProvider = { settings.intervalModifier },
+                enableFuzz = true
+            ),
             bootstrapNotes = { assets.readTextAsset("bootstrap_notes.jsonl") },
             bootstrapReaderTexts = { assets.readTextAsset("bootstrap_reader_texts.jsonl") },
             transactionRunner = { block -> database.withTransaction(block) },

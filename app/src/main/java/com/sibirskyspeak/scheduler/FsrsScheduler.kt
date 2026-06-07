@@ -15,6 +15,9 @@ import kotlin.random.Random
 
 class FsrsScheduler(
     private val desiredRetentionProvider: () -> Double = { 0.9 },
+    // Data-driven personalization: a bounded multiplier on every computed interval,
+    // learned from the user's own retention vs target. 1.0 = stock FSRS behaviour.
+    private val intervalModifierProvider: () -> Double = { 1.0 },
     private val maximumIntervalDays: Int = 36_500,
     private val weights: DoubleArray = DEFAULT_WEIGHTS,
     // Interval fuzz spreads review dates so a batch of cards graded the same way on
@@ -129,7 +132,8 @@ class FsrsScheduler(
 
     private fun interval(stability: Double): Int {
         val desiredRetention = desiredRetentionProvider().coerceIn(0.80, 0.97)
-        val raw = stability / factor() * (desiredRetention.pow(-1.0 / decay()) - 1.0)
+        val modifier = intervalModifierProvider().coerceIn(0.5, 2.0)
+        val raw = stability / factor() * (desiredRetention.pow(-1.0 / decay()) - 1.0) * modifier
         return (if (raw.isFinite()) raw.roundToInt() else 1).coerceIn(1, maximumIntervalDays)
     }
 

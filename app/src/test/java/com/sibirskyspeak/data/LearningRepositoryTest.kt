@@ -656,6 +656,170 @@ class LearningRepositoryTest {
             fixture.cards.cards.any { it.noteId == matrix?.id && it.cardType == CardType.SPEAK })
     }
 
+    @Test
+    fun sentenceBuildAndDictationOnlyForShortSpineSentences() = runTest {
+        val fixture = RepoFixture()
+        val jsonl = """
+            {"russian":"дом","lemma":"дом","pos":"noun","translation":"house","tier":0,"unit":1,"cefrLevel":"A1","exampleSentence":"Это дом.","exampleTranslation":"This is a house."}
+            {"russian":"вопрос","lemma":"вопрос","pos":"noun","translation":"question","tier":0,"tags":"general curated matrix","exampleSentence":"Это очень длинное предложение про вопрос.","exampleTranslation":"This is a very long sentence about the question."}
+        """.trimIndent()
+        fixture.repository.importJsonLines(jsonl)
+
+        val spine = fixture.notes.getByLemma("дом")
+        val matrix = fixture.notes.getByLemma("вопрос")
+        assertTrue("short spine sentence gets sentence-build",
+            fixture.cards.cards.any { it.noteId == spine?.id && it.cardType == CardType.SENTENCE_BUILD })
+        assertFalse("reading-matrix gets no sentence-build (brutal typing)",
+            fixture.cards.cards.any { it.noteId == matrix?.id && it.cardType == CardType.SENTENCE_BUILD })
+        assertFalse("reading-matrix gets no dictation",
+            fixture.cards.cards.any { it.noteId == matrix?.id && it.cardType == CardType.DICTATION })
+    }
+
+    @Test
+    fun markingWordKnownInReaderStopsPracticeAndLearningReactivates() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """{"russian":"кни́га","lemma":"книга","pos":"noun","translation":"book","tier":0,"unit":1,"cefrLevel":"A1","exampleSentence":"Это книга.","exampleTranslation":"This is a book."}"""
+        )
+        val note = fixture.notes.getByLemma("книга")!!
+        assertTrue("word should start in practice",
+            fixture.repository.sessionPlan(now = 0L).reviewQueue.any { it.card.noteId == note.id })
+
+        // Mark KNOWN in the reader -> vocab cards graduate, word leaves practice.
+        fixture.repository.setWordStatus("книга", WordStatus.KNOWN, now = 1_000L)
+        assertTrue(fixture.cards.cards.filter { it.noteId == note.id && it.queue == Queue.VOCAB }
+            .all { it.state == CardState.GRADUATED })
+        assertFalse("known word should not be quizzed",
+            fixture.repository.sessionPlan(now = 2_000L).reviewQueue.any { it.card.noteId == note.id })
+
+        // Mark LEARNING again -> vocab cards reactivate as NEW.
+        fixture.repository.setWordStatus("книга", WordStatus.LEARNING, now = 3_000L)
+        assertTrue("learning again pulls it back into practice",
+            fixture.cards.cards.any { it.noteId == note.id && it.queue == Queue.VOCAB && it.state == CardState.NEW })
+    }
+
+    @Test
+    fun markWordKnownFromReviewGraduatesVocabAndFlipsStatus() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """{"russian":"кни́га","lemma":"книга","pos":"noun","translation":"book","tier":0,"unit":1,"cefrLevel":"A1","exampleSentence":"Это книга.","exampleTranslation":"This is a book."}"""
+        )
+        val note = fixture.notes.getByLemma("книга")!!
+        assertTrue("word should start in practice",
+            fixture.repository.sessionPlan(now = 0L).reviewQueue.any { it.card.noteId == note.id })
+
+        fixture.repository.markWordKnown(note.id, now = 1_000L)
+
+        assertEquals(WordStatus.KNOWN, fixture.notes.getById(note.id)!!.status)
+        assertTrue("all vocab cards graduate",
+            fixture.cards.cards.filter { it.noteId == note.id && it.queue == Queue.VOCAB }
+                .all { it.state == CardState.GRADUATED })
+        assertFalse("known word should not be quizzed",
+            fixture.repository.sessionPlan(now = 2_000L).reviewQueue.any { it.card.noteId == note.id })
+    }
+
+    @Test
+    fun lapsingPastThresholdAutoParksCardAsLeech() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """{"russian":"кни́га","lemma":"книга","pos":"noun","translation":"book","tier":0,"unit":1,"cefrLevel":"A1","exampleSentence":"Это книга.","exampleTranslation":"This is a book."}"""
+        )
+        val note = fixture.notes.getByLemma("книга")!!
+        val card = fixture.cards.cards.first { it.noteId == note.id && it.queue == Queue.VOCAB }
+        // Put it one lapse short of the leech threshold, in the mature REVIEW phase.
+        val primed = card.copy(
+            lapses = LearningRepository.LEECH_LAPSES - 1,
+            state = CardState.REVIEW,
+            reps = 10,
+            stability = 12.0,
+            difficulty = 6.0,
+            lastReview = 0L,
+            due = 0L
+        )
+        fixture.cards.update(primed)
+
+        val becameLeech = fixture.repository.review(primed, Rating.AGAIN, now = 1_000L)
+
+        assertTrue("the threshold-crossing lapse reports a leech", becameLeech)
+        assertTrue("leech is parked (suspended)",
+            fixture.cards.cards.first { it.id == card.id }.suspended)
+        assertTrue("leech surfaces in the management list",
+            fixture.repository.leechCards().any { it.first.id == card.id })
+    }
+
+    @Test
+    fun mineSentenceStoresExampleAndPullsWordIntoStudy() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """{"russian":"кни́га","lemma":"книга","pos":"noun","translation":"book","tier":0,"unit":1,"cefrLevel":"A1"}"""
+        )
+        val mined = fixture.repository.mineSentence("книга", "Я читаю книгу каждый день.", translation = null)
+        assertEquals("Я читаю книгу каждый день.", mined?.exampleSentence)
+        assertEquals(WordStatus.LEARNING, mined?.status)
+    }
+
+    @Test
+    fun updateNoteContentFixesGlossAndExample() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """{"russian":"кни́га","lemma":"книга","pos":"noun","translation":"wrong","tier":0,"unit":1,"cefrLevel":"A1"}"""
+        )
+        val note = fixture.notes.getByLemma("книга")!!
+        fixture.repository.updateNoteContent(note.id, translation = "book", exampleSentence = "Это книга.", exampleTranslation = "This is a book.")
+        val fixed = fixture.notes.getById(note.id)!!
+        assertEquals("book", fixed.translation)
+        assertEquals("Это книга.", fixed.exampleSentence)
+    }
+
+    @Test
+    fun dueSessionBuriesSiblingsOneCardPerNote() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """{"russian":"дом","lemma":"дом","pos":"noun","translation":"house","tier":0,"unit":1,"cefrLevel":"A1","exampleSentence":"Это дом.","exampleTranslation":"This is a house."}"""
+        )
+        val note = fixture.notes.getByLemma("дом")!!
+        val vocab = fixture.cards.cards.filter { it.noteId == note.id && it.queue == Queue.VOCAB }
+        assertTrue("note should have multiple vocab cards", vocab.size >= 2)
+        // Make two cards of the SAME note due in the mature review phase.
+        vocab.take(2).forEach { c ->
+            fixture.cards.update(c.copy(state = CardState.REVIEW, due = 0L, reps = 3, lastReview = 0L, stability = 5.0, difficulty = 5.0))
+        }
+        val queue = fixture.repository.sessionPlan(now = 1_000L).reviewQueue
+        assertEquals("only one card per note surfaces in a session",
+            1, queue.count { it.card.noteId == note.id })
+    }
+
+    @Test
+    fun mineSentenceAddsClozeWhenAbsent() = runTest {
+        val fixture = RepoFixture()
+        // A reading-matrix word with no readable example gets no cloze card at import.
+        fixture.repository.importJsonLines(
+            """{"russian":"стол","lemma":"стол","pos":"noun","translation":"table","tier":1,"tags":"general curated matrix"}"""
+        )
+        val note = fixture.notes.getByLemma("стол")!!
+        assertFalse("no cloze before mining",
+            fixture.cards.cards.any { it.noteId == note.id && it.cardType == CardType.CLOZE })
+        fixture.repository.mineSentence("стол", "На столе книга.", translation = null)
+        assertTrue("mining adds a cloze card so you practise the word in context",
+            fixture.cards.cards.any { it.noteId == note.id && it.cardType == CardType.CLOZE })
+    }
+
+    @Test
+    fun seedDetectsSpellingAndMeaningConfusablePairs() = runTest {
+        val bootstrap = listOf(
+            """{"russian":"дом","lemma":"дом","pos":"noun","translation":"house","tier":0,"unit":1,"cefrLevel":"A1"}""",
+            """{"russian":"дым","lemma":"дым","pos":"noun","translation":"smoke","tier":0,"unit":1,"cefrLevel":"A1"}""",
+            """{"russian":"большой","lemma":"большой","pos":"adj","translation":"big","tier":0,"unit":1,"cefrLevel":"A1"}""",
+            """{"russian":"крупный","lemma":"крупный","pos":"adj","translation":"big","tier":0,"unit":1,"cefrLevel":"A1"}"""
+        ).joinToString("\n")
+        val fixture = RepoFixture(bootstrapNotes = bootstrap)
+        fixture.repository.seedIfEmpty()
+
+        val reasons = fixture.pairs.getAll().map { it.reason }.toSet()
+        assertTrue("дом/дым detected as spelling-confusable", reasons.contains("confusable_spelling"))
+        assertTrue("big/big detected as meaning-confusable", reasons.contains("confusable_meaning"))
+    }
+
     private fun goodLog(card: Card, time: Long): ReviewLog =
         ReviewLog(
             cardId = card.id,
@@ -731,6 +895,10 @@ class LearningRepositoryTest {
             cards.filter { it.due <= now && it.state != CardState.NEW && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
         override suspend fun getDueCardsByQueue(now: Long, queue: Queue, limit: Int): List<Card> =
             cards.filter { it.due <= now && it.queue == queue && it.state != CardState.NEW && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
+        override suspend fun countDueBetween(start: Long, end: Long): Int =
+            cards.count { it.due > start && it.due <= end && it.state != CardState.NEW && !it.suspended }
+        override suspend fun getLeechCards(threshold: Int): List<Card> =
+            cards.filter { it.suspended && it.lapses >= threshold }.sortedWith(compareByDescending<Card> { it.lapses }.thenBy { it.id })
         override suspend fun getOverdueCards(cutoff: Long, limit: Int): List<Card> =
             cards.filter { it.due <= cutoff && it.state != CardState.NEW && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
         override suspend fun getAllDueCards(now: Long): List<Card> =
@@ -745,11 +913,37 @@ class LearningRepositoryTest {
                 val freq = n?.domainFreqRank ?: n?.generalFreqRank ?: Int.MAX_VALUE
                 return intArrayOf(tierPhase, unit, freq)
             }
-            return cards.filter { it.state == CardState.NEW && !it.suspended }
+            fun eligible(card: Card): Boolean {
+                val n = notes.notes.firstOrNull { it.id == card.noteId }
+                return card.state == CardState.NEW && !card.suspended &&
+                    n?.status != WordStatus.KNOWN && n?.status != WordStatus.IGNORED &&
+                    n?.translation != "lookup pending"
+            }
+            return cards.filter { eligible(it) }
                 .sortedWith(
                     compareBy<Card>({ rank(it)[0] }, { rank(it)[1] }, { rank(it)[2] }, { it.id })
                 )
                 .take(limit)
+        }
+        override suspend fun graduateVocabForNote(noteId: Long, due: Long): Int {
+            var changed = 0
+            cards.replaceAll { card ->
+                if (card.noteId == noteId && card.queue == Queue.VOCAB) {
+                    changed += 1
+                    card.copy(state = CardState.GRADUATED, due = due)
+                } else card
+            }
+            return changed
+        }
+        override suspend fun reactivateVocabForNote(noteId: Long): Int {
+            var changed = 0
+            cards.replaceAll { card ->
+                if (card.noteId == noteId && card.queue == Queue.VOCAB && card.state == CardState.GRADUATED) {
+                    changed += 1
+                    card.copy(state = CardState.NEW, due = 0, reps = 0, lapses = 0, stability = 0.0, difficulty = 0.0, lastReview = null)
+                } else card
+            }
+            return changed
         }
         override suspend fun getIntroducedConceptIds(): List<String> =
             cards.filter { it.cardType == CardType.LESSON && it.gramConcept != null && it.state != CardState.NEW }
@@ -880,6 +1074,10 @@ class LearningRepositoryTest {
 
         override suspend fun countSince(since: Long): Int = logs.count { it.reviewDatetime >= since }
         override suspend fun countAll(): Int = logs.size
+        override suspend fun matureReviewCount(): Int =
+            logs.count { it.stateBefore == CardState.REVIEW || it.stateBefore == CardState.RELEARNING }
+        override suspend fun matureRetainedCount(): Int =
+            logs.count { (it.stateBefore == CardState.REVIEW || it.stateBefore == CardState.RELEARNING) && it.rating != Rating.AGAIN }
         override suspend fun countNewIntroducedSince(since: Long): Int =
             logs.count { it.reviewDatetime >= since && it.stateBefore == CardState.NEW }
         override suspend fun deleteLatestForCard(cardId: Long) {

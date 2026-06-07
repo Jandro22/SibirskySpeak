@@ -45,6 +45,8 @@ interface CardDao {
         SELECT c.* FROM cards c
         JOIN notes n ON c.noteId = n.id
         WHERE c.state = 'NEW' AND c.suspended = 0
+          AND n.status NOT IN ('KNOWN', 'IGNORED')
+          AND n.translation != 'lookup pending'
         ORDER BY
             (CASE WHEN n.tier = 0 THEN 0 ELSE 1 END) ASC,
             COALESCE(n.unit, 2147483647) ASC,
@@ -53,6 +55,17 @@ interface CardDao {
         LIMIT :limit
     """)
     suspend fun getNewCardsOrdered(limit: Int): List<Card>
+
+    /** Mark a single note's VOCAB cards known (graduated, pushed far out) — used when
+     *  the learner marks the word KNOWN/IGNORED in the reader, so practice stops
+     *  quizzing a word they already know. */
+    @Query("UPDATE cards SET state = 'GRADUATED', due = :due WHERE noteId = :noteId AND queue = 'VOCAB'")
+    suspend fun graduateVocabForNote(noteId: Long, due: Long): Int
+
+    /** Re-activate a note's graduated VOCAB cards as fresh NEW — used when the learner
+     *  marks a previously-known word as LEARNING again, pulling it back into practice. */
+    @Query("UPDATE cards SET state = 'NEW', due = 0, reps = 0, lapses = 0, stability = 0.0, difficulty = 0.0, lastReview = NULL WHERE noteId = :noteId AND queue = 'VOCAB' AND state = 'GRADUATED'")
+    suspend fun reactivateVocabForNote(noteId: Long): Int
 
     /** Concept ids whose LESSON card has been seen (drills on them may now surface). */
     @Query("SELECT DISTINCT gramConcept FROM cards WHERE cardType = 'LESSON' AND gramConcept IS NOT NULL AND state != 'NEW'")
@@ -67,6 +80,14 @@ interface CardDao {
 
     @Query("SELECT COUNT(*) FROM cards WHERE due <= :now AND state != 'NEW' AND suspended = 0")
     suspend fun countDue(now: Long): Int
+
+    /** Cards becoming due in the window (:start, :end], for the upcoming-load forecast. */
+    @Query("SELECT COUNT(*) FROM cards WHERE due > :start AND due <= :end AND state != 'NEW' AND suspended = 0")
+    suspend fun countDueBetween(start: Long, end: Long): Int
+
+    /** Auto-parked leeches: suspended cards that lapsed past the threshold. */
+    @Query("SELECT * FROM cards WHERE suspended = 1 AND lapses >= :threshold ORDER BY lapses DESC, id ASC")
+    suspend fun getLeechCards(threshold: Int): List<Card>
 
     @Query("SELECT COUNT(*) FROM cards WHERE due <= :now AND queue = :queue AND state != 'NEW' AND suspended = 0")
     suspend fun countDueByQueue(now: Long, queue: Queue): Int
@@ -267,6 +288,14 @@ interface ReviewLogDao {
 
     @Query("SELECT COUNT(*) FROM review_logs")
     suspend fun countAll(): Int
+
+    /** Total reviews of mature cards (those already in the REVIEW/RELEARNING phase). */
+    @Query("SELECT COUNT(*) FROM review_logs WHERE stateBefore IN ('REVIEW', 'RELEARNING')")
+    suspend fun matureReviewCount(): Int
+
+    /** Mature-card reviews the learner got right (did not lapse). True-retention numerator. */
+    @Query("SELECT COUNT(*) FROM review_logs WHERE stateBefore IN ('REVIEW', 'RELEARNING') AND rating != 'AGAIN'")
+    suspend fun matureRetainedCount(): Int
 
     // Cards introduced (first-ever review) since [since], i.e. logs whose card was
     // still NEW when reviewed. Drives the daily new-card throttle.
