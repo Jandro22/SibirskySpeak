@@ -65,7 +65,9 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Warning
@@ -373,7 +375,8 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             onSuspend = viewModel::suspendCurrentCard,
                             onKnowWord = viewModel::markCurrentWordKnown,
                             onStartSession = viewModel::startStudySession,
-                            onSaveEdit = viewModel::editCurrentCard
+                            onSaveEdit = viewModel::editCurrentCard,
+                            onExtraCredit = viewModel::grantExtraCredit
                         )
                         SessionStep.REVIEWS -> PracticeScreen(
                             state = state,
@@ -603,7 +606,9 @@ private fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: ()
     val backlog = plan.dueVocab + plan.dueGrammar
     val reader = state.readerRecommendation
     val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
-    val dailyGoal = game.dailyGoal.coerceAtLeast(1)
+    // Read the goal from the live setting (updates instantly when changed), not the
+    // gamification snapshot which only refreshes on the next session rebuild.
+    val dailyGoal = state.dailyGoalSetting.coerceAtLeast(1)
     val progress = (state.reviewedToday.toFloat() / dailyGoal).coerceIn(0f, 1f)
     val goalRemaining = (dailyGoal - state.reviewedToday).coerceAtLeast(0)
     val newCount = prompts.count { it.card.state.name == "NEW" }
@@ -869,14 +874,16 @@ private fun StudySessionScreen(
     onSuspend: () -> Unit,
     onKnowWord: () -> Unit,
     onStartSession: () -> Unit,
-    onSaveEdit: (String?, String?, String?) -> Unit
+    onSaveEdit: (String?, String?, String?) -> Unit,
+    onExtraCredit: () -> Unit = {}
 ) {
     LaunchedEffect(Unit) { onStartSession() }
     var editing by remember { mutableStateOf(false) }
     val sessionSize = state.sessionPlan?.reviewQueue?.size ?: 0
     val prompt = state.prompt
     val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
-    val dailyGoal = game.dailyGoal.coerceAtLeast(1)
+    // Live goal setting (updates instantly), not the gamification snapshot.
+    val dailyGoal = state.dailyGoalSetting.coerceAtLeast(1)
     val goalProgress = (state.reviewedToday.toFloat() / dailyGoal).coerceIn(0f, 1f)
     val animatedGoalProgress by animateFloatAsState(
         targetValue = goalProgress,
@@ -921,18 +928,19 @@ private fun StudySessionScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // Compact icon actions so the header never squishes on narrow phones.
+                    Row(horizontalArrangement = Arrangement.spacedBy(0.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (prompt != null && prompt.card.queue.name == "VOCAB") {
-                            TextButton(onClick = onKnowWord, enabled = !state.ratingInProgress) {
-                                Text("Know it", style = MaterialTheme.typography.labelMedium)
+                            IconButton(onClick = onKnowWord, enabled = !state.ratingInProgress) {
+                                Icon(Icons.Filled.DoneAll, contentDescription = "I already know this word")
                             }
                         }
                         if (prompt != null) {
                             IconButton(onClick = { editing = true }, enabled = !state.ratingInProgress) {
                                 Icon(Icons.Filled.Edit, contentDescription = "Fix this card")
                             }
-                            TextButton(onClick = onSuspend, enabled = !state.ratingInProgress) {
-                                Text("Suspend", style = MaterialTheme.typography.labelMedium)
+                            IconButton(onClick = onSuspend, enabled = !state.ratingInProgress) {
+                                Icon(Icons.Filled.Block, contentDescription = "Suspend this card")
                             }
                         }
                         if (state.canUndo) {
@@ -981,7 +989,8 @@ private fun StudySessionScreen(
                     state.sessionPlan?.gamification ?: GamificationStats.EMPTY,
                     onDone = onExit,
                     sessionReviewed = state.sessionReviewed,
-                    sessionCorrect = state.sessionCorrect
+                    sessionCorrect = state.sessionCorrect,
+                    onExtraCredit = onExtraCredit
                 )
             } else {
                 ReviewContent(
@@ -1117,26 +1126,20 @@ private fun PracticeStageChip(label: String) {
         animationSpec = tween(260),
         label = "stage-chip-content"
     )
+    // Static text (no vertical AnimatedContent — that was clipping the chip's height);
+    // the color still animates between Answer/Rate/Done states.
     Surface(
         shape = MaterialTheme.shapes.small,
         color = container,
         contentColor = content
     ) {
-        AnimatedContent(
-            targetState = label,
-            transitionSpec = {
-                (fadeIn(tween(160)) + slideInVertically(tween(180)) { it / 2 })
-                    .togetherWith(fadeOut(tween(100)) + slideOutVertically(tween(120)) { -it / 2 })
-            },
-            label = "stage-chip-label"
-        ) { text ->
-            Text(
-                text,
-                modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold
-            )
-        }
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
+        )
     }
 }
 
@@ -2494,7 +2497,7 @@ private fun ReaderWord(
         Modifier
     }
     Text(
-        text = token.surface,
+        text = token.leading + token.surface + token.trailing,
         modifier = Modifier
             .scale(wordScale)
             .clip(RoundedCornerShape(5.dp))
@@ -3449,7 +3452,8 @@ private fun SessionCompleteCard(
     game: GamificationStats,
     onDone: () -> Unit,
     sessionReviewed: Int = 0,
-    sessionCorrect: Int = 0
+    sessionCorrect: Int = 0,
+    onExtraCredit: () -> Unit = {}
 ) {
     val pop by animateFloatAsState(
         targetValue = 1f,
@@ -3486,6 +3490,17 @@ private fun SessionCompleteCard(
                 HeroPill("Lvl ${game.level}", "level")
             }
             Spacer(Modifier.height(8.dp))
+            // Extra credit: voluntarily pull in more new cards beyond today's cap.
+            OutlinedButton(
+                onClick = onExtraCredit,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f))
+            ) {
+                Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Extra credit (+10 cards)", fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(6.dp))
             Button(
                 onClick = onDone,
                 colors = ButtonDefaults.buttonColors(

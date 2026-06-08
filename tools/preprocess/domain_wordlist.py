@@ -48,7 +48,7 @@ NOUNS = [
     ("прези́диум", "m_hard", "presidium", False, "SG"),
     # diplomacy
     ("дипломати́я", "f_iya", "diplomacy", False, "SG"),
-    ("посо́л", "m_hard", "ambassador", True, "SG+PL"),
+    ("посо́л", "m_fleeting", "ambassador", True, "SG+PL"),
     ("посо́льство", "n_o", "embassy", False, "SG+PL"),
     ("перегово́ры", "pl_peregovory", "negotiations", False, "PL"),
     ("соглаше́ние", "n_ie", "agreement", False, "SG+PL"),
@@ -120,7 +120,7 @@ NOUNS = [
     ("ввод", "m_hard", "introduction/insertion", False, "SG"),
     # economy / energy
     ("эконо́мика", "f_a", "economy", False, "SG"),
-    ("ры́нок", "m_hard", "market", False, "SG+PL"),
+    ("ры́нок", "m_fleeting", "market", False, "SG+PL"),
     ("торго́вля", "f_ya", "trade", False, "SG"),
     ("по́шлина", "f_a", "duty/tariff", False, "SG+PL"),
     ("эмба́рго", "indecl", "embargo", False, "SG"),

@@ -574,6 +574,14 @@ class ReviewViewModel(
         settings.intervalModifier = modifier
     }
 
+    /** Voluntarily pull in another batch of new cards today, beyond the daily cap. */
+    fun grantExtraCredit() {
+        viewModelScope.launch {
+            repository.grantExtraCredit()
+            loadSession(status = "Extra credit: ${LearningRepository.EXTRA_CREDIT_BATCH} more new cards added for today.")
+        }
+    }
+
     /** Reset the per-sitting counters when the learner (re)opens the study screen. */
     fun startStudySession() {
         mutableState.value = mutableState.value.copy(sessionReviewed = 0, sessionCorrect = 0)

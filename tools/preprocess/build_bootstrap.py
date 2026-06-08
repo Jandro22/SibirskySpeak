@@ -47,7 +47,7 @@ def domain_rank(lemma: str, fallback: int) -> int:
     return DOMAIN_FREQ.get(lemma.lower(), fallback)
 
 GENDER_BY_CLASS = {
-    "m_hard": "M", "m_j": "M", "m_iy": "M", "m_soft": "M",
+    "m_hard": "M", "m_fleeting": "M", "m_j": "M", "m_iy": "M", "m_soft": "M",
     "f_a": "F", "f_ya": "F", "f_iya": "F", "f_soft": "F",
     "n_o": "N", "n_e": "N", "n_ie": "N",
     "indecl": "N",
@@ -468,6 +468,22 @@ def main():
 
     course = a1_notes + promoted
     notes = course + domain + general
+
+    # Reader-coverage supplement: content lemmas that appear in the bundled reader
+    # texts but were missing from the deck. Deduped against everything above; the app's
+    # morphology then resolves all their inflected forms for full offline coverage.
+    try:
+        from reader_supplement import supplement_rows
+        existing_lemmas = {n["lemma"] for n in notes}
+        supplement = supplement_rows(existing_lemmas)
+        for r in supplement:
+            rank = DOMAIN_FREQ.get(r["lemma"])
+            if rank is not None:
+                r["domainFreqRank"] = rank
+        notes = notes + supplement
+    except ImportError:
+        supplement = []
+
     reader_texts = a1_readers + all_reader_texts()
     write_jsonl(ASSETS / "bootstrap_notes.jsonl", notes)
     write_jsonl(ASSETS / "bootstrap_reader_texts.jsonl", reader_texts)

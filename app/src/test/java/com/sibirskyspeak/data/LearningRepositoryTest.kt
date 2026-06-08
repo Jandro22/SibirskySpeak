@@ -820,6 +820,74 @@ class LearningRepositoryTest {
         assertTrue("big/big detected as meaning-confusable", reasons.contains("confusable_meaning"))
     }
 
+    @Test
+    fun readerTokensPreservePunctuation() = runTest {
+        val fixture = RepoFixture()
+        val text = ReaderText(title = "t", body = "Привет, как дела? «Хорошо».", source = "test")
+        val tokens = fixture.repository.readerTokens(text)
+        val rendered = tokens.joinToString(" ") { it.leading + it.surface + it.trailing }
+        assertTrue("comma preserved", rendered.contains(","))
+        assertTrue("question mark preserved", rendered.contains("?"))
+        assertTrue("opening quote preserved", rendered.contains("«"))
+        assertTrue("closing quote + period preserved", rendered.contains("»."))
+    }
+
+    @Test
+    fun closedClassInflectedFormsResolveToLemmaNote() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """{"russian":"мой","lemma":"мой","pos":"pronoun","translation":"my","tier":0,"unit":1,"cefrLevel":"A1"}"""
+        )
+        val text = ReaderText(title = "t", body = "Это моя книга и моё яблоко.", source = "test")
+        val tokens = fixture.repository.readerTokens(text)
+        assertEquals("моя resolves to the мой note", "мой", tokens.first { it.surface == "моя" }.lemma)
+        assertEquals("моё resolves to the мой note", "мой", tokens.first { it.surface == "моё" }.lemma)
+    }
+
+    @Test
+    fun irregularAndAdjectiveFormsResolveInReader() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            listOf(
+                """{"russian":"быть","lemma":"быть","pos":"verb","translation":"to be","tier":0,"unit":1,"cefrLevel":"A1"}""",
+                """{"russian":"который","lemma":"который","pos":"pronoun","translation":"which","tier":0,"unit":1,"cefrLevel":"A1"}""",
+                """{"russian":"большой","lemma":"большой","pos":"adj","translation":"big","tier":0,"unit":1,"cefrLevel":"A1"}"""
+            ).joinToString("\n")
+        )
+        val text = ReaderText(title = "t", body = "Это будет большим, которую любят.", source = "test")
+        val tokens = fixture.repository.readerTokens(text)
+        assertEquals("будет → быть", "быть", tokens.first { it.surface == "будет" }.lemma)
+        assertEquals("большим → большой", "большой", tokens.first { it.surface == "большим" }.lemma)
+        assertEquals("которую → который", "который", tokens.first { it.surface == "которую" }.lemma)
+    }
+
+    @Test
+    fun verbPresentTenseFormsResolveInReader() = runTest {
+        val fixture = RepoFixture()
+        // A1 verb with NO stored verbForms — present tense must be generated.
+        fixture.repository.importJsonLines(
+            """{"russian":"читать","lemma":"читать","pos":"verb","translation":"to read","aspect":"IPF","tier":0,"unit":3,"cefrLevel":"A1"}"""
+        )
+        val text = ReaderText(title = "t", body = "Он читает книгу.", source = "test")
+        val tokens = fixture.repository.readerTokens(text)
+        assertEquals("читает resolves to читать", "читать", tokens.first { it.surface == "читает" }.lemma)
+    }
+
+    @Test
+    fun extraCreditAddsNewCardsBeyondTheDailyCap() = runTest {
+        val fixture = RepoFixture(config = { LearningConfig(newCardsPerDay = 0) })
+        fixture.repository.importJsonLines(
+            """{"russian":"дом","lemma":"дом","pos":"noun","translation":"house","tier":0,"unit":1,"cefrLevel":"A1"}"""
+        )
+        // Cap is 0: no new cards available.
+        assertTrue("no new cards under a zero cap",
+            fixture.repository.sessionPlan(now = 1_000L).reviewQueue.isEmpty())
+
+        fixture.repository.grantExtraCredit(amount = 5, now = 1_000L)
+        assertFalse("extra credit unlocks new cards",
+            fixture.repository.sessionPlan(now = 1_000L).reviewQueue.isEmpty())
+    }
+
     private fun goodLog(card: Card, time: Long): ReviewLog =
         ReviewLog(
             cardId = card.id,
@@ -835,7 +903,8 @@ class LearningRepositoryTest {
         bootstrapNotes: String? = null,
         bootstrapReaderTexts: String? = null,
         restoreBackup: (suspend () -> String?)? = null,
-        writeBackup: (suspend (String) -> Unit)? = null
+        writeBackup: (suspend (String) -> Unit)? = null,
+        config: () -> LearningConfig = { LearningConfig() }
     ) {
         val notes = FakeNoteDao()
         val cards = FakeCardDao(notes)
@@ -851,6 +920,7 @@ class LearningRepositoryTest {
             FsrsScheduler(),
             bootstrapNotes = { bootstrapNotes },
             bootstrapReaderTexts = { bootstrapReaderTexts },
+            config = config,
             restoreBackup = restoreBackup,
             writeBackup = writeBackup
         )

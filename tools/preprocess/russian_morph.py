@@ -67,6 +67,14 @@ def decline_noun(citation: str, decl_class: str, animate: bool = False,
         if decl_class == "m_hard":
             stem = w
             sg(stem, "а", "у", "", _hush_ins_m(stem), "е")
+        elif decl_class == "m_fleeting":
+            # Masculine noun with a fleeting vowel (беглая гласная): the о/е/ё before
+            # the final consonant drops in every oblique case (рынок→рынка, посол→посла,
+            # авианосец→авианосца). The nominative keeps it; the oblique stem is the
+            # citation minus that penultimate vowel. Used only for genuinely-fleeting
+            # nouns (NOT lookalikes like энергоблок), assigned explicitly in the list.
+            stem = w[:-2] + w[-1]
+            sg(stem, "а", "у", "", _hush_ins_m(stem), "е")
         elif decl_class == "m_j":
             stem = w[:-1]
             sg(stem, "я", "ю", "", "ем", "е")
@@ -136,6 +144,11 @@ def _decline_plural(table: dict[str, str], w: str, decl_class: str, animate: boo
         stem = w
         nom = stem + ("и" if stem[-1] in (VELARS | HUSHES) else "ы")
         gen = stem + ("ей" if stem[-1] in HUSHES else "ов")
+        _set_plural(table, stem, nom, gen, "ам", "ами", "ах", animate)
+    elif decl_class == "m_fleeting":
+        stem = w[:-2] + w[-1]  # drop the fleeting vowel
+        nom = stem + ("и" if stem[-1] in (VELARS | HUSHES) else "ы")
+        gen = stem + ("ев" if stem[-1] == SIBILANT_C else ("ей" if stem[-1] in HUSHES else "ов"))
         _set_plural(table, stem, nom, gen, "ам", "ами", "ах", animate)
     elif decl_class == "m_j":  # -й, e.g. случай -> случаи/случаев
         stem = w[:-1]

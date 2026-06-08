@@ -56,6 +56,11 @@ data class ReaderToken(
     val normalized: String,
     val known: Boolean,
     val status: WordStatus,
+    // Punctuation glued to the front/back of this word in the source text (e.g. the
+    // opening «, the trailing comma or period), so the reader can render real
+    // punctuation around the clickable word instead of dropping it.
+    val leading: String = "",
+    val trailing: String = "",
     val lemma: String?,
     val parse: String?,
     val aktionsart: String?,
@@ -211,6 +216,25 @@ class LearningRepository(
     @Volatile private var lastGraduationReviewCount: Int? = null
     @Volatile private var accuracyCacheReviewCount: Int? = null
     @Volatile private var accuracyCache: List<CategoryKey>? = null
+
+    // Voluntary "extra credit" new cards granted for today, on top of the daily new-card
+    // cap, for when the learner wants to push further. In-memory and day-scoped: it
+    // resets at the local day rollover (and on app restart), which is the intent.
+    @Volatile private var extraCreditDay: Long = -1L
+    @Volatile private var extraCreditCount: Int = 0
+
+    /** Add a batch of extra new cards for today, beyond the daily cap. */
+    fun grantExtraCredit(amount: Int = EXTRA_CREDIT_BATCH, now: Long = System.currentTimeMillis()) {
+        val today = startOfLocalDay(now)
+        if (extraCreditDay != today) {
+            extraCreditDay = today
+            extraCreditCount = 0
+        }
+        extraCreditCount += amount.coerceAtLeast(0)
+    }
+
+    private fun extraCreditToday(now: Long): Int =
+        if (extraCreditDay == startOfLocalDay(now)) extraCreditCount else 0
 
     private fun invalidateNoteStructure() {
         notesCache = null
@@ -696,26 +720,48 @@ class LearningRepository(
         val known = knownNoteIds()
         val statusById = HashMap<Long, WordStatus>(notes.size)
         for (n in notes) statusById[n.id] = n.status
-        return tokenize(text.body).map { token ->
+        val body = text.body
+        val matches = Regex("""[\p{L}́]+""").findAll(body).toList()
+        return matches.mapIndexed { i, match ->
+            val token = match.value
+            val start = match.range.first
+            val end = match.range.last + 1
+            // Punctuation glued to this word: the run of non-space chars right before it
+            // (opening quote/bracket/dash) and right after it (comma, period, etc.).
+            val prevEnd = if (i == 0) 0 else matches[i - 1].range.last + 1
+            val nextStart = if (i + 1 < matches.size) matches[i + 1].range.first else body.length
+            val gapBefore = body.substring(prevEnd, start)
+            val leading = gapBefore.takeLastWhile { !it.isWhitespace() }
+            val trailing = body.substring(end, nextStart).takeWhile { !it.isWhitespace() }
             val normalized = normalizeToken(token)
             val note = index[normalized]
+            // Proper-noun heuristic: an unknown word that is Capitalized mid-sentence
+            // (not at a sentence start, where any word is capitalized) is almost
+            // certainly a name — treat it as readable (ignored) rather than a missing
+            // definition, so names like Вашингтон/Пекин/МИД don't count as gaps.
+            val sentenceStart = i == 0 || gapBefore.any { it == '.' || it == '!' || it == '?' || it == '…' }
+            val isProperNoun = note == null && !sentenceStart &&
+                token.firstOrNull()?.isUpperCase() == true
             val freshStatus = note?.let { statusById[it.id] } ?: WordStatus.NEW
             val derivedKnown = note != null && note.id in known
             val status = when {
                 note != null && freshStatus != WordStatus.NEW -> freshStatus
                 derivedKnown -> WordStatus.KNOWN
+                isProperNoun -> WordStatus.IGNORED
                 else -> WordStatus.NEW
             }
             ReaderToken(
                 surface = token,
                 normalized = normalized,
+                leading = leading,
+                trailing = trailing,
                 known = status == WordStatus.KNOWN || status == WordStatus.IGNORED,
                 status = status,
                 lemma = note?.lemma,
                 parse = note?.let { parseToken(token, it) },
                 aktionsart = note?.aktionsart,
                 stressForm = note?.russian,
-                translation = note?.translation,
+                translation = note?.translation ?: if (isProperNoun) "(proper noun)" else null,
                 exampleSentence = note?.exampleSentence,
                 exampleTranslation = note?.exampleTranslation,
                 exampleSentence2 = note?.exampleSentence2,
@@ -1357,7 +1403,7 @@ class LearningRepository(
      */
     private suspend fun newCardSession(now: Long, limit: Int): List<Card> {
         val introducedToday = reviewLogDao.countNewIntroducedSince(startOfLocalDay(now))
-        val budget = (config().newCardsPerDay - introducedToday).coerceAtLeast(0)
+        val budget = (config().newCardsPerDay + extraCreditToday(now) - introducedToday).coerceAtLeast(0)
         val take = minOf(limit, budget)
         if (take == 0) return emptyList()
 
@@ -1855,6 +1901,8 @@ class LearningRepository(
         // it keeps tripping them up and burning review time. We auto-park it so it
         // stops resurfacing; it lands in the Leeches list to fix or release.
         const val LEECH_LAPSES = 8
+        // How many extra new cards each "extra credit" tap adds for the day.
+        const val EXTRA_CREDIT_BATCH = 10
         private const val TRIAGE_THRESHOLD = 80
         private const val MIN_ACCURACY_SAMPLE = 30
         private const val GRADUATION_ACCURACY = 0.90
