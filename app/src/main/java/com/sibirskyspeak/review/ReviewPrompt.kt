@@ -723,5 +723,5 @@ private fun genderDiagnosticFeedback(prompt: ReviewPrompt): String? {
             else -> null
         }
     }
-    return listOfNotNull("This noun is $label.", endingHint).joinToString(" ")
+    return listOfNotNull("This noun is ${label.lowercase()}.", endingHint).joinToString(" ")
 }

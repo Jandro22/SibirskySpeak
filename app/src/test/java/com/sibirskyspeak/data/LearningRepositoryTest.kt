@@ -1153,7 +1153,8 @@ class LearningRepositoryTest {
                     rating = Rating.GOOD,
                     stateBefore = CardState.REVIEW,
                     scheduledDays = 1,
-                    elapsedDays = 1
+                    elapsedDays = 1,
+                    source = ReviewSource.SRS_REVIEW
                 )
             )
 
