@@ -454,8 +454,8 @@ private fun String.clozeVocabularyAnswer(note: Note): ClozeDrill? {
         .distinctBy { RussianForms.normalize(it) }
         .sortedByDescending { it.length }
         .firstNotNullOfOrNull { candidate ->
-            val replaced = replace(candidate, "____", ignoreCase = true)
-            replaced.takeIf { it != this }?.let { ClozeDrill(prompt = it, answer = candidate) }
+            blankFirstWholeOccurrence(candidate, "____")
+                ?.let { ClozeDrill(prompt = it, answer = candidate) }
         }
 }
 
@@ -556,9 +556,29 @@ private fun String.blankAny(candidates: List<String>): String =
         .distinctBy { RussianForms.normalize(it) }
         .sortedByDescending { it.length }
         .firstNotNullOfOrNull { candidate ->
-            replace(candidate, "___", ignoreCase = true).takeIf { it != this }
+            blankFirstWholeOccurrence(candidate, "___")
         }
         ?: this
+
+private fun String.blankFirstWholeOccurrence(candidate: String, blank: String): String? {
+    val match = Regex(Regex.escape(candidate), RegexOption.IGNORE_CASE)
+        .findAll(this)
+        .firstOrNull { it.range.isWholeTokenIn(this) }
+        ?: return null
+    return replaceRange(match.range, blank)
+}
+
+private fun IntRange.isWholeTokenIn(source: String): Boolean {
+    val before = first - 1
+    val after = last + 1
+    return !source.hasTokenCharacterAt(before) && !source.hasTokenCharacterAt(after)
+}
+
+private fun String.hasTokenCharacterAt(index: Int): Boolean =
+    index in indices && this[index].isTokenCharacter()
+
+private fun Char.isTokenCharacter(): Boolean =
+    isLetterOrDigit() || this == '\u0301' || this == '\u0308'
 
 private data class CaseDrill(val prompt: String, val answer: String)
 
@@ -591,8 +611,7 @@ private fun String.blankCaseAnswer(answer: String, note: Note): String? {
         .filter { it.isNotBlank() }
         .distinctBy { it.lowercase() }
     for (candidate in candidates) {
-        val replaced = replace(candidate, "____", ignoreCase = true)
-        if (replaced != this) return replaced
+        blankFirstWholeOccurrence(candidate, "____")?.let { return it }
     }
     return null
 }
@@ -622,6 +641,9 @@ private fun fallbackCaseKey(cases: JSONObject): String? {
 }
 
 fun diagnosticFeedbackFor(prompt: ReviewPrompt, actualAnswer: String): String? {
+    if (prompt.card.cardType == CardType.ASPECT_SELECT) return aspectDiagnosticFeedback(prompt, actualAnswer)
+    if (prompt.card.cardType == CardType.GENDER_ID) return genderDiagnosticFeedback(prompt)
+    if (prompt.card.cardType == CardType.VERB_FORM) return verbFormDiagnosticFeedback(prompt, actualAnswer)
     if (prompt.card.cardType != CardType.CASE_FILL) return null
     val rawJson = prompt.note.declensionJson ?: return null
     val actual = normalizeRussian(actualAnswer)
@@ -646,4 +668,60 @@ fun diagnosticFeedbackFor(prompt: ReviewPrompt, actualAnswer: String): String? {
                 "This prompt asks for ${target.humanCaseLabel()}; check the case ending for ${prompt.note.gender ?: "this noun"} ${prompt.card.gramNumber?.lowercase().orEmpty()}."
         }
     }.getOrNull()
+}
+
+private fun verbFormDiagnosticFeedback(prompt: ReviewPrompt, actualAnswer: String): String? {
+    val key = prompt.card.gramContextCue ?: "PAST_M"
+    val label = key.verbFormLabel(prompt.note)
+    val actual = normalizeRussian(actualAnswer)
+    if (actual.isBlank()) return null
+    val matchedForm = verbFormsFromJson(prompt.note.declensionJson)
+        .firstOrNull { (_, form) -> normalizeRussian(form) == actual }
+    return when {
+        matchedForm != null && matchedForm.first != key ->
+            "You made ${matchedForm.first.verbFormLabel(prompt.note)}; this prompt asks for $label."
+        actual == normalizeRussian(prompt.note.lemma) || actual == normalizeRussian(prompt.note.russian) ->
+            "You used the infinitive/dictionary form; this prompt asks for $label."
+        else ->
+            "This prompt asks for $label; check the person, number, gender, or tense ending."
+    }
+}
+
+private fun verbFormsFromJson(rawJson: String?): List<Pair<String, String>> = runCatching {
+    val raw = rawJson ?: return emptyList()
+    val json = JSONObject(raw)
+    val forms = json.optJSONObject("verbForms") ?: return emptyList()
+    forms.keys().asSequence()
+        .map { key -> key to forms.optString(key) }
+        .filter { (_, value) -> value.isNotBlank() }
+        .toList()
+}.getOrDefault(emptyList())
+
+private fun aspectDiagnosticFeedback(prompt: ReviewPrompt, actualAnswer: String): String? {
+    val actual = actualAnswer.trim()
+    if (actual.isBlank()) return null
+    val choseKnownOption = prompt.choices.any { it.equals(actual, ignoreCase = true) }
+    val cue = prompt.prompt.substringAfter("Context clue:", missingDelimiterValue = "").trim()
+    val cueSentence = cue.takeIf { it.isNotBlank() }?.let { "Cue: $it. " }.orEmpty()
+    val rationale = prompt.explanation ?: return null
+    return if (choseKnownOption) {
+        "${cueSentence}That aspect does not fit this context. $rationale"
+    } else {
+        "${cueSentence}Choose the form that matches the aspect cue. $rationale"
+    }
+}
+
+private fun genderDiagnosticFeedback(prompt: ReviewPrompt): String? {
+    val gender = (prompt.card.gramGender ?: prompt.note.gender)?.uppercase() ?: return null
+    val label = genderLabel(gender)
+    val endingHint = prompt.note.russian.withoutStressMarks().trim().lastOrNull()?.let { ending ->
+        when (gender) {
+            "M" -> if (ending in listOf('а', 'я')) "This noun is masculine despite its soft-looking ending; memorize it as an exception." else "Masculine nouns often end in a consonant or soft sign."
+            "F" -> if (ending == 'ь') "Many soft-sign nouns are feminine; this one needs to be learned with its gender." else "Feminine nouns often end in -а or -я."
+            "N" -> "Neuter nouns often end in -о, -е, or -ё."
+            "PL" -> "This noun is plural-only, so use its plural pattern rather than a singular gender."
+            else -> null
+        }
+    }
+    return listOfNotNull("This noun is $label.", endingHint).joinToString(" ")
 }

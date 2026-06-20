@@ -216,6 +216,7 @@ class LearningRepository(
     @Volatile private var lastGraduationReviewCount: Int? = null
     @Volatile private var accuracyCacheReviewCount: Int? = null
     @Volatile private var accuracyCache: List<CategoryKey>? = null
+    private val creditedReaderLookups = mutableSetOf<String>()
 
     // Voluntary "extra credit" new cards granted for today, on top of the daily new-card
     // cap, for when the learner wants to push further. In-memory and day-scoped: it
@@ -223,14 +224,17 @@ class LearningRepository(
     @Volatile private var extraCreditDay: Long = -1L
     @Volatile private var extraCreditCount: Int = 0
 
-    /** Add a batch of extra new cards for today, beyond the daily cap. */
-    fun grantExtraCredit(amount: Int = EXTRA_CREDIT_BATCH, now: Long = System.currentTimeMillis()) {
+    /** Add a bounded extra batch of new cards for today, beyond the daily cap. */
+    fun grantExtraCredit(amount: Int = EXTRA_CREDIT_BATCH, now: Long = System.currentTimeMillis()): Int {
         val today = startOfLocalDay(now)
         if (extraCreditDay != today) {
             extraCreditDay = today
             extraCreditCount = 0
         }
-        extraCreditCount += amount.coerceAtLeast(0)
+        val remaining = (EXTRA_CREDIT_DAILY_LIMIT - extraCreditCount).coerceAtLeast(0)
+        val granted = minOf(amount.coerceAtLeast(0), remaining)
+        extraCreditCount += granted
+        return granted
     }
 
     private fun extraCreditToday(now: Long): Int =
@@ -930,7 +934,7 @@ class LearningRepository(
             level += 1
         }
         val knownWords = knownNoteIds().size
-        val reviewedToday = reviewLogDao.countSince(now - (now % DAY_MILLIS))
+        val reviewedToday = reviewedToday(now)
         val activeDays = days.size
         val last7 = (6 downTo 0).map { offset -> (todayBucket - offset) in daySet }
 
@@ -1179,13 +1183,13 @@ class LearningRepository(
         exampleTranslation: String? = null
     ) {
         val note = noteDao.getById(noteId) ?: return
-        noteDao.update(
-            note.copy(
+        val updated = note.copy(
                 translation = translation?.trim()?.takeIf { it.isNotBlank() } ?: note.translation,
                 exampleSentence = exampleSentence?.trim()?.takeIf { it.isNotBlank() } ?: note.exampleSentence,
                 exampleTranslation = exampleTranslation?.trim()?.takeIf { it.isNotBlank() } ?: note.exampleTranslation
-            )
         )
+        noteDao.update(updated)
+        ensureReadableExampleCards(updated)
         invalidateNoteState()
     }
 
@@ -1211,16 +1215,18 @@ class LearningRepository(
                 exampleTranslation = translation?.trim()?.takeIf { it.isNotBlank() } ?: fresh.exampleTranslation
             )
         )
-        // Ensure the word has a CLOZE card so it's practised in this exact context —
-        // the whole point of sentence-mining. setWordStatus(LEARNING) above already
-        // reactivated any graduated vocab cards; this adds a cloze when none existed
-        // (e.g. a frequency word that shipped without a readable example).
-        if (trimmedSentence.isNotBlank() && cardDao.getByNoteAndType(note.id, CardType.CLOZE) == null) {
+        // Only add context recall when the sentence has a real meaning attached.
+        val minedNote = noteDao.getById(note.id) ?: fresh
+        ensureReadableExampleCards(minedNote)
+        invalidateNoteState()
+        return noteDao.getById(note.id)
+    }
+
+    private suspend fun ensureReadableExampleCards(note: Note) {
+        if (hasReadableExample(note) && cardDao.getByNoteAndType(note.id, CardType.CLOZE) == null) {
             cardDao.insert(Card(noteId = note.id, cardType = CardType.CLOZE, queue = Queue.VOCAB, due = 0L))
             invalidateNoteStructure()
         }
-        invalidateNoteState()
-        return noteDao.getById(note.id)
     }
 
     suspend fun placeAfterLevel(level: String, now: Long = System.currentTimeMillis()): Int {
@@ -1264,8 +1270,10 @@ class LearningRepository(
         var changed = 0
         runInTransaction {
             tokens.distinctBy { normalizeToken(it) }.forEach { token ->
-                setWordStatus(token, status)
-                changed += 1
+                val normalized = normalizeToken(token)
+                val before = formIndex()[normalized]?.let { noteDao.getById(it.id) } ?: noteDao.getByLemma(normalized)
+                val after = setWordStatus(token, status)
+                if (after != null && before?.status != status) changed += 1
             }
         }
         return changed
@@ -1279,23 +1287,14 @@ class LearningRepository(
         val normalized = normalizeToken(token)
         val note = formIndex()[normalized]?.let { noteDao.getById(it.id) }
         if (note != null) {
-            noteDao.update(note.copy(encounterCount = note.encounterCount + 1))
-            invalidateNoteState()
-            val card = cardDao.getCardsForNote(note.id).firstOrNull()
-            if (card != null) {
-                reviewLogDao.insert(
-                    ReviewLog(
-                        cardId = card.id,
-                        reviewDatetime = now,
-                        rating = Rating.GOOD,
-                        stateBefore = card.state,
-                        scheduledDays = card.scheduledDays,
-                        elapsedDays = 0,
-                        source = ReviewSource.READER_LOOKUP
-                    )
-                )
+            val credited = synchronized(creditedReaderLookups) {
+                creditedReaderLookups.add("${text.id}:$normalized")
             }
-            refreshGraduationsIfNeeded(force = true)
+            if (credited) {
+                noteDao.update(note.copy(encounterCount = note.encounterCount + 1))
+                invalidateNoteState()
+                refreshGraduationsIfNeeded(force = true)
+            }
             return noteDao.getById(note.id)
         }
         addNote(
@@ -1346,6 +1345,7 @@ class LearningRepository(
         val pull = (limit * 3).coerceAtLeast(limit)
         val due = if (plan.triageMode) {
             cardDao.getOverdueCards(now - 2 * DAY_MILLIS, limit = pull)
+                .ifEmpty { cardDao.getDueCards(now, limit = pull) }
         } else {
             cardDao.getDueCards(now, limit = pull)
         }
@@ -1403,7 +1403,9 @@ class LearningRepository(
      */
     private suspend fun newCardSession(now: Long, limit: Int): List<Card> {
         val introducedToday = reviewLogDao.countNewIntroducedSince(startOfLocalDay(now))
-        val budget = (config().newCardsPerDay + extraCreditToday(now) - introducedToday).coerceAtLeast(0)
+        val pacing = config()
+        val normalNewBudget = minOf(pacing.newCardsPerDay, pacing.dailyGoal).coerceAtLeast(0)
+        val budget = (normalNewBudget + extraCreditToday(now) - introducedToday).coerceAtLeast(0)
         val take = minOf(limit, budget)
         if (take == 0) return emptyList()
 
@@ -1411,8 +1413,13 @@ class LearningRepository(
         // then by frequency rank). Drop grammar drills whose teaching lesson the
         // learner hasn't seen yet — concept gating keeps "teach before test" true.
         val locked = lockedConceptIds()
-        val pool = cardDao.getNewCardsOrdered(limit = maxOf(limit * 4, 200))
-            .filterNot { isConceptLocked(it, locked) }
+        val pool = buildList {
+            for (card in cardDao.getNewCardsOrdered(limit = maxOf(limit * 4, 200))) {
+                if (isConceptLocked(card, locked)) continue
+                if (isNewGrammarBeforeFirstEncounter(card)) continue
+                add(card)
+            }
+        }
         // Group by note, preserving the pool's curriculum order for *note* ordering
         // (first appearance of each note), then order each note's own cards
         // comprehension-first (lesson → recognition → production → grammar).
@@ -1462,6 +1469,12 @@ class LearningRepository(
         if (card.queue != Queue.GRAMMAR) return false
         val concept = GrammarConcepts.forCard(card)?.id ?: card.gramConcept ?: return false
         return concept in locked
+    }
+
+    private suspend fun isNewGrammarBeforeFirstEncounter(card: Card): Boolean {
+        if (card.queue != Queue.GRAMMAR || card.cardType == CardType.LESSON) return false
+        val note = noteDao.getById(card.noteId) ?: return false
+        return note.encounterCount == 0
     }
 
     /** Coarse introduction tier: lesson (0) → receptive (1) → productive (2) → grammar (3). */
@@ -1788,10 +1801,10 @@ class LearningRepository(
 
 
     private fun coverageFor(text: ReaderText, index: Map<String, Note>, knownIds: Set<Long>): ReaderRecommendation {
-        val tokens = tokenize(text.body)
+        val tokens = readerWordOccurrences(text.body)
         val knownCount = tokens.count { token ->
-            val note = index[normalizeToken(token)]
-            note != null && note.id in knownIds
+            val note = index[normalizeToken(token.surface)]
+            (note != null && note.id in knownIds) || (note == null && token.isProperNoun)
         }
         val coverage = if (tokens.isEmpty()) 0.0 else knownCount.toDouble() / tokens.size
         return ReaderRecommendation(
@@ -1817,6 +1830,21 @@ class LearningRepository(
     private fun tokenize(text: String): List<String> =
         Regex("""[\p{L}\u0301]+""").findAll(text).map { it.value }.toList()
 
+    private data class ReaderWordOccurrence(val surface: String, val isProperNoun: Boolean)
+
+    private fun readerWordOccurrences(text: String): List<ReaderWordOccurrence> {
+        val matches = Regex("""[\p{L}\u0301]+""").findAll(text).toList()
+        return matches.mapIndexed { i, match ->
+            val prevEnd = if (i == 0) 0 else matches[i - 1].range.last + 1
+            val gapBefore = text.substring(prevEnd, match.range.first)
+            val sentenceStart = i == 0 || gapBefore.any { it == '.' || it == '!' || it == '?' || it == '…' }
+            ReaderWordOccurrence(
+                surface = match.value,
+                isProperNoun = !sentenceStart && match.value.firstOrNull()?.isUpperCase() == true
+            )
+        }
+    }
+
     private fun normalizeToken(value: String): String = RussianForms.normalize(value)
 
     private fun statusForCoverage(coverage: Double): ReaderStatus =
@@ -1831,7 +1859,7 @@ class LearningRepository(
         val aspectReadyVerbs = notes.count { it.isAspectReadyVerb() }
         val verifiedAktionsartVerbs = notes.count { it.isAspectReadyVerb() && it.hasVerifiedAktionsart() }
         val domainRanked = notes.count { it.domainFreqRank != null }
-        val examples = notes.count { !it.exampleSentence.isNullOrBlank() }
+        val examples = notes.count { hasReadableExample(it) }
         val targetReady = recommendations.count { it.text.source.startsWith("target:", ignoreCase = true) && it.coverage >= AUTHENTIC_READY_COVERAGE }
         val warnings = buildList {
             if (readyNominals < DESIGN_DOC_MIN_NOMINAL_ROWS) add("Need $DESIGN_DOC_MIN_NOMINAL_ROWS noun/adjective rows with declension, gender, domain rank, and example.")
@@ -1859,7 +1887,7 @@ class LearningRepository(
             !declensionJson.isNullOrBlank() &&
             !gender.isNullOrBlank() &&
             domainFreqRank != null &&
-            !exampleSentence.isNullOrBlank()
+            hasReadableExample(this)
 
     private fun Note.isAspectReadyVerb(): Boolean =
         partOfSpeech.lowercase(Locale.ROOT) == "verb" &&
@@ -1867,7 +1895,7 @@ class LearningRepository(
             !aspect.isNullOrBlank() &&
             !aktionsart.isNullOrBlank() &&
             domainFreqRank != null &&
-            !exampleSentence.isNullOrBlank()
+            hasReadableExample(this)
 
     private fun Note.hasVerifiedAktionsart(): Boolean =
         aktionsartConfidence?.lowercase(Locale.ROOT) in setOf("high", "manual", "verified")
@@ -1903,6 +1931,7 @@ class LearningRepository(
         const val LEECH_LAPSES = 8
         // How many extra new cards each "extra credit" tap adds for the day.
         const val EXTRA_CREDIT_BATCH = 10
+        private const val EXTRA_CREDIT_DAILY_LIMIT = EXTRA_CREDIT_BATCH
         private const val TRIAGE_THRESHOLD = 80
         private const val MIN_ACCURACY_SAMPLE = 30
         private const val GRADUATION_ACCURACY = 0.90

@@ -283,23 +283,31 @@ interface ReviewLogDao {
     @Insert
     suspend fun insert(log: ReviewLog)
 
-    @Query("SELECT COUNT(*) FROM review_logs WHERE reviewDatetime >= :since")
+    @Query("SELECT COUNT(*) FROM review_logs WHERE reviewDatetime >= :since AND source != 'READER_LOOKUP'")
     suspend fun countSince(since: Long): Int
 
-    @Query("SELECT COUNT(*) FROM review_logs")
+    @Query("SELECT COUNT(*) FROM review_logs WHERE source != 'READER_LOOKUP'")
     suspend fun countAll(): Int
 
     /** Total reviews of mature cards (those already in the REVIEW/RELEARNING phase). */
-    @Query("SELECT COUNT(*) FROM review_logs WHERE stateBefore IN ('REVIEW', 'RELEARNING')")
+    @Query("SELECT COUNT(*) FROM review_logs WHERE stateBefore IN ('REVIEW', 'RELEARNING') AND source != 'READER_LOOKUP'")
     suspend fun matureReviewCount(): Int
 
     /** Mature-card reviews the learner got right (did not lapse). True-retention numerator. */
-    @Query("SELECT COUNT(*) FROM review_logs WHERE stateBefore IN ('REVIEW', 'RELEARNING') AND rating != 'AGAIN'")
+    @Query("SELECT COUNT(*) FROM review_logs WHERE stateBefore IN ('REVIEW', 'RELEARNING') AND rating != 'AGAIN' AND source != 'READER_LOOKUP'")
     suspend fun matureRetainedCount(): Int
 
     // Cards introduced (first-ever review) since [since], i.e. logs whose card was
     // still NEW when reviewed. Drives the daily new-card throttle.
-    @Query("SELECT COUNT(*) FROM review_logs WHERE reviewDatetime >= :since AND stateBefore = 'NEW'")
+    @Query("""
+        SELECT COUNT(*)
+        FROM review_logs
+        INNER JOIN cards ON cards.id = review_logs.cardId
+        WHERE reviewDatetime >= :since
+          AND stateBefore = 'NEW'
+          AND source != 'READER_LOOKUP'
+          AND cards.cardType != 'LESSON'
+    """)
     suspend fun countNewIntroducedSince(since: Long): Int
 
     // Removes the most recent log row for a card. Used by the undo path to roll
@@ -309,13 +317,14 @@ interface ReviewLogDao {
 
     // Distinct local-day buckets that have at least one review, newest first.
     // Used for streak and active-day stats without loading every log row.
-    @Query("SELECT DISTINCT (reviewDatetime + :tzOffset) / :dayMillis AS day FROM review_logs ORDER BY day DESC")
+    @Query("SELECT DISTINCT (reviewDatetime + :tzOffset) / :dayMillis AS day FROM review_logs WHERE source != 'READER_LOOKUP' ORDER BY day DESC")
     suspend fun reviewDayBuckets(tzOffset: Long, dayMillis: Long): List<Long>
 
     @Query("""
         SELECT rl.rating FROM review_logs rl
         JOIN cards c ON rl.cardId = c.id
         WHERE c.gramCase = :gramCase AND c.gramGender = :gramGender AND c.gramNumber = :gramNumber
+          AND rl.source != 'READER_LOOKUP'
         ORDER BY rl.reviewDatetime DESC
         LIMIT :limit
     """)
@@ -326,6 +335,7 @@ interface ReviewLogDao {
         JOIN cards c ON rl.cardId = c.id
         JOIN notes n ON c.noteId = n.id
         WHERE n.aktionsart = :aktionsart AND n.aspect = :aspect AND c.gramContextCue = :contextCue
+          AND rl.source != 'READER_LOOKUP'
         ORDER BY rl.reviewDatetime DESC
         LIMIT :limit
     """)
@@ -335,6 +345,7 @@ interface ReviewLogDao {
         SELECT rl.rating FROM review_logs rl
         JOIN cards c ON rl.cardId = c.id
         WHERE c.cardType = 'VERB_FORM' AND c.gramContextCue = :formKey
+          AND rl.source != 'READER_LOOKUP'
         ORDER BY rl.reviewDatetime DESC
         LIMIT :limit
     """)

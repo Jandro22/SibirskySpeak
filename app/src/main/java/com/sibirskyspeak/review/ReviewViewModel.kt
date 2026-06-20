@@ -56,6 +56,7 @@ data class ReviewUiState(
     val readerTitle: String = "",
     val readerBody: String = "",
     val selectedReaderTextId: Long? = null,
+    val readerProgressByText: Map<Long, Int> = emptyMap(),
     val readerLookupInProgress: Boolean = false,
     val statusMessage: String? = null,
     val sessionStep: SessionStep = SessionStep.REVIEWS,
@@ -73,8 +74,8 @@ data class ReviewUiState(
     // Deck search.
     val searchQuery: String = "",
     val searchResults: List<Note> = emptyList(),
-    // Furthest token the user has reached in the open reader text ("continue reading").
-    val readerProgressIndex: Int = 0,
+    // Furthest token the user has reached in the open reader text; -1 means not started.
+    val readerProgressIndex: Int = -1,
     // Achievements unlocked since the user last looked (for the celebratory toast).
     val newlyUnlocked: List<Achievement> = emptyList(),
     // Per-sitting counters (reset when the study screen is opened) that drive the
@@ -88,10 +89,16 @@ data class ReviewUiState(
 /** A parked leech surfaced to the learner: the card plus its word and gloss. */
 data class LeechItem(
     val card: com.sibirskyspeak.data.Card,
+    val note: Note,
     val russian: String,
     val translation: String,
-    val lapses: Int
+    val lapses: Int,
+    val cardLabel: String,
+    val promptPreview: String,
+    val expectedAnswer: String
 )
+
+private data class SessionCounterDelta(val reviewed: Int, val correct: Int)
 
 class ReviewViewModel(
     private val repository: LearningRepository,
@@ -99,6 +106,7 @@ class ReviewViewModel(
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(ReviewUiState())
     val state: StateFlow<ReviewUiState> = mutableState.asStateFlow()
+    private val sessionCounterDeltas = ArrayDeque<SessionCounterDelta>()
 
     init {
         viewModelScope.launch {
@@ -204,14 +212,17 @@ class ReviewViewModel(
         val prompt = mutableState.value.prompt ?: return
         val evaluation = when (prompt.answerMode) {
             AnswerMode.ENGLISH -> {
-                val correct = isEnglishAnswerCorrect(prompt.expectedAnswer, mutableState.value.typedAnswer)
-                AnswerEvaluation(if (correct) AnswerMatch.EXACT else AnswerMatch.WRONG, prompt.expectedAnswer)
+                evaluateEnglishAnswer(prompt.expectedAnswer, mutableState.value.typedAnswer)
             }
             AnswerMode.RUSSIAN_TYPED, AnswerMode.AUDIO_ONLY, AnswerMode.SPEAK -> evaluateRussianAnswer(prompt.expectedAnswer, mutableState.value.typedAnswer)
             AnswerMode.RUSSIAN_STRESS_TYPED -> evaluateRussianAnswer(prompt.expectedAnswer, mutableState.value.typedAnswer, ignoreStress = false)
             AnswerMode.CHOICE -> {
-                val correct = mutableState.value.typedAnswer.trim().equals(prompt.expectedAnswer.trim(), ignoreCase = true)
-                AnswerEvaluation(if (correct) AnswerMatch.EXACT else AnswerMatch.WRONG, prompt.expectedAnswer)
+                if (prompt.card.cardType == com.sibirskyspeak.data.CardType.STRESS_MARK) {
+                    evaluateRussianAnswer(prompt.expectedAnswer, mutableState.value.typedAnswer, ignoreStress = false)
+                } else {
+                    val correct = mutableState.value.typedAnswer.trim().equals(prompt.expectedAnswer.trim(), ignoreCase = true)
+                    AnswerEvaluation(if (correct) AnswerMatch.EXACT else AnswerMatch.WRONG, prompt.expectedAnswer)
+                }
             }
             // A lesson has nothing to grade; "Got it" rates it directly via rate().
             AnswerMode.LESSON -> AnswerEvaluation(AnswerMatch.EXACT, prompt.expectedAnswer)
@@ -228,6 +239,7 @@ class ReviewViewModel(
                 runCatching {
                     repository.review(prompt.card, Rating.AGAIN)
                 }.onSuccess { becameLeech ->
+                    sessionCounterDeltas.addLast(SessionCounterDelta(reviewed = 1, correct = 0))
                     mutableState.value = mutableState.value.copy(
                         ratingInProgress = false,
                         autoRatedAgain = true,
@@ -252,14 +264,19 @@ class ReviewViewModel(
         // sitting's accuracy so the percentage reflects real recall.
         val countable = prompt.card.cardType != com.sibirskyspeak.data.CardType.LESSON
         val wasCorrect = mutableState.value.isAnswerCorrect == true
+        val delta = SessionCounterDelta(
+            reviewed = if (countable) 1 else 0,
+            correct = if (countable && wasCorrect) 1 else 0
+        )
         mutableState.value = mutableState.value.copy(ratingInProgress = true)
         viewModelScope.launch {
             runCatching {
                 repository.review(prompt.card, rating)
             }.onSuccess { becameLeech ->
+                sessionCounterDeltas.addLast(delta)
                 mutableState.value = mutableState.value.copy(
-                    sessionReviewed = mutableState.value.sessionReviewed + if (countable) 1 else 0,
-                    sessionCorrect = mutableState.value.sessionCorrect + if (countable && wasCorrect) 1 else 0,
+                    sessionReviewed = mutableState.value.sessionReviewed + delta.reviewed,
+                    sessionCorrect = mutableState.value.sessionCorrect + delta.correct,
                     statusMessage = if (becameLeech) "Parked this card — it kept tripping you up. Find it under Leeches." else mutableState.value.statusMessage
                 )
                 loadSession()
@@ -284,35 +301,31 @@ class ReviewViewModel(
         if (mutableState.value.ratingInProgress) return
         viewModelScope.launch {
             val restored = repository.undoLastReview() ?: return@launch
+            val delta = if (sessionCounterDeltas.isNotEmpty()) sessionCounterDeltas.removeLast() else SessionCounterDelta(0, 0)
             loadSession(status = "Undid last review")
             // Surface the restored card again, fresh, regardless of queue order.
             val prompt = repository.promptForCard(restored)
-            if (prompt != null) {
-                mutableState.value = mutableState.value.copy(
-                    prompt = prompt,
-                    revealed = false,
-                    typedAnswer = "",
-                    isAnswerCorrect = null,
-                    answerMatch = null,
-                    answerFeedback = null,
-                    autoRatedAgain = false
-                )
-            }
+            mutableState.value = mutableState.value.copy(
+                prompt = prompt ?: mutableState.value.prompt,
+                revealed = false,
+                typedAnswer = "",
+                isAnswerCorrect = null,
+                answerMatch = null,
+                answerFeedback = null,
+                autoRatedAgain = false,
+                sessionReviewed = (mutableState.value.sessionReviewed - delta.reviewed).coerceAtLeast(0),
+                sessionCorrect = (mutableState.value.sessionCorrect - delta.correct).coerceAtLeast(0)
+            )
         }
     }
 
-    /**
-     * "I actually knew this" escape hatch after a typed answer was auto-failed.
-     * Rolls back the silent AGAIN and reopens the rating buttons so the learner
-     * can grade their true recall.
-     */
     /** Retire the current card permanently (bad auto-generated content). */
     fun suspendCurrentCard() {
         val prompt = mutableState.value.prompt ?: return
         if (mutableState.value.ratingInProgress) return
         viewModelScope.launch {
             runCatching { repository.suspendCard(prompt.card) }
-                .onSuccess { loadSession(status = "Card suspended — it won't come back.") }
+                .onSuccess { loadSession(status = "Card suspended. It is out of all review queues.") }
                 .onFailure { mutableState.value = mutableState.value.copy(statusMessage = it.message ?: "Could not suspend card") }
         }
     }
@@ -322,7 +335,7 @@ class ReviewViewModel(
         if (mutableState.value.ratingInProgress) return
         viewModelScope.launch {
             runCatching { repository.markWordKnown(prompt.card.noteId) }
-                .onSuccess { loadSession(status = "Marked known — it won't come back.") }
+                .onSuccess { loadSession(status = "Marked known. Vocab practice for this word is retired.") }
                 .onFailure { mutableState.value = mutableState.value.copy(statusMessage = it.message ?: "Could not mark known") }
         }
     }
@@ -335,19 +348,27 @@ class ReviewViewModel(
         }
     }
 
+    /**
+     * "I actually knew this" escape hatch after a typed answer was auto-failed.
+     * Rolls back the silent AGAIN and reopens the rating buttons so the learner
+     * can grade their true recall.
+     */
     fun overrideKnewIt() {
         if (!mutableState.value.autoRatedAgain) return
         viewModelScope.launch {
             repository.undoLastReview()
+            val delta = if (sessionCounterDeltas.isNotEmpty()) sessionCounterDeltas.removeLast() else SessionCounterDelta(1, 0)
             mutableState.value = mutableState.value.copy(
                 autoRatedAgain = false,
                 revealed = true,
                 isAnswerCorrect = true,
-                answerMatch = AnswerMatch.EXACT,
+                answerMatch = AnswerMatch.CLOSE,
+                answerFeedback = "Auto-Again undone for this slip. Grade the recall you actually had; use Again if the miss was real.",
                 ratingInProgress = false,
                 // The auto-AGAIN already counted this card; the upcoming rate() will
                 // count it again, so roll the auto-count back to avoid double-counting.
-                sessionReviewed = (mutableState.value.sessionReviewed - 1).coerceAtLeast(0)
+                sessionReviewed = (mutableState.value.sessionReviewed - delta.reviewed).coerceAtLeast(0),
+                sessionCorrect = (mutableState.value.sessionCorrect - delta.correct).coerceAtLeast(0)
             )
         }
     }
@@ -359,12 +380,13 @@ class ReviewViewModel(
             val count = repository.setWordStatusBatch(tokens, status)
             val refreshedTexts = repository.readerTexts()
             val selected = refreshedTexts.firstOrNull { it.text.id == recommendation.text.id } ?: recommendation
+            val statusText = status.name.lowercase()
             mutableState.value = mutableState.value.copy(
                 allReaderTexts = refreshedTexts,
-                readerRecommendation = refreshedTexts.minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTargetUi(it.coverage) }.thenByDescending { it.coverage }),
+                readerRecommendation = recommendNextReader(refreshedTexts),
                 readerTokens = repository.readerTokens(selected.text),
                 selectedToken = null,
-                statusMessage = "Marked $count words ${status.name.lowercase()}"
+                statusMessage = if (count == 0) "No word statuses changed." else "Marked $count ${if (count == 1) "word" else "words"} $statusText"
             )
         }
     }
@@ -380,7 +402,7 @@ class ReviewViewModel(
             val tokens = repository.readerTokens(selected.text)
             mutableState.value = mutableState.value.copy(
                 allReaderTexts = refreshedTexts,
-                readerRecommendation = refreshedTexts.minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTargetUi(it.coverage) }.thenByDescending { it.coverage }),
+                readerRecommendation = recommendNextReader(refreshedTexts),
                 readerTokens = tokens,
                 selectedToken = tokens.firstOrNull { it.surface == token || it.normalized == normalized },
                 lookupResult = note?.let { "${it.russian} = ${it.translation}" } ?: "Added $token as lookup pending",
@@ -399,9 +421,10 @@ class ReviewViewModel(
             val tokens = repository.readerTokens(selected.text)
             mutableState.value = mutableState.value.copy(
                 allReaderTexts = refreshedTexts,
-                readerRecommendation = refreshedTexts.minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTargetUi(it.coverage) }.thenByDescending { it.coverage }),
+                readerRecommendation = recommendNextReader(refreshedTexts),
                 readerTokens = tokens,
-                selectedToken = tokens.firstOrNull { it.normalized == token.normalized }
+                selectedToken = tokens.firstOrNull { it.normalized == token.normalized },
+                statusMessage = readerStatusMessage(token.surface, status)
             )
         }
     }
@@ -410,20 +433,27 @@ class ReviewViewModel(
      * Sentence-mining from the reader: take the selected word and the sentence it
      * appears in, store that sentence as the word's example, and pull it into study.
      */
-    fun mineSentence(sentence: String) {
+    fun mineSentence(sentence: String, translation: String? = null) {
         val token = mutableState.value.selectedToken ?: return
         val recommendation = mutableState.value.currentReaderRecommendation() ?: return
         viewModelScope.launch {
-            val note = repository.mineSentence(token.surface, sentence)
+            val note = repository.mineSentence(token.surface, sentence, translation)
             val refreshedTexts = repository.readerTexts()
             val selected = refreshedTexts.firstOrNull { it.text.id == recommendation.text.id } ?: recommendation
             val tokens = repository.readerTokens(selected.text)
+            val miningStatus = note?.let {
+                if (translation.isNullOrBlank()) {
+                    "Saved ${it.russian} with this sentence. Add a meaning later to create context recall."
+                } else {
+                    "Created context recall for ${it.russian} with this sentence."
+                }
+            } ?: "Could not add word"
             mutableState.value = mutableState.value.copy(
                 allReaderTexts = refreshedTexts,
-                readerRecommendation = refreshedTexts.minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTargetUi(it.coverage) }.thenByDescending { it.coverage }),
+                readerRecommendation = recommendNextReader(refreshedTexts),
                 readerTokens = tokens,
                 selectedToken = tokens.firstOrNull { it.normalized == token.normalized },
-                statusMessage = note?.let { "Added “${it.russian}” to study with this sentence" } ?: "Could not add word"
+                statusMessage = miningStatus
             )
         }
     }
@@ -437,12 +467,14 @@ class ReviewViewModel(
             val recommendation = mutableState.value.allReaderTexts.firstOrNull { it.text.id == id }
                 ?: repository.readerTexts().firstOrNull { it.text.id == id }
                 ?: return@launch
+            val progress = settings.readerProgress(id)
             mutableState.value = mutableState.value.copy(
                 selectedReaderTextId = id,
                 readerTokens = repository.readerTokens(recommendation.text),
                 selectedToken = null,
                 lookupResult = null,
-                readerProgressIndex = settings.readerProgress(id)
+                readerProgressIndex = progress,
+                readerProgressByText = mutableState.value.readerProgressByText + (id to progress)
             )
         }
     }
@@ -452,7 +484,10 @@ class ReviewViewModel(
         val id = mutableState.value.selectedReaderTextId ?: return
         if (tokenIndex <= mutableState.value.readerProgressIndex) return
         settings.setReaderProgress(id, tokenIndex)
-        mutableState.value = mutableState.value.copy(readerProgressIndex = tokenIndex)
+        mutableState.value = mutableState.value.copy(
+            readerProgressIndex = tokenIndex,
+            readerProgressByText = mutableState.value.readerProgressByText + (id to tokenIndex)
+        )
     }
 
     fun closeReaderText() {
@@ -467,7 +502,7 @@ class ReviewViewModel(
         val payload = mutableState.value.importText
         viewModelScope.launch {
             runCatching { repository.importJsonLines(payload) }
-                .onSuccess { count -> loadSession(keepStep = SessionStep.IMPORT, status = "Imported $count notes") }
+                .onSuccess { count -> loadSession(keepStep = SessionStep.IMPORT, status = "Imported $count notes. Check import readiness for readable examples.") }
                 .onFailure { error -> mutableState.value = mutableState.value.copy(statusMessage = error.message ?: "Import failed") }
         }
     }
@@ -517,9 +552,11 @@ class ReviewViewModel(
         val step = keepStep
         val allReaders = repository.readerTexts()
         val current = mutableState.value
+        val readerRecommendation = recommendNextReader(allReaders)
+        val readerProgressByText = allReaders.associate { it.text.id to settings.readerProgress(it.text.id) }
         val selectedReader = current.selectedReaderTextId?.let { id ->
             allReaders.firstOrNull { it.text.id == id }
-        } ?: plan.readerRecommendation
+        } ?: readerRecommendation
         // Detect achievements unlocked since last seen, for the celebratory toast.
         val unlockedIds = plan.gamification.achievements.filter { it.unlocked }.map { it.id }.toSet()
         val freshIds = settings.newlyUnlocked(unlockedIds)
@@ -529,7 +566,7 @@ class ReviewViewModel(
             reviewedToday = repository.reviewedToday(),
             dailyPlan = plan.dailyPlan,
             sessionPlan = plan,
-            readerRecommendation = plan.readerRecommendation,
+            readerRecommendation = readerRecommendation,
             allReaderTexts = allReaders,
             readerTokens = selectedReader?.text?.let { repository.readerTokens(it) }.orEmpty(),
             dashboardStats = plan.dashboardStats.copy(intervalModifier = settings.intervalModifier),
@@ -538,6 +575,7 @@ class ReviewViewModel(
             readerTitle = current.readerTitle,
             readerBody = current.readerBody,
             selectedReaderTextId = current.selectedReaderTextId,
+            readerProgressByText = readerProgressByText,
             statusMessage = status,
             sessionStep = step,
             canUndo = repository.canUndo(),
@@ -550,7 +588,7 @@ class ReviewViewModel(
             readerFontScale = settings.readerFontScale,
             searchQuery = current.searchQuery,
             searchResults = current.searchResults,
-            readerProgressIndex = current.selectedReaderTextId?.let { settings.readerProgress(it) } ?: 0,
+            readerProgressIndex = current.selectedReaderTextId?.let { readerProgressByText[it] } ?: -1,
             newlyUnlocked = if (freshAchievements.isNotEmpty()) freshAchievements else current.newlyUnlocked,
             sessionReviewed = current.sessionReviewed,
             sessionCorrect = current.sessionCorrect,
@@ -577,34 +615,78 @@ class ReviewViewModel(
     /** Voluntarily pull in another batch of new cards today, beyond the daily cap. */
     fun grantExtraCredit() {
         viewModelScope.launch {
-            repository.grantExtraCredit()
-            loadSession(status = "Extra credit: ${LearningRepository.EXTRA_CREDIT_BATCH} more new cards added for today.")
+            val granted = repository.grantExtraCredit()
+            val status = if (granted > 0) {
+                "Extra credit: $granted more new cards added for today."
+            } else {
+                "Extra credit already added for today. Reading is the better next step now."
+            }
+            loadSession(status = status)
         }
     }
 
     /** Reset the per-sitting counters when the learner (re)opens the study screen. */
     fun startStudySession() {
+        sessionCounterDeltas.clear()
         mutableState.value = mutableState.value.copy(sessionReviewed = 0, sessionCorrect = 0)
     }
 
     /** Load the parked-leech list for the management view. */
     fun loadLeeches() {
         viewModelScope.launch {
-            val items = repository.leechCards().map { (card, note) ->
-                LeechItem(card = card, russian = note.russian, translation = note.translation, lapses = card.lapses)
-            }
-            mutableState.value = mutableState.value.copy(leeches = items)
+            mutableState.value = mutableState.value.copy(leeches = leechItems())
         }
     }
 
     /** Release a parked leech back into study with a clean slate. */
     fun releaseLeech(item: LeechItem) {
         viewModelScope.launch {
-            repository.releaseLeech(item.card)
-            loadLeeches()
-            mutableState.value = mutableState.value.copy(statusMessage = "Released “${item.russian}” back into study")
+            runCatching {
+                repository.releaseLeech(item.card)
+            }.onSuccess {
+                loadSession(status = "Released ${item.russian} back into study")
+                mutableState.value = mutableState.value.copy(leeches = leechItems())
+            }.onFailure {
+                mutableState.value = mutableState.value.copy(statusMessage = it.message ?: "Could not release leech")
+            }
         }
     }
+
+    /** Save a content repair from the leech dashboard, then refresh the leech preview. */
+    fun editLeech(item: LeechItem, translation: String?, exampleSentence: String?, exampleTranslation: String?) {
+        viewModelScope.launch {
+            runCatching {
+                repository.updateNoteContent(item.card.noteId, translation, exampleSentence, exampleTranslation)
+            }.onSuccess {
+                mutableState.value = mutableState.value.copy(leeches = leechItems(), statusMessage = "Updated ${item.russian}")
+            }.onFailure {
+                mutableState.value = mutableState.value.copy(statusMessage = it.message ?: "Could not update leech")
+            }
+        }
+    }
+
+    private suspend fun leechItems(): List<LeechItem> =
+        repository.leechCards().map { (card, note) ->
+            val prompt = buildPrompt(card, note, emptyMap())
+            LeechItem(
+                card = card,
+                note = note,
+                russian = note.russian,
+                translation = note.translation,
+                lapses = card.lapses,
+                cardLabel = card.cardType.readableLabel(),
+                promptPreview = prompt.prompt.compactForPreview(),
+                expectedAnswer = prompt.expectedAnswer.compactForPreview()
+            )
+        }
+
+    private fun readerStatusMessage(surface: String, status: WordStatus): String =
+        when (status) {
+            WordStatus.LEARNING -> "$surface is now learning and can enter practice."
+            WordStatus.KNOWN -> "$surface marked known; it counts toward coverage and stops practice."
+            WordStatus.IGNORED -> "$surface ignored for reader counts and practice."
+            WordStatus.NEW -> "$surface reset to new."
+        }
 
     /** Save an in-place edit to the current card's word from the review screen. */
     fun editCurrentCard(translation: String?, exampleSentence: String?, exampleTranslation: String?) {
@@ -626,10 +708,34 @@ class ReviewViewModel(
             SessionStep.INTERLEAVED -> plan?.interleavedGrammar?.firstOrNull()
             SessionStep.RULE, SessionStep.READER, SessionStep.IMPORT, SessionStep.DASHBOARD -> null
         }
+
+    private fun recommendNextReader(texts: List<ReaderRecommendation>): ReaderRecommendation? =
+        recommendNextReaderUi(texts, settings::readerProgress)
 }
 
 private fun ReviewUiState.currentReaderRecommendation(): ReaderRecommendation? =
     selectedReaderTextId?.let { id -> allReaderTexts.firstOrNull { it.text.id == id } } ?: readerRecommendation
+
+internal fun recommendNextReaderUi(
+    texts: List<ReaderRecommendation>,
+    progressFor: (Long) -> Int
+): ReaderRecommendation? {
+    val ranked = texts.sortedWith(compareBy<ReaderRecommendation> { distanceFromTargetUi(it.coverage) }.thenByDescending { it.coverage })
+    return ranked.firstOrNull { !it.isFinishedFor(progressFor(it.text.id)) } ?: ranked.firstOrNull()
+}
+
+private fun ReaderRecommendation.isFinishedFor(progressIndex: Int): Boolean =
+    totalTokens > 1 && progressIndex >= totalTokens - 1
+
+private fun com.sibirskyspeak.data.CardType.readableLabel(): String =
+    name.lowercase()
+        .split('_')
+        .joinToString(" ") { part -> part.replaceFirstChar { it.uppercase() } }
+
+private fun String.compactForPreview(maxLength: Int = 140): String {
+    val compact = lineSequence().joinToString(" ") { it.trim() }.replace(Regex("\\s+"), " ").trim()
+    return if (compact.length <= maxLength) compact else compact.take(maxLength - 1).trimEnd() + "..."
+}
 
 private fun distanceFromTargetUi(coverage: Double): Double =
     when {

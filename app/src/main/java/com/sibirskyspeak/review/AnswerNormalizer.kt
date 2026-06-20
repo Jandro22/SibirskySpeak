@@ -48,6 +48,16 @@ fun evaluateRussianAnswer(expected: String, actual: String, ignoreStress: Boolea
         return AnswerEvaluation(AnswerMatch.EXACT, exact.first)
     }
     if (!ignoreStress) {
+        val stressOnlyMiss = normalizedExpected.firstOrNull { (_, candidate) ->
+            normalizeRussian(candidate, ignoreStress = true) == normalizeRussian(normalizedActual, ignoreStress = true)
+        }
+        if (stressOnlyMiss != null) {
+            return AnswerEvaluation(
+                match = AnswerMatch.WRONG,
+                expected = stressOnlyMiss.first,
+                message = "Right letters, but the stress differs. Expected stress: ${stressOnlyMiss.first}"
+            )
+        }
         return AnswerEvaluation(AnswerMatch.WRONG, expected)
     }
 
@@ -65,22 +75,34 @@ fun evaluateRussianAnswer(expected: String, actual: String, ignoreStress: Boolea
     return AnswerEvaluation(AnswerMatch.WRONG, expected)
 }
 
-fun isEnglishAnswerCorrect(expected: String, actual: String): Boolean {
-    if (normalizeEnglish(actual).isBlank()) return false
+fun isEnglishAnswerCorrect(expected: String, actual: String): Boolean =
+    evaluateEnglishAnswer(expected, actual).accepted
+
+fun evaluateEnglishAnswer(expected: String, actual: String): AnswerEvaluation {
+    if (normalizeEnglish(actual).isBlank()) return AnswerEvaluation(AnswerMatch.WRONG, expected)
     val actualVariants = englishVariants(actual)
-    val acceptable = (listOf(expected) + expected.split(",", ";", "/", " or "))
+    val acceptable = englishAnswerAlternatives(expected)
         .flatMap { englishVariants(it) }
         .toSet()
-    if (actualVariants.any { it in acceptable }) return true
+    if (actualVariants.any { it in acceptable }) return AnswerEvaluation(AnswerMatch.EXACT, expected)
     // Typo tolerance (parity with Russian grading): accept a near-miss within a small,
     // length-scaled edit budget so "goverment"/"recieve" aren't marked wrong on a card
     // you actually knew. Short words still require an exact match (budget 0).
-    return actualVariants.any { typed ->
-        acceptable.any { target ->
-            levenshteinDistance(typed, target) <= allowedTypoDistance(typed, target)
-        }
+    val closest = actualVariants
+        .flatMap { typed -> acceptable.map { target -> typed to target } }
+        .map { (typed, target) -> EnglishTypoCandidate(typed, target, levenshteinDistance(typed, target)) }
+        .minByOrNull { it.distance }
+    if (closest != null && closest.distance <= allowedTypoDistance(closest.typed, closest.target)) {
+        return AnswerEvaluation(
+            match = AnswerMatch.CLOSE,
+            expected = expected,
+            message = "Close enough. Spelling: ${closest.target}"
+        )
     }
+    return AnswerEvaluation(AnswerMatch.WRONG, expected)
 }
+
+private data class EnglishTypoCandidate(val typed: String, val target: String, val distance: Int)
 
 /**
  * Normalized acceptable variants of an English gloss so trivially-correct answers
@@ -106,6 +128,11 @@ private fun normalizeEnglish(input: String): String =
         .lowercase(Locale.ENGLISH)
         .replace(Regex("""[^\p{L}\p{N}\s]"""), "")
         .replace(Regex("""\s+"""), " ")
+
+private fun englishAnswerAlternatives(expected: String): List<String> =
+    (listOf(expected) + expected.split(",", ";", "/", " or "))
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
 
 private fun russianAnswerAlternatives(expected: String): List<String> =
     expected

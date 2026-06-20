@@ -65,6 +65,20 @@ class ReviewPromptTest {
     }
 
     @Test
+    fun aspectDiagnosticExplainsWhyWrongAspectDoesNotFitCue() {
+        val note = verbNote(1, "discuss_ipf", "IPF", "activity", partnerId = 2)
+        val partner = verbNote(2, "discuss_pf", "PF", "accomplishment", partnerId = 1)
+        val card = Card(noteId = 1, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, gramContextCue = "PROCESS")
+
+        val prompt = buildPrompt(card, note, emptyMap(), partner)
+        val feedback = diagnosticFeedbackFor(prompt, "discuss_pf")
+
+        assertTrue(feedback!!.contains("Cue: ongoing process."))
+        assertTrue(feedback.contains("does not fit this context"))
+        assertTrue(feedback.contains("imperfective fits"))
+    }
+
+    @Test
     fun caseFillUsesCardGrammarTagsForExpectedInflection() {
         val card = Card(
             noteId = 1,
@@ -176,6 +190,31 @@ class ReviewPromptTest {
     }
 
     @Test
+    fun genderDiagnosticExplainsExpectedGenderPattern() {
+        val card = Card(
+            noteId = 1,
+            cardType = CardType.GENDER_ID,
+            queue = Queue.GRAMMAR,
+            gramGender = "F"
+        )
+        val note = Note(
+            id = 1,
+            russian = "\u043a\u043d\u0438\u0433\u0430",
+            lemma = "\u043a\u043d\u0438\u0433\u0430",
+            translation = "book",
+            partOfSpeech = "noun",
+            gender = "F"
+        )
+
+        val prompt = buildPrompt(card, note, emptyMap())
+
+        assertEquals(
+            "This noun is feminine. Feminine nouns often end in -\u0430 or -\u044f.",
+            diagnosticFeedbackFor(prompt, "masculine")
+        )
+    }
+
+    @Test
     fun verbFormUsesCardGrammarCueForExpectedConjugation() {
         val card = Card(
             noteId = 1,
@@ -226,6 +265,56 @@ class ReviewPromptTest {
     }
 
     @Test
+    fun verbFormDiagnosticNamesAnotherStoredForm() {
+        val card = Card(
+            noteId = 1,
+            cardType = CardType.VERB_FORM,
+            queue = Queue.GRAMMAR,
+            gramContextCue = "PRES_1SG"
+        )
+        val note = Note(
+            id = 1,
+            russian = "\u0447\u0438\u0442\u0430\u0442\u044c",
+            lemma = "\u0447\u0438\u0442\u0430\u0442\u044c",
+            translation = "to read",
+            partOfSpeech = "verb",
+            declensionJson = """{"verbForms":{"PRES_1SG":"\u0447\u0438\u0442\u0430\u044e","PRES_3SG":"\u0447\u0438\u0442\u0430\u0435\u0442"}}"""
+        )
+
+        val prompt = buildPrompt(card, note, emptyMap())
+
+        assertEquals(
+            "You made present 3rd person singular; this prompt asks for present 1st person singular.",
+            diagnosticFeedbackFor(prompt, "\u0447\u0438\u0442\u0430\u0435\u0442")
+        )
+    }
+
+    @Test
+    fun verbFormDiagnosticNamesInfinitiveInsteadOfRequestedForm() {
+        val card = Card(
+            noteId = 1,
+            cardType = CardType.VERB_FORM,
+            queue = Queue.GRAMMAR,
+            gramContextCue = "PRES_1SG"
+        )
+        val note = Note(
+            id = 1,
+            russian = "\u0447\u0438\u0442\u0430\u0442\u044c",
+            lemma = "\u0447\u0438\u0442\u0430\u0442\u044c",
+            translation = "to read",
+            partOfSpeech = "verb",
+            declensionJson = """{"verbForms":{"PRES_1SG":"\u0447\u0438\u0442\u0430\u044e"}}"""
+        )
+
+        val prompt = buildPrompt(card, note, emptyMap())
+
+        assertEquals(
+            "You used the infinitive/dictionary form; this prompt asks for present 1st person singular.",
+            diagnosticFeedbackFor(prompt, "\u0447\u0438\u0442\u0430\u0442\u044c")
+        )
+    }
+
+    @Test
     fun promptRotatesAvailableExampleContextsByRepetition() {
         val card = Card(
             noteId = 1,
@@ -250,6 +339,44 @@ class ReviewPromptTest {
         assertEquals("Мой ____ здесь.", prompt.prompt)
         assertEquals("Мой дом здесь.", prompt.exampleSentence)
         assertEquals("My house is here.", prompt.exampleTranslation)
+    }
+
+    @Test
+    fun clozeBlanksOnlyOneRecallSpotWhenTargetRepeats() {
+        val card = Card(noteId = 1, cardType = CardType.CLOZE, queue = Queue.VOCAB)
+        val note = Note(
+            id = 1,
+            russian = "dom",
+            lemma = "dom",
+            translation = "house",
+            partOfSpeech = "noun",
+            exampleSentence = "dom and dom.",
+            exampleTranslation = "A house and a house."
+        )
+
+        val prompt = buildPrompt(card, note, emptyMap())
+
+        assertEquals("____ and dom.", prompt.prompt)
+        assertEquals(1, Regex("____").findAll(prompt.prompt).count())
+    }
+
+    @Test
+    fun clozeDoesNotBlankInsideLargerWords() {
+        val card = Card(noteId = 1, cardType = CardType.CLOZE, queue = Queue.VOCAB)
+        val note = Note(
+            id = 1,
+            russian = "uchi",
+            lemma = "uchi",
+            translation = "study",
+            partOfSpeech = "verb",
+            exampleSentence = "3uchit should stay intact.",
+            exampleTranslation = "It should stay intact."
+        )
+
+        val prompt = buildPrompt(card, note, emptyMap())
+
+        assertEquals("study", prompt.prompt)
+        assertFalse(prompt.prompt.contains("3____t"))
     }
 
     @Test

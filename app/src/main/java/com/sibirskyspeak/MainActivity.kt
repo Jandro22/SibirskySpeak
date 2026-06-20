@@ -376,7 +376,12 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             onKnowWord = viewModel::markCurrentWordKnown,
                             onStartSession = viewModel::startStudySession,
                             onSaveEdit = viewModel::editCurrentCard,
-                            onExtraCredit = viewModel::grantExtraCredit
+                            onExtraCredit = viewModel::grantExtraCredit,
+                            onReadNext = {
+                                studyActive = false
+                                viewModel.setSessionStep(SessionStep.READER)
+                                state.readerRecommendation?.let { viewModel.openReaderText(it.text.id) }
+                            }
                         )
                         SessionStep.REVIEWS -> PracticeScreen(
                             state = state,
@@ -385,6 +390,14 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             onOpenReader = { id ->
                                 viewModel.setSessionStep(SessionStep.READER)
                                 viewModel.openReaderText(id)
+                            },
+                            onFocusedGrammar = {
+                                viewModel.setSessionStep(SessionStep.BLOCKED)
+                                studyActive = true
+                            },
+                            onMixedGrammar = {
+                                viewModel.setSessionStep(SessionStep.INTERLEAVED)
+                                studyActive = true
                             }
                         )
                         SessionStep.READER -> ReaderPanel(
@@ -409,7 +422,8 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             },
                             onRead = { viewModel.setSessionStep(SessionStep.READER) },
                             onLoadLeeches = viewModel::loadLeeches,
-                            onReleaseLeech = viewModel::releaseLeech
+                            onReleaseLeech = viewModel::releaseLeech,
+                            onSaveLeechEdit = viewModel::editLeech
                         )
                         SessionStep.IMPORT -> ImportExportPanel(
                             state = state,
@@ -446,6 +460,14 @@ private fun ReviewScreen(viewModel: ReviewViewModel) {
                             onOpenReader = { id ->
                                 viewModel.setSessionStep(SessionStep.READER)
                                 viewModel.openReaderText(id)
+                            },
+                            onFocusedGrammar = {
+                                viewModel.setSessionStep(SessionStep.BLOCKED)
+                                studyActive = true
+                            },
+                            onMixedGrammar = {
+                                viewModel.setSessionStep(SessionStep.INTERLEAVED)
+                                studyActive = true
                             }
                         )
                     }
@@ -588,11 +610,13 @@ private fun PracticeScreen(
     state: ReviewUiState,
     onStart: () -> Unit,
     onRead: () -> Unit,
-    onOpenReader: (Long) -> Unit
+    onOpenReader: (Long) -> Unit,
+    onFocusedGrammar: () -> Unit = {},
+    onMixedGrammar: () -> Unit = {}
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         DailyPlanPanel(state, onStart, onRead, onOpenReader)
-        PracticeFocusPanel(state)
+        PracticeFocusPanel(state, onFocusedGrammar, onMixedGrammar)
         ReadingSuggestion(state, onOpenReader)
     }
 }
@@ -605,7 +629,6 @@ private fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: ()
     val sessionSize = prompts.size
     val backlog = plan.dueVocab + plan.dueGrammar
     val reader = state.readerRecommendation
-    val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
     // Read the goal from the live setting (updates instantly when changed), not the
     // gamification snapshot which only refreshes on the next session rebuild.
     val dailyGoal = state.dailyGoalSetting.coerceAtLeast(1)
@@ -637,6 +660,7 @@ private fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: ()
                 Text("Today's Practice", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
                 Text(
                     when {
+                        plan.triageMode && sessionSize > 0 -> "$sessionSize older due cards are ready. Clear these first; new material can wait."
                         sessionSize > 0 && goalRemaining > 0 -> "$sessionSize cards are ready. $goalRemaining more reviews hit today's goal."
                         sessionSize > 0 -> "$sessionSize cards are ready if you want to keep the streak warm."
                         reader != null -> "All caught up. Read the recommended text for fresh exposure."
@@ -702,7 +726,10 @@ private fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: ()
         if (backlog > sessionSize && sessionSize > 0) {
             Spacer(Modifier.height(12.dp))
             Text(
-                "${formatCount(backlog)} cards wait in the backlog, but today's session is capped at $sessionSize to stay manageable.",
+                if (plan.triageMode)
+                    "${formatCount(backlog)} cards wait in the backlog. This session stays capped at $sessionSize and pulls older due cards first."
+                else
+                    "${formatCount(backlog)} cards wait in the backlog, but today's session is capped at $sessionSize to stay manageable.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
             )
@@ -712,7 +739,11 @@ private fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: ()
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PracticeFocusPanel(state: ReviewUiState) {
+private fun PracticeFocusPanel(
+    state: ReviewUiState,
+    onFocusedGrammar: () -> Unit,
+    onMixedGrammar: () -> Unit
+) {
     val plan = state.dailyPlan ?: return
     val prompts = state.sessionPlan?.reviewQueue.orEmpty()
     val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
@@ -720,6 +751,9 @@ private fun PracticeFocusPanel(state: ReviewUiState) {
     val grammarCount = prompts.count { it.card.queue.name == "GRAMMAR" }
     val newCount = prompts.count { it.card.state.name == "NEW" }
     val dueCount = prompts.size - newCount
+    val focusedGrammarCount = state.sessionPlan?.blockedGrammar.orEmpty().size
+    val mixedGrammarCount = state.sessionPlan?.interleavedGrammar.orEmpty().size
+    val ruleSummary = state.sessionPlan?.ruleSummary
 
     SectionCard {
         Row(
@@ -746,15 +780,50 @@ private fun PracticeFocusPanel(state: ReviewUiState) {
             PracticeMetricTile("Vocab", vocabCount.toString(), Icons.Filled.AutoStories, MaterialTheme.colorScheme.surfaceVariant)
             PracticeMetricTile("Grammar", grammarCount.toString(), Icons.Filled.Insights, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f))
         }
-        if (plan.grammarFocus.isNotEmpty() || plan.triageMode) {
+        if (plan.grammarFocus.isNotEmpty() || plan.triageMode || focusedGrammarCount > 0 || mixedGrammarCount > 0) {
             Spacer(Modifier.height(16.dp))
             Text("Focus", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            if (plan.grammarFocus.isNotEmpty()) {
+                Text(
+                    "Weak recent grammar patterns are listed first; slow down on these and use the reveal explanation before rating.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (!ruleSummary.isNullOrBlank() && focusedGrammarCount > 0) {
+                Text(
+                    ruleSummary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Spacer(Modifier.height(8.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 plan.grammarFocus.take(3).forEach { focus ->
                     if (focus.label.isNotBlank()) PracticeFocusChip(focus.label, focus.accuracy)
                 }
+                if (focusedGrammarCount > 0) PracticeFocusChip("$focusedGrammarCount focused grammar", null)
+                if (mixedGrammarCount > 0) PracticeFocusChip("$mixedGrammarCount mixed grammar", null)
                 if (plan.triageMode) PracticeFocusChip("Older due cards first", null)
+            }
+            if (focusedGrammarCount > 0 || mixedGrammarCount > 0) {
+                Spacer(Modifier.height(10.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (focusedGrammarCount > 0) {
+                        Button(onClick = onFocusedGrammar) {
+                            Icon(Icons.Filled.Insights, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Practice Focus")
+                        }
+                    }
+                    if (mixedGrammarCount > 0) {
+                        OutlinedButton(onClick = onMixedGrammar) {
+                            Icon(Icons.Filled.School, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Mix Grammar")
+                        }
+                    }
+                }
             }
         }
     }
@@ -875,13 +944,14 @@ private fun StudySessionScreen(
     onKnowWord: () -> Unit,
     onStartSession: () -> Unit,
     onSaveEdit: (String?, String?, String?) -> Unit,
-    onExtraCredit: () -> Unit = {}
+    onExtraCredit: () -> Unit = {},
+    onReadNext: () -> Unit = {}
 ) {
     LaunchedEffect(Unit) { onStartSession() }
     var editing by remember { mutableStateOf(false) }
+    var retireAction by remember { mutableStateOf<ReviewRetireAction?>(null) }
     val sessionSize = state.sessionPlan?.reviewQueue?.size ?: 0
     val prompt = state.prompt
-    val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
     // Live goal setting (updates instantly), not the gamification snapshot.
     val dailyGoal = state.dailyGoalSetting.coerceAtLeast(1)
     val goalProgress = (state.reviewedToday.toFloat() / dailyGoal).coerceIn(0f, 1f)
@@ -931,16 +1001,22 @@ private fun StudySessionScreen(
                     // Compact icon actions so the header never squishes on narrow phones.
                     Row(horizontalArrangement = Arrangement.spacedBy(0.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (prompt != null && prompt.card.queue.name == "VOCAB") {
-                            IconButton(onClick = onKnowWord, enabled = !state.ratingInProgress) {
-                                Icon(Icons.Filled.DoneAll, contentDescription = "I already know this word")
+                            IconButton(
+                                onClick = { retireAction = ReviewRetireAction.MARK_KNOWN },
+                                enabled = !state.ratingInProgress
+                            ) {
+                                Icon(Icons.Filled.DoneAll, contentDescription = "Mark known and stop vocab practice")
                             }
                         }
                         if (prompt != null) {
                             IconButton(onClick = { editing = true }, enabled = !state.ratingInProgress) {
                                 Icon(Icons.Filled.Edit, contentDescription = "Fix this card")
                             }
-                            IconButton(onClick = onSuspend, enabled = !state.ratingInProgress) {
-                                Icon(Icons.Filled.Block, contentDescription = "Suspend this card")
+                            IconButton(
+                                onClick = { retireAction = ReviewRetireAction.SUSPEND_CARD },
+                                enabled = !state.ratingInProgress
+                            ) {
+                                Icon(Icons.Filled.Block, contentDescription = "Suspend this card permanently")
                             }
                         }
                         if (state.canUndo) {
@@ -988,9 +1064,11 @@ private fun StudySessionScreen(
                 SessionCompleteCard(
                     state.sessionPlan?.gamification ?: GamificationStats.EMPTY,
                     onDone = onExit,
+                    reader = state.readerRecommendation,
                     sessionReviewed = state.sessionReviewed,
                     sessionCorrect = state.sessionCorrect,
-                    onExtraCredit = onExtraCredit
+                    onExtraCredit = onExtraCredit,
+                    onReadNext = onReadNext
                 )
             } else {
                 ReviewContent(
@@ -1017,6 +1095,58 @@ private fun StudySessionScreen(
             }
         )
     }
+    retireAction?.let { action ->
+        ReviewRetireConfirmDialog(
+            action = action,
+            prompt = prompt,
+            onDismiss = { retireAction = null },
+            onConfirm = {
+                retireAction = null
+                when (action) {
+                    ReviewRetireAction.MARK_KNOWN -> onKnowWord()
+                    ReviewRetireAction.SUSPEND_CARD -> onSuspend()
+                }
+            }
+        )
+    }
+}
+
+private enum class ReviewRetireAction {
+    MARK_KNOWN,
+    SUSPEND_CARD
+}
+
+@Composable
+private fun ReviewRetireConfirmDialog(
+    action: ReviewRetireAction,
+    prompt: ReviewPrompt?,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val word = prompt?.note?.russian.orEmpty()
+    val (title, body, confirmLabel) = when (action) {
+        ReviewRetireAction.MARK_KNOWN -> Triple(
+            "Mark known?",
+            "This retires vocab practice for ${word.ifBlank { "this word" }}. Use it only when the word is already familiar outside this card.",
+            "Mark known"
+        )
+        ReviewRetireAction.SUSPEND_CARD -> Triple(
+            "Suspend card?",
+            "This removes only this card from review queues. Use it for broken or unhelpful prompts; use Fix when the content can be repaired.",
+            "Suspend"
+        )
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(body) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(confirmLabel) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable
@@ -1028,6 +1158,10 @@ private fun EditCardDialog(
     var translation by remember(note.id) { mutableStateOf(note.translation) }
     var example by remember(note.id) { mutableStateOf(note.exampleSentence.orEmpty()) }
     var exampleTranslation by remember(note.id) { mutableStateOf(note.exampleTranslation.orEmpty()) }
+    val sentenceGlossReady = example.trim().isNotBlank() &&
+        exampleTranslation.trim().isNotBlank() &&
+        !exampleTranslation.trim().equals(translation.trim(), ignoreCase = true) &&
+        exampleTranslation.trim().split(Regex("\\s+")).size >= 2
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Fix “${note.russian}”") },
@@ -1049,9 +1183,20 @@ private fun EditCardDialog(
                 OutlinedTextField(
                     value = exampleTranslation,
                     onValueChange = { exampleTranslation = it },
-                    label = { Text("Example translation") },
+                    label = { Text("Sentence meaning") },
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (example.isNotBlank()) {
+                    Text(
+                        if (sentenceGlossReady) {
+                            "Ready for readable context and cloze recall."
+                        } else {
+                            "Use a full sentence meaning here; one-word glosses do not create context recall."
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (sentenceGlossReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         },
         confirmButton = {
@@ -1790,14 +1935,14 @@ private fun RevealPanel(state: ReviewUiState, prompt: ReviewPrompt, onRate: (Rat
             }
         }
         if (state.autoRatedAgain) {
-            StatusBanner("Marked Again automatically because the answer was missed.")
+            StatusBanner("Miss saved as Again automatically. Override only for a typo, mis-tap, or prompt issue.")
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = onKnewIt,
                     enabled = !state.ratingInProgress,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("I knew it")
+                    Text("Override miss")
                 }
                 Button(
                     onClick = {
@@ -1830,7 +1975,7 @@ private fun RevealPanel(state: ReviewUiState, prompt: ReviewPrompt, onRate: (Rat
                     saving = state.ratingInProgress,
                     modifier = Modifier
                         .weight(1f)
-                        .height(60.dp),
+                        .height(72.dp),
                     onClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         onRate(rating)
@@ -1846,6 +1991,7 @@ private fun RatingDecisionGuide(state: ReviewUiState) {
     val (label, body) = when (state.answerMatch) {
         AnswerMatch.CLOSE -> "Close answer" to "Hard is usually right if you had to think or spelling was rough. Use Good if the form was clear."
         AnswerMatch.EXACT -> "Correct answer" to "Good is the default for solid recall. Use Easy only when it came instantly."
+        AnswerMatch.WRONG -> "Missed answer" to "Again is the right grade for a miss. Use Hard only if you genuinely knew it and made a small slip."
         else -> "Recall check" to "Rate the effort you actually felt; the interval preview shows the scheduling result."
     }
     Surface(
@@ -1897,7 +2043,7 @@ private fun RatingButton(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp, horizontal = 4.dp),
         colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = Color.White)
     ) {
-        // AnkiDroid-style: the next interval on top, the grade label below it.
+        // AnkiDroid-style: the next interval on top, with a plain-language recall cue.
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 formatDays(intervalDays),
@@ -1912,6 +2058,14 @@ private fun RatingButton(
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 maxLines = 1
+            )
+            Text(
+                rating.recallCaption(),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                color = Color.White.copy(alpha = 0.86f)
             )
         }
     }
@@ -1957,11 +2111,51 @@ private fun ResultBanner(state: ReviewUiState, prompt: ReviewPrompt, onSpeak: ()
                     }
                 }
                 state.answerFeedback?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    AnswerFeedbackPanel(
+                        feedback = it,
+                        matched = matched
+                    )
                 }
             }
             IconButton(onClick = onSpeak) {
                 Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Hear answer", tint = color)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AnswerFeedbackPanel(feedback: String, matched: Boolean) {
+    val accent = if (matched) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.small,
+        color = accent.copy(alpha = 0.08f),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.22f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                if (matched) Icons.Filled.Insights else Icons.Filled.Warning,
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(18.dp)
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    if (matched) "Adjustment" else "Why this missed",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = accent,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    feedback,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
@@ -2082,6 +2276,7 @@ private fun ReaderBookshelf(
                             item = item,
                             index = index,
                             recommended = item.text.id == state.readerRecommendation?.text?.id,
+                            progressIndex = state.readerProgressByText[item.text.id] ?: -1,
                             onOpen = onOpen
                         )
                     }
@@ -2118,6 +2313,11 @@ private fun ReaderRecommendationCard(item: ReaderRecommendation, onOpen: (Long) 
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Text(
+                    "Chosen for the 93-96% coverage sweet spot and unfinished progress.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             IconButton(onClick = { onSpeakRussian(item.text.body) }) {
                 Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Preview recommended text")
@@ -2138,7 +2338,13 @@ private val BookPalette = listOf(
 )
 
 @Composable
-private fun BookCover(item: ReaderRecommendation, index: Int, recommended: Boolean, onOpen: (Long) -> Unit) {
+private fun BookCover(
+    item: ReaderRecommendation,
+    index: Int,
+    recommended: Boolean,
+    progressIndex: Int,
+    onOpen: (Long) -> Unit
+) {
     val base = BookPalette[index % BookPalette.size]
     val deep = lerp(base, Color.Black, 0.28f)
     val spine = lerp(base, Color.Black, 0.5f)
@@ -2150,6 +2356,12 @@ private fun BookCover(item: ReaderRecommendation, index: Int, recommended: Boole
         ReaderStatus.TOO_HARD -> "Hard"
         ReaderStatus.PRODUCTIVE -> "Good fit"
         ReaderStatus.EASY -> "Easy"
+    }
+    val reached = (progressIndex + 1).coerceIn(0, item.totalTokens)
+    val progressLabel = when {
+        reached == 0 -> "Not started"
+        reached >= item.totalTokens -> "Finished"
+        else -> "In progress ${((reached.toFloat() / item.totalTokens.coerceAtLeast(1)) * 100).toInt()}%"
     }
     Box(
         modifier = Modifier
@@ -2208,6 +2420,8 @@ private fun BookCover(item: ReaderRecommendation, index: Int, recommended: Boole
                 }
             }
             Spacer(Modifier.height(6.dp))
+            Text(progressLabel, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.92f), fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(2.dp))
             Text(statusLabel, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.82f), fontWeight = FontWeight.SemiBold)
         }
         if (recommended) {
@@ -2237,18 +2451,24 @@ private fun ReaderTextScreen(
     onSpeakRussian: (String) -> Unit
 ) {
     val tokenCount = state.readerTokens.size.coerceAtLeast(1)
-    val progress = (state.readerProgressIndex.toFloat() / tokenCount).coerceIn(0f, 1f)
+    val reachedCount = (state.readerProgressIndex + 1).coerceIn(0, state.readerTokens.size)
+    val progress = (reachedCount.toFloat() / tokenCount).coerceIn(0f, 1f)
     val animatedProgress by animateFloatAsState(
         targetValue = progress,
         animationSpec = tween(650, easing = FastOutSlowInEasing),
         label = "reader-progress"
     )
-    val knownCount = state.readerTokens.count { it.status == WordStatus.KNOWN || it.status == WordStatus.IGNORED }
+    val coveredCount = state.readerTokens.count { it.status == WordStatus.KNOWN || it.status == WordStatus.IGNORED }
     val learningCount = state.readerTokens.count { it.status == WordStatus.LEARNING }
     val newTokens = state.readerTokens
         .filter { it.status == WordStatus.NEW }
         .distinctBy { it.normalized }
         .map { it.surface }
+    val reachedNewTokens = state.readerTokens
+        .mapIndexedNotNull { index, token -> token.takeIf { index <= state.readerProgressIndex && it.status == WordStatus.NEW } }
+        .distinctBy { it.normalized }
+        .map { it.surface }
+    var confirmKnownBatch by remember(selected.text.id, newTokens.size) { mutableStateOf(false) }
     // Sentence-by-sentence "Listen" mode: its own TTS engine so it doesn't clash with
     // the tap-a-word pronunciation, with karaoke-style current-sentence highlighting.
     val readerTts = rememberRussianTts()
@@ -2326,8 +2546,8 @@ private fun ReaderTextScreen(
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     ReaderMetricChip("${(selected.coverage * 100).toInt()}%", "coverage")
-                    ReaderMetricChip(formatCount(state.readerProgressIndex.coerceAtMost(state.readerTokens.size)), "reached")
-                    ReaderMetricChip(formatCount(knownCount), "known")
+                    ReaderMetricChip(formatCount(reachedCount), "reached")
+                    ReaderMetricChip(formatCount(coveredCount), "covered")
                     if (learningCount > 0) ReaderMetricChip(formatCount(learningCount), "learning")
                     if (newTokens.isNotEmpty()) ReaderMetricChip(formatCount(newTokens.size), "new")
                 }
@@ -2378,21 +2598,54 @@ private fun ReaderTextScreen(
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("New words in this text", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "${formatCount(newTokens.size)} unique new words are highlighted. Batch-mark them after a pass, or tap individual words as you read.",
+                        "${formatCount(newTokens.size)} unique new words are highlighted. Mark reached words learning after a pass; mark known only if every reached word was already familiar.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (reachedNewTokens.isEmpty()) {
+                        Text(
+                            "Read or tap words first, then batch-mark the new words you have actually reached.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { onMarkVisible(newTokens, WordStatus.LEARNING) }) {
-                            Text("Mark All Learning")
+                        Button(
+                            onClick = { onMarkVisible(reachedNewTokens, WordStatus.LEARNING) },
+                            enabled = reachedNewTokens.isNotEmpty()
+                        ) {
+                            Text("Mark Reached Learning")
                         }
-                        Button(onClick = { onMarkVisible(newTokens, WordStatus.KNOWN) }) {
-                            Text("Mark All Known")
+                        OutlinedButton(
+                            onClick = { confirmKnownBatch = true },
+                            enabled = reachedNewTokens.isNotEmpty()
+                        ) {
+                            Text("Already Knew Reached")
                         }
                     }
                 }
             }
         }
+    }
+    if (confirmKnownBatch) {
+        AlertDialog(
+            onDismissRequest = { confirmKnownBatch = false },
+            title = { Text("Mark reached known?") },
+            text = {
+                Text(
+                    "This marks ${formatCount(reachedNewTokens.size)} reached new words as already known, counts them toward coverage, and skips practice for them. Use Mark Reached Learning if any word still needs review."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmKnownBatch = false
+                    onMarkVisible(reachedNewTokens, WordStatus.KNOWN)
+                }) { Text("Mark reached known") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmKnownBatch = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 
@@ -2402,8 +2655,8 @@ private fun ReaderContinueCard(
     progressIndex: Int,
     onSpeakRussian: (String) -> Unit
 ) {
-    if (tokens.isEmpty() || progressIndex <= 0) return
-    val start = progressIndex.coerceIn(0, tokens.lastIndex)
+    if (tokens.isEmpty() || progressIndex < 0 || progressIndex >= tokens.lastIndex) return
+    val start = (progressIndex + 1).coerceIn(0, tokens.lastIndex)
     val preview = tokens
         .drop(start)
         .take(16)
@@ -2541,7 +2794,7 @@ private fun WordDetailCard(
     onSetStatus: (WordStatus) -> Unit,
     onClearSelection: () -> Unit,
     onSpeakRussian: (String) -> Unit,
-    onMine: (String) -> Unit = {}
+    onMine: (String, String?) -> Unit = { _, _ -> }
 ) {
     // The sentence the learner met this word in, for sentence-mining into study.
     val readerBody = remember(state.selectedReaderTextId, state.allReaderTexts) {
@@ -2551,6 +2804,15 @@ private fun WordDetailCard(
     val miningSentence = remember(readerBody, token.surface) {
         readerBody?.let { body ->
             splitIntoSentences(body).firstOrNull { it.contains(token.surface, ignoreCase = true) }
+        }
+    }
+    var miningTranslation by rememberSaveable(token.surface, miningSentence) { mutableStateOf("") }
+    var pendingStatus by remember(token.surface) { mutableStateOf<WordStatus?>(null) }
+    fun requestStatus(status: WordStatus) {
+        if (status == token.status) return
+        when (status) {
+            WordStatus.KNOWN, WordStatus.IGNORED -> pendingStatus = status
+            WordStatus.NEW, WordStatus.LEARNING -> onSetStatus(status)
         }
     }
     SectionCard(emphasis = true) {
@@ -2604,23 +2866,40 @@ private fun WordDetailCard(
         Spacer(Modifier.height(14.dp))
         Text("Word status", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(
-            "New stays highlighted. Learning tracks it. Known counts toward reader coverage. Ignore hides names or noise.",
+            "Use Learning for words you want to practise. Known counts toward coverage and stops practice; Ignore hides names or noise.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(8.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            WordStatusChip("New", WordStatus.NEW, token.status, onSetStatus)
-            WordStatusChip("Learning", WordStatus.LEARNING, token.status, onSetStatus)
-            WordStatusChip("Known", WordStatus.KNOWN, token.status, onSetStatus)
-            WordStatusChip("Ignore", WordStatus.IGNORED, token.status, onSetStatus)
+            WordStatusChip("New", WordStatus.NEW, token.status, ::requestStatus)
+            WordStatusChip("Learning", WordStatus.LEARNING, token.status, ::requestStatus)
+            WordStatusChip("Known", WordStatus.KNOWN, token.status, ::requestStatus)
+            WordStatusChip("Ignore", WordStatus.IGNORED, token.status, ::requestStatus)
         }
         if (miningSentence != null && token.status != WordStatus.KNOWN && token.status != WordStatus.IGNORED) {
             Spacer(Modifier.height(10.dp))
-            Button(onClick = { onMine(miningSentence) }, modifier = Modifier.fillMaxWidth()) {
+            OutlinedTextField(
+                value = miningTranslation,
+                onValueChange = { miningTranslation = it },
+                label = { Text("Sentence meaning") },
+                placeholder = { Text("Add this to create cloze recall") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small
+            )
+            Text(
+                "Without a meaning, this saves the example only; with one, it also creates context recall.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = { onMine(miningSentence, miningTranslation.trim().takeIf { it.isNotBlank() }) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Study this word in this sentence")
+                Text(if (miningTranslation.isBlank()) "Save sentence for this word" else "Create context recall")
             }
         }
         val examples = listOf(
@@ -2657,6 +2936,51 @@ private fun WordDetailCard(
             }
         }
     }
+    pendingStatus?.let { status ->
+        WordStatusConfirmDialog(
+            status = status,
+            token = token,
+            onDismiss = { pendingStatus = null },
+            onConfirm = {
+                pendingStatus = null
+                onSetStatus(status)
+            }
+        )
+    }
+}
+
+@Composable
+private fun WordStatusConfirmDialog(
+    status: WordStatus,
+    token: ReaderToken,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val word = token.stressForm ?: token.surface
+    val (title, body, confirmLabel) = when (status) {
+        WordStatus.KNOWN -> Triple(
+            "Mark known?",
+            "This counts $word toward reader coverage and stops practice for it. Choose Learning if you still want review.",
+            "Mark known"
+        )
+        WordStatus.IGNORED -> Triple(
+            "Ignore word?",
+            "This hides $word from new-word counts and practice. Use it for names, typos, or text noise.",
+            "Ignore"
+        )
+        WordStatus.NEW, WordStatus.LEARNING -> return
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(body) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(confirmLabel) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable
@@ -2722,11 +3046,13 @@ private fun DashboardPanel(
     onOpenReader: (Long) -> Unit,
     onRead: () -> Unit,
     onLoadLeeches: () -> Unit = {},
-    onReleaseLeech: (LeechItem) -> Unit = {}
+    onReleaseLeech: (LeechItem) -> Unit = {},
+    onSaveLeechEdit: (LeechItem, String?, String?, String?) -> Unit = { _, _, _, _ -> }
 ) {
     val stats = state.dashboardStats ?: return
     val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
     var showDetails by rememberSaveable { mutableStateOf(false) }
+    var editingLeech by remember { mutableStateOf<LeechItem?>(null) }
     LaunchedEffect(stats.leechCount) { if (stats.leechCount > 0) onLoadLeeches() }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         LevelCard(game)
@@ -2737,20 +3063,35 @@ private fun DashboardPanel(
             WordsKnownCard(Modifier.weight(1f), game)
         }
         AchievementsCard(game)
-        if (stats.leechCount > 0) LeechCard(state.leeches, stats.leechCount, onReleaseLeech)
+        if (stats.leechCount > 0) LeechCard(state.leeches, stats.leechCount, onReleaseLeech, onEdit = { editingLeech = it })
         DetailsSection(stats, showDetails) { showDetails = !showDetails }
+    }
+    editingLeech?.let { item ->
+        EditCardDialog(
+            note = item.note,
+            onDismiss = { editingLeech = null },
+            onSave = { translation, example, exampleTranslation ->
+                onSaveLeechEdit(item, translation, example, exampleTranslation)
+                editingLeech = null
+            }
+        )
     }
 }
 
 @Composable
-private fun LeechCard(leeches: List<LeechItem>, leechCount: Int, onRelease: (LeechItem) -> Unit) {
+private fun LeechCard(
+    leeches: List<LeechItem>,
+    leechCount: Int,
+    onRelease: (LeechItem) -> Unit,
+    onEdit: (LeechItem) -> Unit
+) {
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(Icons.Filled.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(26.dp))
             Column(Modifier.weight(1f)) {
                 Text("Parked leeches ($leechCount)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Cards that kept tripping you up. Fix them in the deck, or release one to try again.",
+                    "Cards that kept tripping you up. Check the prompt, fix bad content, or retry as a fresh card.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -2763,15 +3104,44 @@ private fun LeechCard(leeches: List<LeechItem>, leechCount: Int, onRelease: (Lee
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(Modifier.weight(1f)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(item.russian, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                    AssistChip(
+                        onClick = {},
+                        enabled = false,
+                        label = { Text(item.cardLabel) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            disabledContainerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.08f),
+                            disabledLabelColor = MaterialTheme.colorScheme.error
+                        )
+                    )
                     Text(
                         "${item.translation} · ${item.lapses} lapses",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    SelectionContainer {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                "Prompt: ${item.promptPreview}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                "Answer: ${item.expectedAnswer}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
                 }
-                TextButton(onClick = { onRelease(item) }) { Text("Release") }
+                Column(horizontalAlignment = Alignment.End) {
+                    TextButton(onClick = { onEdit(item) }) { Text("Fix") }
+                    TextButton(onClick = { onRelease(item) }) { Text("Retry as new") }
+                }
             }
         }
     }
@@ -2787,10 +3157,13 @@ private fun DashboardNextActionCard(
 ) {
     val prompts = state.sessionPlan?.reviewQueue.orEmpty()
     val reader = state.readerRecommendation
-    val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
-    val remainingGoal = (game.dailyGoal - state.reviewedToday).coerceAtLeast(0)
+    val dailyGoal = state.dailyGoalSetting.coerceAtLeast(1)
+    val remainingGoal = (dailyGoal - state.reviewedToday).coerceAtLeast(0)
+    val goalReached = state.reviewedToday >= dailyGoal
     val grammarCount = prompts.count { it.card.queue.name == "GRAMMAR" }
     val newCount = prompts.count { it.card.state.name == "NEW" }
+    val leechCount = state.dashboardStats?.leechCount ?: 0
+    val readingFirst = prompts.isEmpty() || (reader != null && goalReached)
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Icon(Icons.Filled.Insights, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
@@ -2799,6 +3172,9 @@ private fun DashboardNextActionCard(
                 Text(
                     when {
                         prompts.isNotEmpty() && remainingGoal > 0 -> "${prompts.size} cards are ready. $remainingGoal more reviews completes today's goal."
+                        leechCount > 0 && prompts.isNotEmpty() -> "Daily goal is complete. Fix parked leeches before adding more review load."
+                        leechCount > 0 -> "Reviews are clear. Repair parked leeches, then read for fresh input."
+                        readingFirst && prompts.isNotEmpty() -> "Daily goal is complete. Read next for input; practice is still available if you want it."
                         prompts.isNotEmpty() -> "${prompts.size} cards are ready for extra practice."
                         reader != null -> "Reviews are clear. Reading keeps Russian input flowing."
                         else -> "Reviews are clear. Add reader text or import notes when you want new material."
@@ -2813,13 +3189,16 @@ private fun DashboardNextActionCard(
             PracticeFocusChip(if (prompts.isEmpty()) "Reviews clear" else "${prompts.size} ready", null)
             if (newCount > 0) PracticeFocusChip("$newCount new", null)
             if (grammarCount > 0) PracticeFocusChip("$grammarCount grammar", null)
+            if (leechCount > 0) PracticeFocusChip("$leechCount leeches", null)
             if (reader != null) PracticeFocusChip("${(reader.coverage * 100).toInt()}% reader fit", null)
         }
         Spacer(Modifier.height(14.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(
                 onClick = {
-                    if (prompts.isNotEmpty()) {
+                    if (readingFirst) {
+                        reader?.let { onOpenReader(it.text.id) } ?: onRead()
+                    } else if (prompts.isNotEmpty()) {
                         onStart()
                     } else {
                         reader?.let { onOpenReader(it.text.id) } ?: onRead()
@@ -2827,15 +3206,20 @@ private fun DashboardNextActionCard(
                 },
                 modifier = Modifier.weight(1f)
             ) {
-                Icon(if (prompts.isNotEmpty()) Icons.Filled.School else Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(if (readingFirst) Icons.Filled.AutoStories else Icons.Filled.School, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(if (prompts.isEmpty()) "Read Next" else "Practice")
+                Text(if (readingFirst) "Read Next" else "Practice")
             }
             if (prompts.isNotEmpty()) {
-                OutlinedButton(onClick = { reader?.let { onOpenReader(it.text.id) } ?: onRead() }, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
+                OutlinedButton(
+                    onClick = {
+                        if (readingFirst) onStart() else reader?.let { onOpenReader(it.text.id) } ?: onRead()
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(if (readingFirst) Icons.Filled.School else Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Read")
+                    Text(if (readingFirst) "Practice" else "Read")
                 }
             }
         }
@@ -3133,7 +3517,7 @@ private fun DetailsSection(stats: com.sibirskyspeak.data.DashboardStats, expande
                     "Aspect verbs" to "${report.aspectReadyVerbRows}/${report.minVerbRows}",
                     "Aktionsart" to "${report.verifiedAktionsartVerbRows}/${report.minVerbRows}",
                     "Ranked" to report.domainRankedRows.toString(),
-                    "Examples" to report.exampleRows.toString(),
+                    "Readable examples" to report.exampleRows.toString(),
                     "90% texts" to report.targetTextsAtOrAbove90.toString()
                 )
             }
@@ -3235,6 +3619,11 @@ private fun ImportExportPanel(
                                 value = state.newCardsPerDaySetting.toFloat(),
                                 range = SettingsStore.MIN_NEW_CARDS_PER_DAY.toFloat()..SettingsStore.MAX_NEW_CARDS_PER_DAY.toFloat(),
                                 onChange = { onNewCardsPerDay(it.toInt()) }
+                            )
+                            Text(
+                                "Normal new cards are capped by your daily goal; use extra credit only when reviews feel easy.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(Modifier.height(10.dp))
                             SettingSlider(
@@ -3371,10 +3760,15 @@ private fun ImportExportPanel(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            Text(
+                                "For cloze/context practice, include exampleSentence plus a real sentence meaning in exampleTranslation.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                             Spacer(Modifier.height(12.dp))
                             OutlinedTextField(value = state.importText, onValueChange = onImportText, modifier = Modifier.fillMaxWidth(), minLines = 6, shape = MaterialTheme.shapes.small, label = { Text("JSON Lines notes") })
                             Text(
-                                "Import is additive; existing notes and scheduling stay intact.",
+                                "Import is additive; existing notes and scheduling stay intact. One-word glosses do not count as readable examples.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -3451,10 +3845,16 @@ private fun Float.settingRangeLabel(): String =
 private fun SessionCompleteCard(
     game: GamificationStats,
     onDone: () -> Unit,
+    reader: ReaderRecommendation? = null,
     sessionReviewed: Int = 0,
     sessionCorrect: Int = 0,
-    onExtraCredit: () -> Unit = {}
+    onExtraCredit: () -> Unit = {},
+    onReadNext: () -> Unit = {}
 ) {
+    val sessionAccuracy = if (sessionReviewed > 0) sessionCorrect.toDouble() / sessionReviewed else null
+    val lowAccuracy = sessionAccuracy != null && sessionAccuracy < 0.8
+    val protectPacing = game.goalReached || lowAccuracy
+    val prioritizeReading = reader != null && protectPacing
     val pop by animateFloatAsState(
         targetValue = 1f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
@@ -3490,27 +3890,73 @@ private fun SessionCompleteCard(
                 HeroPill("Lvl ${game.level}", "level")
             }
             Spacer(Modifier.height(8.dp))
-            // Extra credit: voluntarily pull in more new cards beyond today's cap.
-            OutlinedButton(
-                onClick = onExtraCredit,
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f))
-            ) {
-                Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Extra credit (+10 cards)", fontWeight = FontWeight.SemiBold)
+            if (prioritizeReading) {
+                Text(
+                    "Reviews are done. Reading now reinforces today's words without adding more SRS load.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.86f),
+                    textAlign = TextAlign.Center
+                )
+                Button(
+                    onClick = onReadNext,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.onPrimary,
+                        contentColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Icon(Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Read Next", fontWeight = FontWeight.SemiBold)
+                }
+            } else {
+                Button(
+                    onClick = onDone,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.onPrimary,
+                        contentColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Icon(Icons.Filled.School, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Back to Practice", fontWeight = FontWeight.SemiBold)
+                }
             }
             Spacer(Modifier.height(6.dp))
-            Button(
-                onClick = onDone,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.onPrimary,
-                    contentColor = MaterialTheme.colorScheme.primary
+            if (protectPacing) {
+                if (prioritizeReading) {
+                    TextButton(onClick = onDone, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary)) {
+                        Text("Back to Practice")
+                    }
+                }
+                TextButton(onClick = onExtraCredit, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary)) {
+                    Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Extra credit")
+                }
+                Text(
+                    if (lowAccuracy && reader != null) {
+                        "Add more cards only if the misses were slips; otherwise stop here or read and let reviews settle."
+                    } else if (lowAccuracy) {
+                        "Add more cards only if the misses were slips; otherwise stop here and let reviews settle."
+                    } else if (reader != null) {
+                        "Add more cards only if this session felt easy; otherwise read and let the reviews settle."
+                    } else {
+                        "Daily goal is done. Add more cards only if this session felt easy."
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f),
+                    textAlign = TextAlign.Center
                 )
-            ) {
-                Icon(Icons.Filled.School, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Back to Practice", fontWeight = FontWeight.SemiBold)
+            } else {
+                OutlinedButton(
+                    onClick = onExtraCredit,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f))
+                ) {
+                    Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Extra credit (+10 cards)", fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }
@@ -3916,7 +4362,7 @@ private fun reviewTaskHelp(prompt: ReviewPrompt): String =
         CardType.CONCEPT_DRILL -> "Use the rule from the lesson to answer this authored grammar prompt."
         CardType.DICTATION -> "Listen to the Russian sentence and type what you hear."
         CardType.SENTENCE_BUILD -> "Translate the English sentence by writing the Russian sentence."
-        CardType.STRESS_MARK -> "Type the word with its stressed vowel marked."
+        CardType.STRESS_MARK -> "Choose the spelling with the stressed vowel marked."
         CardType.LESSON -> "Read the explanation, then continue when it feels familiar."
     }
 

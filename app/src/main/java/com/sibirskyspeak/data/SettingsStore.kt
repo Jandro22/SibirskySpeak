@@ -81,11 +81,11 @@ class SettingsStore(context: Context) {
         return newly
     }
 
-    /** Persisted reading position (token index) per reader text. */
-    fun readerProgress(textId: Long): Int = prefs.getInt(readerProgressKey(textId), 0)
+    /** Persisted furthest reached token index per reader text; -1 means not started. */
+    fun readerProgress(textId: Long): Int = prefs.getInt(readerProgressKey(textId), -1)
 
     fun setReaderProgress(textId: Long, tokenIndex: Int) {
-        prefs.edit().putInt(readerProgressKey(textId), tokenIndex.coerceAtLeast(0)).apply()
+        prefs.edit().putInt(readerProgressKey(textId), tokenIndex.coerceAtLeast(-1)).apply()
     }
 
     private fun readerProgressKey(textId: Long) = "reader_progress_$textId"
