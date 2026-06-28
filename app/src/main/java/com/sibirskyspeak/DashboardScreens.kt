@@ -223,35 +223,23 @@ internal fun DashboardNextActionCard(
             if (reader != null) PracticeFocusChip("${(reader.coverage * 100).toInt()}% reader fit", null)
         }
         Spacer(Modifier.height(14.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(
-                onClick = {
-                    if (readingFirst) {
-                        reader?.let { onOpenReader(it.text.id) } ?: onRead()
-                    } else if (prompts.isNotEmpty()) {
-                        onStart()
-                    } else {
-                        reader?.let { onOpenReader(it.text.id) } ?: onRead()
-                    }
-                },
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(if (readingFirst) Icons.Filled.AutoStories else Icons.Filled.School, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(if (readingFirst) "Read Next" else "Practice")
-            }
-            if (prompts.isNotEmpty()) {
-                OutlinedButton(
-                    onClick = {
-                        if (readingFirst) onStart() else reader?.let { onOpenReader(it.text.id) } ?: onRead()
-                    },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(if (readingFirst) Icons.Filled.School else Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (readingFirst) "Practice" else "Read")
+        // One action, same as the Practice screen: the session already interleaves
+        // reviews + new vocab + grammar and folds reading in, so there is no separate
+        // Read/Practice split. When caught up, the button opens the recommended text.
+        val startSession = prompts.isNotEmpty() && !readingFirst
+        Button(
+            onClick = { if (startSession) onStart() else reader?.let { onOpenReader(it.text.id) } ?: onRead() },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(if (startSession) Icons.Filled.School else Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                when {
+                    startSession -> "Start Session · ${prompts.size}"
+                    reader != null -> "Read"
+                    else -> "Add material"
                 }
-            }
+            )
         }
     }
 }

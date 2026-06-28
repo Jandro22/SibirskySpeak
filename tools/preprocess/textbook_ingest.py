@@ -90,6 +90,20 @@ INSTRUCTION_VERB_GLOSSES = {
     "act out", "connect", "continue", "explain", "guess", "make up", "put", "use",
 }
 
+# Hand corrections for known miner errors where the PDF's own inline gloss is
+# wrong or imprecise. Keyed by the bare normalized lemma (ё->е, no stress). The
+# miner otherwise trusts the textbook's parenthetical gloss verbatim.
+GLOSS_OVERRIDES = {
+    "зебра": "zebra",          # book glossed it generically as "an animal"
+    "винительный": "Accusative",  # book glossed the case name as "inanimate"
+}
+
+# Surfaces the miner captured that are not real vocabulary at this level: a PDF
+# head-split fragment that happens to lemmatize ("тика" <- полиТИКА), or a gloss
+# the book attached to the wrong/too-advanced word ("мнить" glossed "to remember",
+# which is помнить). Dropped outright. Keyed by stress-stripped lowercase surface.
+DROP_SURFACES = {"тика", "мнить"}
+
 # English glosses that begin with these tokens are phrase / prepositional-phrase
 # glosses for an inflected form ("в парке (in the park)", "кому (to whom)"), or a
 # question prompt — not a clean dictionary translation. Such pairs are dropped.
@@ -582,9 +596,12 @@ def _vocab_note_from(term: str, gloss: str, unit: int) -> dict | None:
     norm = base_lemma.replace("ё", "е")
     if len(norm) < 3 or norm in PDF_FRAGMENT_TERMS:
         return None
+    if _strip_stress(term).lower().replace("ё", "е") in DROP_SURFACES:
+        return None
     level = _level_for_unit(unit)
     recognition = " recognition_only" if (not is_coordinated and inflected) else ""
     translation = gloss if (gloss[:1].isupper() and not gloss.split()[0].islower()) else gloss.lower()
+    translation = GLOSS_OVERRIDES.get(norm, translation)
     return {
         "russian": term,
         "lemma": f"tb_{norm}",   # dictionary lemma; namespaced from the curated deck

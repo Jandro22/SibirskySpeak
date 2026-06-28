@@ -172,14 +172,6 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
                 onOpenReader = { id ->
                     viewModel.setSessionStep(SessionStep.READER)
                     viewModel.openReaderText(id)
-                },
-                onFocusedGrammar = {
-                    viewModel.setSessionStep(SessionStep.BLOCKED)
-                    studyActive = true
-                },
-                onMixedGrammar = {
-                    viewModel.setSessionStep(SessionStep.INTERLEAVED)
-                    studyActive = true
                 }
             )
             SessionStep.READER -> ReaderPanel(
@@ -243,14 +235,6 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
                 onOpenReader = { id ->
                     viewModel.setSessionStep(SessionStep.READER)
                     viewModel.openReaderText(id)
-                },
-                onFocusedGrammar = {
-                    viewModel.setSessionStep(SessionStep.BLOCKED)
-                    studyActive = true
-                },
-                onMixedGrammar = {
-                    viewModel.setSessionStep(SessionStep.INTERLEAVED)
-                    studyActive = true
                 }
             )
         }

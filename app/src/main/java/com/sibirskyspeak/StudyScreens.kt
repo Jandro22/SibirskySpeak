@@ -278,7 +278,8 @@ internal fun StudySessionScreen(
                     onCorrectionChanged = onCorrectionChanged,
                     onSubmitCorrection = onSubmitCorrection,
                     onSpeak = { onSpeak(prompt) },
-                    onKnewIt = onKnewIt
+                    onKnewIt = onKnewIt,
+                    onKnowWord = onKnowWord
                 )
             }
         }
@@ -515,7 +516,8 @@ internal fun ReviewContent(
     onCorrectionChanged: (String) -> Unit,
     onSubmitCorrection: () -> Unit,
     onSpeak: () -> Unit,
-    onKnewIt: () -> Unit
+    onKnewIt: () -> Unit,
+    onKnowWord: () -> Unit
 ) {
     val answerSounds = remember { AnswerSoundEffects() }
     DisposableEffect(answerSounds) { onDispose { answerSounds.release() } }
@@ -651,6 +653,17 @@ internal fun ReviewContent(
                             Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
                             Text("New word — first time. Try it, then reveal to learn it.", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
                         }
+                    }
+                    // Skip-ahead for words you already know: retires this word's vocab
+                    // practice immediately instead of spending review slots learning it.
+                    TextButton(
+                        onClick = onKnowWord,
+                        enabled = !state.ratingInProgress,
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("I already know this word", style = MaterialTheme.typography.labelLarge)
                     }
                 }
                 Text(
@@ -889,7 +902,7 @@ internal fun LessonCard(
     SectionCard(emphasis = true) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(Icons.Filled.School, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            StatusTag("New grammar")
+            StatusTag("Grammar lesson")
         }
         Spacer(Modifier.height(10.dp))
         Text(lesson.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)

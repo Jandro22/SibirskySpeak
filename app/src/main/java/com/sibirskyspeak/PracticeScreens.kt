@@ -53,13 +53,11 @@ internal fun PracticeScreen(
     state: ReviewUiState,
     onStart: () -> Unit,
     onRead: () -> Unit,
-    onOpenReader: (Long) -> Unit,
-    onFocusedGrammar: () -> Unit = {},
-    onMixedGrammar: () -> Unit = {}
+    onOpenReader: (Long) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         DailyPlanPanel(state, onStart, onRead, onOpenReader)
-        PracticeFocusPanel(state, onFocusedGrammar, onMixedGrammar)
+        PracticeFocusPanel(state)
         UnitMasteryPanel(state)
         ProblemCardAuditPanel(state)
         ReadingSuggestion(state, onOpenReader)
@@ -204,36 +202,30 @@ internal fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: (
             )
         }
         Spacer(Modifier.height(18.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(
-                onClick = {
-                    if (sessionSize > 0) {
-                        onStart()
-                    } else {
-                        reader?.let { onOpenReader(it.text.id) } ?: onRead()
-                    }
+        // One button drives the whole integrated session: due reviews, new vocab, and
+        // due grammar are interleaved automatically, and a due reading is inserted
+        // mid-session and at the end — so there is no separate Read or grammar button.
+        // When fully caught up the same button drops straight into the recommended text.
+        Button(
+            onClick = {
+                if (sessionSize > 0) onStart() else reader?.let { onOpenReader(it.text.id) } ?: onRead()
+            },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.onPrimary,
+                contentColor = MaterialTheme.colorScheme.primary
+            )
+        ) {
+            Icon(if (sessionSize > 0) Icons.Filled.School else Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                when {
+                    sessionSize > 0 -> "Start Session · $sessionSize"
+                    reader != null -> "Read"
+                    else -> "Add material"
                 },
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.onPrimary,
-                    contentColor = MaterialTheme.colorScheme.primary
-                )
-            ) {
-                Icon(if (sessionSize > 0) Icons.Filled.School else Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(if (sessionSize > 0) "Start ${sessionSize}-Card Session" else "Read Next", fontWeight = FontWeight.SemiBold)
-            }
-            if (sessionSize > 0) {
-                OutlinedButton(
-                    onClick = { reader?.let { onOpenReader(it.text.id) } ?: onRead() },
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f))
-                ) {
-                    Icon(Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Read")
-                }
-            }
+                fontWeight = FontWeight.SemiBold
+            )
         }
         if (backlog > sessionSize && sessionSize > 0) {
             Spacer(Modifier.height(12.dp))
@@ -251,11 +243,7 @@ internal fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: (
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun PracticeFocusPanel(
-    state: ReviewUiState,
-    onFocusedGrammar: () -> Unit,
-    onMixedGrammar: () -> Unit
-) {
+internal fun PracticeFocusPanel(state: ReviewUiState) {
     val plan = state.dailyPlan ?: return
     val prompts = state.sessionPlan?.reviewQueue.orEmpty()
     val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
@@ -263,8 +251,6 @@ internal fun PracticeFocusPanel(
     val grammarCount = prompts.count { it.card.queue.name == "GRAMMAR" }
     val newCount = prompts.count { it.card.state.name == "NEW" }
     val dueCount = prompts.size - newCount
-    val focusedGrammarCount = state.sessionPlan?.blockedGrammar.orEmpty().size
-    val mixedGrammarCount = state.sessionPlan?.interleavedGrammar.orEmpty().size
     val ruleSummary = state.sessionPlan?.ruleSummary
 
     SectionCard {
@@ -292,17 +278,20 @@ internal fun PracticeFocusPanel(
             PracticeMetricTile("Vocab", vocabCount.toString(), Icons.Filled.AutoStories, MaterialTheme.colorScheme.surfaceVariant)
             PracticeMetricTile("Grammar", grammarCount.toString(), Icons.Filled.Insights, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f))
         }
-        if (plan.grammarFocus.isNotEmpty() || plan.triageMode || focusedGrammarCount > 0 || mixedGrammarCount > 0) {
+        // Grammar is woven into the one session automatically (interleaved with vocab
+        // and reviews), so this is read-only context, not a set of separate actions:
+        // it just flags weak recent patterns to slow down on, plus triage state.
+        if (plan.grammarFocus.isNotEmpty() || plan.triageMode) {
             Spacer(Modifier.height(16.dp))
             Text("Focus", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
             if (plan.grammarFocus.isNotEmpty()) {
                 Text(
-                    "Weak recent grammar patterns are listed first; slow down on these and use the reveal explanation before rating.",
+                    "Weak recent grammar patterns show up first in your session; slow down on these and read the reveal explanation before rating.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            if (!ruleSummary.isNullOrBlank() && focusedGrammarCount > 0) {
+            if (!ruleSummary.isNullOrBlank()) {
                 Text(
                     ruleSummary,
                     style = MaterialTheme.typography.bodySmall,
@@ -314,28 +303,7 @@ internal fun PracticeFocusPanel(
                 plan.grammarFocus.take(3).forEach { focus ->
                     if (focus.label.isNotBlank()) PracticeFocusChip(focus.label, focus.accuracy)
                 }
-                if (focusedGrammarCount > 0) PracticeFocusChip("$focusedGrammarCount focused grammar", null)
-                if (mixedGrammarCount > 0) PracticeFocusChip("$mixedGrammarCount mixed grammar", null)
                 if (plan.triageMode) PracticeFocusChip("Older due cards first", null)
-            }
-            if (focusedGrammarCount > 0 || mixedGrammarCount > 0) {
-                Spacer(Modifier.height(10.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (focusedGrammarCount > 0) {
-                        Button(onClick = onFocusedGrammar) {
-                            Icon(Icons.Filled.Insights, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Practice Focus")
-                        }
-                    }
-                    if (mixedGrammarCount > 0) {
-                        OutlinedButton(onClick = onMixedGrammar) {
-                            Icon(Icons.Filled.School, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Mix Grammar")
-                        }
-                    }
-                }
             }
         }
     }
