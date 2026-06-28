@@ -20,11 +20,17 @@ TOKEN_RE = re.compile(r"[А-Яа-яЁё]+")
 
 
 def load_morph():
+    # Prefer pymorphy3 (maintained, works on modern Python); fall back to pymorphy2.
+    try:
+        import pymorphy3  # type: ignore
+        return pymorphy3.MorphAnalyzer()
+    except Exception:
+        pass
     try:
         import pymorphy2  # type: ignore
+        return pymorphy2.MorphAnalyzer()
     except Exception:
         return None
-    return pymorphy2.MorphAnalyzer()
 
 
 def normalize(text: str) -> str:

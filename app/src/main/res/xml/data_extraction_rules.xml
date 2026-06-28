@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 12+ cloud backup and device-to-device transfer rules. Same reasoning
+    as backup_rules.xml: the Room database is excluded because BackupManager's
+    JSON snapshot is the app's intended recovery path, not a raw DB file copy.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="database" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="database" path="." />
+    </device-transfer>
+</data-extraction-rules>

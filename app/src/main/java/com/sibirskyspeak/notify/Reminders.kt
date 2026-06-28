@@ -19,7 +19,7 @@ import androidx.work.WorkerParameters
 import com.sibirskyspeak.MainActivity
 import com.sibirskyspeak.R
 import com.sibirskyspeak.SibirskySpeakApp
-import com.sibirskyspeak.data.SettingsStore
+import com.sibirskyspeak.data.PrefsSettingsStore
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
@@ -45,7 +45,7 @@ object Reminders {
      * If reminders are disabled in settings, cancels any pending work instead.
      */
     fun schedule(context: Context) {
-        val settings = SettingsStore(context)
+        val settings = PrefsSettingsStore(context)
         if (!settings.reminderEnabled) {
             WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
             return

@@ -15,13 +15,15 @@ from build_bootstrap import (
 def test_rank_domain_and_build_notes(tmp_path: Path):
     raw = tmp_path / "raw"
     raw.mkdir()
-    (raw / "sample.txt").write_text("Войска у границы. Войска написали письмо.", encoding="utf-8")
+    # Use a lemma-stable headword ("письмо" is its own dictionary form) so the test
+    # holds whether or not a morphology analyzer (pymorphy3) is installed to lemmatize.
+    (raw / "sample.txt").write_text("Письмо здесь. Письмо там.", encoding="utf-8")
     freq = tmp_path / "domain.tsv"
     main(["rank-domain", "--input", str(raw), "--output", str(freq)])
-    assert "войска" in freq.read_text(encoding="utf-8")
+    assert "письмо" in freq.read_text(encoding="utf-8")
 
     lexicon = tmp_path / "lexicon.jsonl"
-    lexicon.write_text(json.dumps({"lemma": "войска", "russian": "войска́", "translation": "troops", "pos": "noun"}, ensure_ascii=False), encoding="utf-8")
+    lexicon.write_text(json.dumps({"lemma": "письмо", "russian": "письмо́", "translation": "letter", "pos": "noun"}, ensure_ascii=False), encoding="utf-8")
     notes = tmp_path / "notes.jsonl"
     main(["build-notes", "--lexicon", str(lexicon), "--domain-frequency", str(freq), "--output", str(notes)])
     note = json.loads(notes.read_text(encoding="utf-8"))

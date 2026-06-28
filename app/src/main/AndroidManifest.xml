@@ -11,9 +11,11 @@
     <application
         android:name=".SibirskySpeakApp"
         android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
-        android:label="SibirskySpeak"
+        android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.SibirskySpeak">
         <activity

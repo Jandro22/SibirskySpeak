@@ -26,7 +26,12 @@ data class ReviewPrompt(
     // dedicated teaching screen (no grading).
     val lesson: LessonContent? = null,
     val exampleSentence: String? = null,
-    val exampleTranslation: String? = null
+    val exampleTranslation: String? = null,
+    /** Learner-facing explanation of why this card is in today's queue. */
+    val queueReason: String? = null,
+    val supportOnly: Boolean = false,
+    val practiceOnly: Boolean = false,
+    val supportLevel: Int = 0
 )
 
 data class LessonContent(
@@ -59,20 +64,47 @@ fun buildPrompt(
     val russianContextCloze = cloze?.takeIf { note.prefersRussianContext(card) && it.prompt.hasRussianText() }
     val caseDrill = note.declensionJson?.let { caseDrillFromJson(card, note, it, example.sentence) }
     return when (card.cardType) {
-        CardType.RU_TO_MEANING -> ReviewPrompt(
-            card = card,
-            note = note,
-            prompt = note.russian,
-            expectedAnswer = note.translation,
-            answerMode = AnswerMode.ENGLISH,
-            intervalPreview = intervalPreview
-        )
+        CardType.RU_TO_MEANING -> {
+            val meaning = note.contextualMeaning()
+            if (card.state == com.sibirskyspeak.data.CardState.NEW && card.reps == 0) {
+                val content = LessonContent(
+                    title = "New word: ${note.russian}",
+                    body = "Meaning here: $meaning\n\nStudy the word and its example first. Recall begins when it returns later.",
+                    exampleRu = example.sentence.orEmpty(),
+                    exampleEn = example.translation.orEmpty()
+                )
+                ReviewPrompt(
+                    card = card,
+                    note = note,
+                    prompt = content.title,
+                    expectedAnswer = "Got it",
+                    answerMode = AnswerMode.LESSON,
+                    intervalPreview = intervalPreview,
+                    teachingHint = "First exposure — learn before recall",
+                    lesson = content,
+                    explanation = note.translation.takeIf { it != meaning }
+                )
+            } else ReviewPrompt(
+                card = card,
+                note = note,
+                prompt = when {
+                    note.isContextBoundFunctionWord() && example.sentence != null -> "${example.sentence}\n\nWhat does ${note.russian} mean here?"
+                    card.reps >= 5 && example.sentence != null -> "${example.sentence}\n\nWhat does ${note.russian} mean here?"
+                    card.reps >= 2 && example.sentence != null -> "${note.russian}\n\nIn context: ${example.sentence}"
+                    else -> note.russian
+                },
+                expectedAnswer = meaning,
+                answerMode = AnswerMode.ENGLISH,
+                intervalPreview = intervalPreview,
+                explanation = note.translation.takeIf { it != meaning }
+            )
+        }
         CardType.MEANING_TO_RU -> ReviewPrompt(
             card = card,
             note = note,
             prompt = russianContextCloze
                 ?.let { "По контексту:\n${it.prompt}" }
-                ?: note.translation,
+                ?: note.productionCue(),
             expectedAnswer = russianContextCloze
                 ?.answer
                 ?: note.russian,
@@ -82,7 +114,7 @@ fun buildPrompt(
         CardType.CLOZE -> ReviewPrompt(
             card = card,
             note = note,
-            prompt = cloze?.prompt ?: note.translation,
+            prompt = cloze?.prompt ?: note.productionCue(),
             expectedAnswer = cloze?.answer ?: note.russian,
             answerMode = AnswerMode.RUSSIAN_TYPED,
             intervalPreview = intervalPreview
@@ -300,6 +332,50 @@ private fun Int.floorMod(modulus: Int): Int =
 private fun Note.prefersRussianContext(card: Card): Boolean =
     card.reps >= 2 || cefrLevel in setOf("B1", "B2", "C1") || tier >= 1
 
+/** Keep recognition answers learnable and aligned with the supplied sentence.
+ * Full multi-sense dictionary entries remain visible as explanation, not as a
+ * ten-item answer the learner is expected to reproduce. */
+private fun Note.contextualMeaning(): String {
+    val normalizedLemma = lemma.lowercase().replace("ё", "е")
+    val exampleMeaning = exampleTranslation.orEmpty().lowercase()
+    if (normalizedLemma == "а" && (exampleMeaning.startsWith("oh") || exampleMeaning.startsWith("right"))) {
+        return "oh / oh right"
+    }
+    val functionMeaning = when (normalizedLemma) {
+        "в" -> "in"
+        "на" -> if (exampleMeaning.contains("look at")) "at" else "on"
+        "с" -> if (exampleMeaning.contains("congratulat")) "on" else "with"
+        "что" -> if (exampleMeaning.contains(" that ") || exampleMeaning.contains("worst that")) "that" else "what"
+        "по" -> if (exampleMeaning.contains("for some reason")) "for (in ‘for some reason’)" else "by / along"
+        "к" -> "to / toward"
+        "как" -> if (exampleMeaning.contains(" like ") || exampleMeaning.contains("that's like")) "like" else "how"
+        "от" -> "from"
+        "за" -> "behind / for"
+        else -> null
+    }
+    if (functionMeaning != null) return functionMeaning
+    val senses = translation.split(Regex("""\s*[,;]\s*"""))
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+    return when {
+        senses.size > 2 -> senses.take(2).joinToString(" / ")
+        translation.split(Regex("""\s+""")).size > 10 -> translation.substringBefore(" or ").trim()
+        else -> translation
+    }
+}
+
+private fun Note.isContextBoundFunctionWord(): Boolean =
+    partOfSpeech.lowercase() in setOf("preposition", "conjunction", "particle", "pronoun", "conj.", "prep.")
+
+/** Production gets one retrieval target, not a multi-sense dictionary entry. */
+private fun Note.productionCue(): String =
+    contextualMeaning()
+        .substringBefore(" / ")
+        .substringBefore(';')
+        .substringBefore(',')
+        .trim()
+        .ifBlank { translation }
+
 private fun String.withoutStressMarks(): String =
     replace("\u0301", "")
 
@@ -493,34 +569,42 @@ private fun aspectDrill(
 ): AspectDrill {
     val aktLabel = note.aktionsart?.replaceFirstChar { it.uppercase() } ?: "Unknown"
     val blankCandidates = choiceForms + listOfNotNull(note.lemma, note.russian, aspectPartner?.lemma, aspectPartner?.russian, expectedForm)
+    // The five explicit cues use short, object-FREE carriers so the sentence reads
+    // naturally for ANY verb (transitive or not): the old "___ этот вопрос" frame
+    // produced nonsense for verbs like пить/гулять. The aspect cue lives in the
+    // adverb (долго/часто/уже/быстро), which is what actually drives the answer, so
+    // we must NOT reuse the note's own example here — its fixed aspect would
+    // frequently contradict the requested cue.
     return when (cue) {
         "PROCESS" -> AspectDrill(
-            carrier = "Вчера он долго ___ этот вопрос.".blankAny(blankCandidates),
+            carrier = "Вчера он долго ___.".blankAny(blankCandidates),
             cueLabel = "ongoing process",
             rationale = "A duration/process cue (долго) focuses on the action while it was unfolding, so imperfective fits."
         )
         "HABITUAL" -> AspectDrill(
-            carrier = "Раньше он часто ___ этот вопрос.".blankAny(blankCandidates),
+            carrier = "Раньше он часто ___.".blankAny(blankCandidates),
             cueLabel = "repeated or habitual action",
             rationale = "A frequency cue (часто) asks for repeated action, which is normally imperfective."
         )
         "COMPLETED" -> AspectDrill(
-            carrier = "Вчера он ___ этот вопрос до конца.".blankAny(blankCandidates),
+            carrier = "Сегодня он уже ___.".blankAny(blankCandidates),
             cueLabel = "completed action",
-            rationale = "The endpoint phrase до конца presents the action as completed, so perfective fits."
+            rationale = "The cue уже (already) presents the action as finished, so perfective fits."
         )
         "RESULT" -> AspectDrill(
-            carrier = "Наконец он ___ этот вопрос, и результат готов.".blankAny(blankCandidates),
+            carrier = "Он ___, и теперь всё готово.".blankAny(blankCandidates),
             cueLabel = "result now matters",
-            rationale = "The context cares about the resulting state, so the bounded perfective form is the better fit."
+            rationale = "The context cares about the resulting state (теперь всё готово), so the bounded perfective form is the better fit."
         )
         "SINGLE_EVENT" -> AspectDrill(
-            carrier = "На встрече он сразу ___ этот вопрос.".blankAny(blankCandidates),
+            carrier = "Сегодня он быстро ___.".blankAny(blankCandidates),
             cueLabel = "single bounded event",
-            rationale = "A single bounded event cue (сразу, one occasion) pushes toward perfective."
+            rationale = "A single bounded event cue (быстро, one occasion) pushes toward perfective."
         )
         "HAS_CUE" -> {
-            val carrier = exampleSentence ?: "He finally ___ the task to completion."
+            // No fixed cue: the note's own (authored, semantically valid) example is
+            // the right carrier here, since the answer is simply the verb's own form.
+            val carrier = exampleSentence ?: "Он уже ___, и всё готово."
             AspectDrill(
                 carrier = carrier.blankAny(blankCandidates),
                 cueLabel = "completion or boundary marker",
@@ -531,7 +615,7 @@ private fun aspectDrill(
             )
         }
         else -> {
-            val carrier = exampleSentence ?: "The sides ___ this question during negotiations."
+            val carrier = exampleSentence ?: "Вчера он ___."
             val defaultAspect = when (note.aktionsart?.lowercase()) {
                 "achievement", "accomplishment" -> "PF"
                 else -> "IPF"
@@ -594,12 +678,26 @@ private fun caseDrillFromJson(card: Card, note: Note, rawJson: String, exampleSe
     val answer = cases.getString(target)
     val carrier = exampleSentence
     val blankedCarrier = carrier?.blankCaseAnswer(answer, note)
+    // Case SELECTION vs FORMATION: at A1.5 the hard skill is deciding *which* case a
+    // sentence needs, not spelling an ending once told the case. For the first couple
+    // of exposures we name the case (formation practice / teaching); once the card is
+    // mature and we have a carrier (which contains the governing preposition or verb),
+    // we hide the case name so the learner must read the cue and choose the case
+    // themselves. The reveal still teaches the rule, and diagnosticFeedbackFor() names
+    // the case they actually produced if they pick the wrong one.
+    val selectMode = card.reps >= 2 && blankedCarrier != null
     CaseDrill(
         prompt = buildString {
-            append("Make \"${note.russian.withoutStressMarks()}\" ${target.humanCaseLabel()}.")
-            if (blankedCarrier != null) {
+            if (selectMode) {
+                append("Which form does the sentence need? Put \"${note.russian.withoutStressMarks()}\" in the right case.")
                 append("\n")
                 append(blankedCarrier)
+            } else {
+                append("Make \"${note.russian.withoutStressMarks()}\" ${target.humanCaseLabel()}.")
+                if (blankedCarrier != null) {
+                    append("\n")
+                    append(blankedCarrier)
+                }
             }
         },
         answer = answer

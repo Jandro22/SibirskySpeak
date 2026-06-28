@@ -7,13 +7,14 @@ import com.sibirskyspeak.data.AssetBootstrap
 import com.sibirskyspeak.data.BackupManager
 import com.sibirskyspeak.data.LearningConfig
 import com.sibirskyspeak.data.LearningRepository
+import com.sibirskyspeak.data.PrefsSettingsStore
 import com.sibirskyspeak.data.SettingsStore
 import com.sibirskyspeak.scheduler.FsrsScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class SibirskySpeakApp : Application() {
-    val settings: SettingsStore by lazy { SettingsStore(this) }
+    val settings: SettingsStore by lazy { PrefsSettingsStore(this) }
     private val backup: BackupManager by lazy { BackupManager(this) }
 
     val repository: LearningRepository by lazy {
@@ -25,9 +26,14 @@ class SibirskySpeakApp : Application() {
             reviewLogDao = database.reviewLogDao(),
             confusablePairDao = database.confusablePairDao(),
             readerTextDao = database.readerTextDao(),
+            readingScheduleDao = database.readingScheduleDao(),
+            readerEncounterDao = database.readerEncounterDao(),
+            readingActivityDao = database.readingActivityDao(),
+            telemetryDao = database.telemetryDao(),
             scheduler = FsrsScheduler(
                 desiredRetentionProvider = { settings.desiredRetention },
                 intervalModifierProvider = { settings.intervalModifier },
+                weightsProvider = { settings.fsrsWeights },
                 enableFuzz = true
             ),
             bootstrapNotes = { assets.readTextAsset("bootstrap_notes.jsonl") },

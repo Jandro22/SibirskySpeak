@@ -52,5 +52,6 @@ data class Note(
     // CEFR level this curated note belongs to ("A1".."C1"), for the curriculum
     // course (tier 0). Null for the general/domain tiers. Drives the level label in
     // the UI; sequencing is by [unit], which is monotonic across levels.
-    val cefrLevel: String? = null
+    val cefrLevel: String? = null,
+    val mnemonic: String? = null
 )

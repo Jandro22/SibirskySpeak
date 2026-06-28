@@ -2,14 +2,118 @@ package com.sibirskyspeak.review
 
 import com.sibirskyspeak.data.Card
 import com.sibirskyspeak.data.CardType
+import com.sibirskyspeak.data.CardState
 import com.sibirskyspeak.data.Note
 import com.sibirskyspeak.data.Queue
+import com.sibirskyspeak.data.Rating
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReviewPromptTest {
+    private fun simplePrompt(id: Long, type: CardType = CardType.RU_TO_MEANING): ReviewPrompt {
+        val note = Note(id = id, russian = "word$id", lemma = "word$id", translation = "meaning$id", partOfSpeech = "word")
+        return buildPrompt(Card(id = id, noteId = id, cardType = type, queue = Queue.VOCAB, state = CardState.REVIEW, reps = 1), note, emptyMap())
+    }
+
+    @Test
+    fun failedCardReturnsAfterSixInterveningCardsAndAtTheEnd() {
+        val failed = simplePrompt(1, CardType.MEANING_TO_RU)
+        val repair = simplePrompt(99, CardType.RU_TO_MEANING)
+        val queue = listOf(failed) + (2L..10L).map { simplePrompt(it) }
+
+        val updated = recoveryQueueAfter(queue, failed, Rating.AGAIN, repair)
+
+        assertEquals(99L, updated[6].card.id)
+        assertTrue(updated[6].queueReason.orEmpty().startsWith("Repair:"))
+        assertEquals(1L, updated.last().card.id)
+        assertTrue(updated.last().queueReason.orEmpty().contains("Final recovery"))
+    }
+
+    @Test
+    fun successfulCardLeavesFrozenQueueWithoutReorderingIt() {
+        val current = simplePrompt(1)
+        val rest = (2L..5L).map { simplePrompt(it) }
+        assertEquals(rest, recoveryQueueAfter(listOf(current) + rest, current, Rating.GOOD))
+    }
+
+    @Test
+    fun adaptiveLoadChangesGraduallyFromEvidence() {
+        assertEquals(-2, adaptiveNewCardDelta(true, 0, 25, 0.95, 100, 0.90, 20))
+        assertEquals(-2, adaptiveNewCardDelta(false, 10, 25, 0.82, 100, 0.90, 20))
+        assertEquals(1, adaptiveNewCardDelta(false, 5, 25, 0.95, 100, 0.90, 20))
+        assertEquals(0, adaptiveNewCardDelta(false, 5, 25, 0.95, 5, 0.90, 20))
+    }
+
+    @Test
+    fun matureRecognitionMovesFromIsolatedWordIntoRussianContext() {
+        val note = Note(
+            id = 1, russian = "дом", lemma = "дом", translation = "house", partOfSpeech = "noun",
+            exampleSentence = "Это мой дом.", exampleTranslation = "This is my house."
+        )
+        val young = buildPrompt(Card(noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB), note, emptyMap())
+        val mature = buildPrompt(Card(noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, reps = 5), note, emptyMap())
+
+        assertEquals(AnswerMode.LESSON, young.answerMode)
+        assertTrue(young.lesson?.body.orEmpty().contains("house"))
+        assertTrue(mature.prompt.contains("Это мой дом."))
+        assertTrue(mature.prompt.contains("mean here"))
+    }
+
+    @Test
+    fun recognitionUsesTheMeaningFromItsExampleInsteadOfAnUnrelatedDictionarySense() {
+        val note = Note(
+            id = 1, russian = "а", lemma = "а", translation = "and (as contrast)", partOfSpeech = "conjunction",
+            exampleSentence = "А да, у меня завтра что-то есть.",
+            exampleTranslation = "Oh right, I have something tomorrow."
+        )
+        val card = Card(noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.REVIEW, reps = 1)
+
+        assertEquals("oh / oh right", buildPrompt(card, note, emptyMap()).expectedAnswer)
+    }
+
+    @Test
+    fun recognitionNeverRequiresAnOversizedDictionarySenseList() {
+        val note = Note(
+            id = 1, russian = "слово", lemma = "слово",
+            translation = "sense one, sense two, sense three, sense four, sense five",
+            partOfSpeech = "noun"
+        )
+        val card = Card(noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.REVIEW, reps = 1)
+
+        assertEquals("sense one / sense two", buildPrompt(card, note, emptyMap()).expectedAnswer)
+    }
+
+    @Test
+    fun productionUsesOneConciseMeaningInsteadOfTheDictionaryEntry() {
+        val note = Note(
+            id = 1,
+            russian = "быть",
+            lemma = "быть",
+            translation = "to be, (present tense) есть - there is, has been",
+            partOfSpeech = "verb"
+        )
+        val card = Card(noteId = 1, cardType = CardType.MEANING_TO_RU, queue = Queue.VOCAB, state = CardState.REVIEW, reps = 1)
+
+        val prompt = buildPrompt(card, note, emptyMap())
+
+        assertEquals("to be", prompt.prompt)
+        assertEquals("быть", prompt.expectedAnswer)
+    }
+
+    @Test
+    fun aNewWordIsTaughtThenInsertedLaterForFirstRecall() {
+        val note = Note(id = 1, russian = "дом", lemma = "дом", translation = "house", partOfSpeech = "noun")
+        val intro = buildPrompt(Card(id = 1, noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB), note, emptyMap())
+        val rest = (2L..9L).map { simplePrompt(it) }
+
+        val queue = recoveryQueueAfter(listOf(intro) + rest, intro, Rating.GOOD)
+
+        assertEquals(AnswerMode.LESSON, intro.answerMode)
+        assertEquals(1L, queue[6].card.id)
+        assertTrue(queue[6].queueReason.orEmpty().contains("First recall"))
+    }
     private fun verbNote(id: Long, lemma: String, aspect: String, aktionsart: String, partnerId: Long? = null) = Note(
         id = id,
         russian = lemma,
@@ -60,6 +164,7 @@ class ReviewPromptTest {
 
         assertEquals("discuss_ipf", prompt.expectedAnswer)
         assertTrue(prompt.prompt.contains("ongoing process"))
+        // Object-free carrier so it reads naturally for any verb (no "этот вопрос").
         assertTrue(prompt.prompt.contains("долго"))
         assertTrue(prompt.explanation!!.contains("imperfective"))
     }
@@ -131,6 +236,37 @@ class ReviewPromptTest {
 
         assertEquals("state_gen", prompt.expectedAnswer)
         assertTrue(prompt.prompt.contains("genitive singular"))
+    }
+
+    @Test
+    fun matureCaseCardSwitchesToCaseSelectionMode() {
+        val card = Card(
+            noteId = 1,
+            cardType = CardType.CASE_FILL,
+            queue = Queue.GRAMMAR,
+            gramCase = "GEN",
+            gramGender = "PL",
+            gramNumber = "PL",
+            reps = 3
+        )
+        val note = Note(
+            id = 1,
+            russian = "troops",
+            lemma = "troops",
+            translation = "troops",
+            partOfSpeech = "noun",
+            gender = "PL",
+            declensionJson = """{"NOM_PL":"troops","GEN_PL":"troops_gen"}""",
+            exampleSentence = "The position of troops_gen matters."
+        )
+
+        val prompt = buildPrompt(card, note, emptyMap())
+
+        assertEquals("troops_gen", prompt.expectedAnswer)
+        // Once seen a couple of times, the prompt stops naming the case — the learner
+        // must infer it from the carrier (case SELECTION, the real A1.5 skill).
+        assertTrue(!prompt.prompt.contains("genitive plural"))
+        assertTrue(prompt.prompt.contains("____"))
     }
 
     @Test
@@ -586,7 +722,7 @@ class ReviewPromptTest {
             exampleSentence = "The role of state_gen is large."
         )
         val caseCard = Card(noteId = 1, cardType = CardType.CASE_FILL, queue = Queue.GRAMMAR, gramCase = "GEN", gramNumber = "SG", gramConcept = "GEN")
-        val vocabCard = Card(noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB)
+        val vocabCard = Card(noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.REVIEW, reps = 1)
 
         assertTrue(buildPrompt(caseCard, note, emptyMap()).teachingHint!!.isNotBlank())
         assertEquals(null, buildPrompt(vocabCard, note, emptyMap()).teachingHint)
@@ -646,7 +782,7 @@ class ReviewPromptTest {
         )
 
         val prompts = listOf(
-            buildPrompt(Card(noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB), note, emptyMap()),
+            buildPrompt(Card(noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.REVIEW, reps = 1), note, emptyMap()),
             buildPrompt(Card(noteId = 1, cardType = CardType.MEANING_TO_RU, queue = Queue.VOCAB), note, emptyMap()),
             buildPrompt(Card(noteId = 1, cardType = CardType.CLOZE, queue = Queue.VOCAB), note, emptyMap()),
             buildPrompt(Card(noteId = 1, cardType = CardType.AUDIO_TO_RU, queue = Queue.VOCAB), note, emptyMap()),

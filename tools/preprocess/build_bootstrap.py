@@ -484,7 +484,34 @@ def main():
     except ImportError:
         supplement = []
 
-    reader_texts = a1_readers + all_reader_texts()
+    # Local Между нами textbooks (four PDFs in ~/Documents when available). These
+    # are activity/workbook books, so the ingestion (a) mines only the words the book
+    # itself glosses inline in English — real translations, nothing invented — into
+    # vocab notes, and (b) reconstructs the embedded narrative into level-tagged
+    # graded reader passages. Vocab is deduped against the curated deck by surface
+    # form so the textbook never re-teaches a word the course already owns.
+    textbook_notes = []
+    textbook_readers = []
+    try:
+        from textbook_ingest import textbook_reader_texts, textbook_rows
+        existing = {n["lemma"].lower().replace("ё", "е") for n in notes}
+
+        def _tb_lemma(note):
+            # Textbook lemmas are namespaced "tb_<dictionary lemma>"; compare the bare
+            # dictionary lemma (and the surface, for the coordinated-phrase notes whose
+            # lemma is the phrase itself) against the curated deck so the textbook never
+            # re-teaches — in any inflection — a word the course already owns.
+            lemma = note["lemma"]
+            base = lemma[3:] if lemma.startswith("tb_") else lemma
+            return base.lower().replace("ё", "е")
+
+        textbook_notes = [n for n in textbook_rows() if _tb_lemma(n) not in existing]
+        textbook_readers = textbook_reader_texts()
+        notes = notes + textbook_notes
+    except ImportError:
+        pass
+
+    reader_texts = a1_readers + all_reader_texts() + textbook_readers
     write_jsonl(ASSETS / "bootstrap_notes.jsonl", notes)
     write_jsonl(ASSETS / "bootstrap_reader_texts.jsonl", reader_texts)
     nominal = len(nouns) + len(adjs)
@@ -496,8 +523,11 @@ def main():
     print(f"notes: {len(notes)}  (tier-0 course={len(course)} [spine={len(a1_notes)} + "
           f"promoted={len(promoted)}], lessons={a1_lessons}, levels={by_level}; "
           f"domain={len(domain)}: nominal={nominal}, verbs={len(verbs)}, "
-          f"aspect-ready={aspect_ready}; general(reading-fuel)={len(general)})")
+          f"aspect-ready={aspect_ready}; general(reading-fuel)={len(general)}; "
+          f"textbook phrases={len(textbook_notes)})")
     print(f"reader texts: {len(reader_texts)}")
+    if textbook_readers:
+        print(f"textbook reader/practice texts: {len(textbook_readers)}")
     print(f"wrote -> {ASSETS}")
 
 

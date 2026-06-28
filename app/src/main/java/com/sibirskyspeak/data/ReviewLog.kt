@@ -25,5 +25,11 @@ data class ReviewLog(
     val stateBefore: CardState,
     val scheduledDays: Int,
     val elapsedDays: Int,
-    val source: ReviewSource
+    val source: ReviewSource,
+    // The card's stability going *into* this review (the value carried over from the
+    // previous review). Together with [elapsedDays] and the recall outcome this is
+    // exactly what the on-device FSRS weight fit needs to reconstruct the forgetting
+    // curve. 0.0 for NEW-card first reviews and for rows logged before this column
+    // existed (those are simply skipped by the fitter).
+    val stabilityBefore: Double = 0.0
 )

@@ -19,7 +19,10 @@ class FsrsScheduler(
     // learned from the user's own retention vs target. 1.0 = stock FSRS behaviour.
     private val intervalModifierProvider: () -> Double = { 1.0 },
     private val maximumIntervalDays: Int = 36_500,
-    private val weights: DoubleArray = DEFAULT_WEIGHTS,
+    // Read fresh on each access so an on-device weight refit (persisted to settings)
+    // takes effect immediately, without rebuilding the scheduler. Defaults to stock
+    // FSRS-6 weights until the learner has enough history to personalize them.
+    private val weightsProvider: () -> DoubleArray = { DEFAULT_WEIGHTS },
     // Interval fuzz spreads review dates so a batch of cards graded the same way on
     // one day doesn't all resurface on the same future day (the "avalanche" that
     // makes review days lumpy and makes you re-type the same words together). This
@@ -28,9 +31,14 @@ class FsrsScheduler(
     private val enableFuzz: Boolean = false,
     private val random: Random = Random.Default
 ) : Scheduler {
+    // Snapshot the active weights once per public call so a refit mid-call can't make
+    // the stability/difficulty/interval math internally inconsistent.
+    private var weights: DoubleArray = weightsProvider()
+
     override fun review(card: Card, rating: Rating, now: Long): Pair<Card, ReviewLog> {
+        weights = weightsProvider()
         val elapsedDays = elapsedDays(card, now)
-        val reviewed = applyQueueConstraints(nextCard(card, rating, now, elapsedDays))
+        val reviewed = applyQueueConstraints(nextCard(card, rating, now, elapsedDays, fuzzInterval = enableFuzz))
         val log = ReviewLog(
             cardId = card.id,
             reviewDatetime = now,
@@ -38,15 +46,18 @@ class FsrsScheduler(
             stateBefore = card.state,
             scheduledDays = reviewed.scheduledDays,
             elapsedDays = elapsedDays,
-            source = if (card.queue == Queue.GRAMMAR) ReviewSource.GRAMMAR_DRILL else ReviewSource.SRS_REVIEW
+            source = if (card.queue == Queue.GRAMMAR) ReviewSource.GRAMMAR_DRILL else ReviewSource.SRS_REVIEW,
+            stabilityBefore = if (card.stability.isFinite() && card.stability > 0.0) card.stability else 0.0
         )
         return reviewed to log
     }
 
-    override fun preview(card: Card, now: Long): Map<Rating, Int> =
-        Rating.entries.associateWith { rating ->
-            applyQueueConstraints(nextCard(card, rating, now, elapsedDays(card, now))).scheduledDays
+    override fun preview(card: Card, now: Long): Map<Rating, Int> {
+        weights = weightsProvider()
+        return Rating.entries.associateWith { rating ->
+            applyQueueConstraints(nextCard(card, rating, now, elapsedDays(card, now), fuzzInterval = false)).scheduledDays
         }
+    }
 
     override fun applyQueueConstraints(card: Card): Card {
         if (card.queue != Queue.GRAMMAR || card.state == CardState.GRADUATED || card.scheduledDays <= GRAMMAR_INTERVAL_CEILING_DAYS) {
@@ -58,7 +69,7 @@ class FsrsScheduler(
         )
     }
 
-    private fun nextCard(card: Card, rating: Rating, now: Long, elapsedDays: Int): Card {
+    private fun nextCard(card: Card, rating: Rating, now: Long, elapsedDays: Int, fuzzInterval: Boolean): Card {
         // Guard against non-finite / non-positive prior state. A NaN or Infinity
         // (e.g. from a hand-edited backup or a divide-by-zero in older data) would
         // otherwise propagate and pin the card's due date to garbage forever. We
@@ -78,7 +89,7 @@ class FsrsScheduler(
         }.let { if (it.isFinite()) it else initStability(rating) }
             .coerceIn(MIN_STABILITY, maximumIntervalDays.toDouble())
 
-        val scheduledDays = scheduledDays(nextStability, rating, card.state)
+        val scheduledDays = scheduledDays(nextStability, rating, card.state, fuzzInterval)
         return card.copy(
             due = dueAt(now, scheduledDays, rating, card.state),
             stability = nextStability,
@@ -141,11 +152,11 @@ class FsrsScheduler(
 
     private fun factor(): Double = 0.9.pow(-1.0 / decay()) - 1.0
 
-    private fun scheduledDays(stability: Double, rating: Rating, state: CardState): Int =
+    private fun scheduledDays(stability: Double, rating: Rating, state: CardState, fuzzInterval: Boolean): Int =
         when {
             rating == Rating.AGAIN -> 0
             state == CardState.NEW && rating == Rating.HARD -> 0
-            else -> applyFuzz(interval(stability))
+            else -> if (fuzzInterval) applyFuzz(interval(stability)) else interval(stability)
         }
 
     /**
@@ -203,5 +214,28 @@ class FsrsScheduler(
             0.001, 1.8722, 0.1666, 0.796, 1.4835, 0.0614, 0.2629,
             1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542
         )
+
+        /** Indices into the weight vector that the on-device fitter personalizes. */
+        const val INIT_STABILITY_AGAIN = 0
+        const val INIT_STABILITY_EASY = 3
+        const val DECAY_INDEX = 20
+
+        /** Forgetting-curve decay for a given weight vector (falls back to stock). */
+        fun decayOf(weights: DoubleArray): Double =
+            weights.getOrElse(DECAY_INDEX) { DEFAULT_WEIGHTS[DECAY_INDEX] }
+
+        /** The FSRS time-scaling factor for a given decay: `0.9^(-1/decay) - 1`. */
+        fun factorOf(decay: Double): Double = 0.9.pow(-1.0 / decay) - 1.0
+
+        /**
+         * Modeled probability of recall at [elapsedDays] for a card of [stability],
+         * under the forgetting curve `R = (1 + factor·t/S)^(-decay)`. The single
+         * source of truth shared by the scheduler, the weight fitter, and the
+         * interval-modifier recalibration.
+         */
+        fun retrievabilityOf(elapsedDays: Double, stability: Double, decay: Double): Double {
+            if (stability <= 0.0 || !stability.isFinite()) return 0.0
+            return (1.0 + factorOf(decay) * elapsedDays / stability).pow(-decay)
+        }
     }
 }

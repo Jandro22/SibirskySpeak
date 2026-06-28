@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The app owns its own recovery path: LearningRepository writes a full-state
+    JSON backup (BackupManager) and restores from it on a fresh install. Letting
+    Android's auto-backup also snapshot/restore the raw Room database risks
+    restoring a stale or half-migrated DB file onto a new install, fighting the
+    app's own restore logic. Exclude the database from both backup paths.
+-->
+<full-backup-content>
+    <exclude domain="database" path="." />
+</full-backup-content>

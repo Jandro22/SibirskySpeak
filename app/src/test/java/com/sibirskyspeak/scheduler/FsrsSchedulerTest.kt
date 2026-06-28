@@ -184,4 +184,69 @@ class FsrsSchedulerTest {
         // ... while actually spreading due dates (the whole point).
         assertTrue("fuzz should produce variation", results.toSet().size > 1)
     }
+
+    @Test
+    fun previewDoesNotConsumeTheRandomFuzzStream() {
+        var randomCalls = 0
+        val countingRandom = object : Random() {
+            override fun nextBits(bitCount: Int): Int {
+                randomCalls += 1
+                return 0
+            }
+        }
+        val scheduler = FsrsScheduler(enableFuzz = true, random = countingRandom)
+        val card = Card(
+            noteId = 1,
+            cardType = CardType.RU_TO_MEANING,
+            queue = Queue.VOCAB,
+            stability = 100.0,
+            difficulty = 5.0,
+            state = CardState.REVIEW,
+            lastReview = 0L
+        )
+        val now = 200L * 86_400_000L
+
+        scheduler.preview(card, now)
+        assertEquals("display-only previews must not alter later due dates", 0, randomCalls)
+        scheduler.review(card, Rating.GOOD, now)
+        assertTrue("committed reviews still use fuzz", randomCalls > 0)
+    }
+
+    @Test
+    fun logsStabilityGoingIntoTheReview() {
+        val scheduler = FsrsScheduler()
+        val mature = Card(
+            noteId = 1,
+            cardType = CardType.RU_TO_MEANING,
+            queue = Queue.VOCAB,
+            stability = 42.0,
+            difficulty = 5.0,
+            state = CardState.REVIEW,
+            lastReview = 0L
+        )
+        val (_, log) = scheduler.review(mature, Rating.GOOD, now = 10L * 86_400_000L)
+        assertEquals("mature review must log the prior stability", 42.0, log.stabilityBefore, 1e-9)
+
+        val fresh = mature.copy(stability = 0.0, state = CardState.NEW, lastReview = null)
+        val (_, freshLog) = scheduler.review(fresh, Rating.GOOD, now = 0L)
+        assertEquals("new-card first review has no prior stability", 0.0, freshLog.stabilityBefore, 1e-9)
+    }
+
+    @Test
+    fun weightsProviderIsReadLivePerReview() {
+        // A higher init-stability weight for GOOD must lengthen the first interval.
+        var weights = FsrsScheduler.DEFAULT_WEIGHTS.copyOf()
+        val scheduler = FsrsScheduler(weightsProvider = { weights })
+        val newCard = Card(
+            noteId = 1,
+            cardType = CardType.RU_TO_MEANING,
+            queue = Queue.VOCAB,
+            state = CardState.NEW,
+            lastReview = null
+        )
+        val before = scheduler.review(newCard, Rating.GOOD, now = 0L).first.scheduledDays
+        weights = weights.copyOf().also { it[2] = it[2] * 3.0 } // w[2] = init stability for GOOD
+        val after = scheduler.review(newCard, Rating.GOOD, now = 0L).first.scheduledDays
+        assertTrue("a live weight bump must change scheduling without rebuilding", after > before)
+    }
 }

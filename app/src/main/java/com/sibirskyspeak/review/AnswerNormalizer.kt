@@ -24,11 +24,14 @@ fun normalizeRussian(input: String, ignoreStress: Boolean = true): String {
     if (ignoreStress) {
         value = value.replace("\u0301", "")
     }
-    return value
+    val cleaned = value
         .let { if (ignoreStress) it.replace("\u0308", "") else it }
-        .replace(if (ignoreStress) Regex("""[^\p{L}\p{N}\s-]""") else Regex("""[^\p{L}\p{N}\u0301\u0308\s-]"""), "")
+        // Preserve U+0306 (breve): NFD represents й as и + breve. Dropping it
+        // incorrectly makes й and и grade as the same Russian letter.
+        .replace(if (ignoreStress) Regex("""[^\p{L}\p{N}\u0306\s-]""") else Regex("""[^\p{L}\p{N}\u0301\u0306\u0308\s-]"""), "")
         .replace(Regex("""\s+"""), " ")
         .trim()
+    return Normalizer.normalize(cleaned, Normalizer.Form.NFC)
 }
 
 fun isRussianAnswerCorrect(expected: String, actual: String, ignoreStress: Boolean = true): Boolean =

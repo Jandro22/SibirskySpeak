@@ -1,0 +1,4 @@
+# Intermediate textbook-ingest outputs (debugging only). The app consumes
+# bootstrap_notes.jsonl / bootstrap_reader_texts.jsonl, which build_bootstrap.py
+# assembles; these standalone dumps must never be committed or packaged.
+out/

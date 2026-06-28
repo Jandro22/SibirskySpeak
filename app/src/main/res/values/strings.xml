@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SibirskySpeak</string>
+
+    <!-- Reused dialog/action labels (Compose still reads these via stringResource). -->
+    <string name="action_cancel">Cancel</string>
+    <string name="action_save">Save</string>
+    <string name="action_done">Done</string>
+    <string name="label_settings">Settings</string>
+</resources>

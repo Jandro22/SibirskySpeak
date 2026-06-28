@@ -14,6 +14,12 @@ class AnswerNormalizerTest {
     }
 
     @Test
+    fun preservesShortIAsADistinctRussianLetter() {
+        assertEquals("\u0439", normalizeRussian("\u0439"))
+        assertFalse(isRussianAnswerCorrect("\u043c\u043e\u0439", "\u043c\u043e\u0438"))
+    }
+
+    @Test
     fun stressSensitiveModeRequiresStressMarks() {
         val stressed = "\u043c\u043e\u043b\u043e\u043a\u043e\u0301"
         val unstressed = "\u043c\u043e\u043b\u043e\u043a\u043e"

@@ -10,6 +10,8 @@ enum class CardType {
     SPEAK,
     DICTATION,
     SENTENCE_BUILD,
+    // Legacy compatibility: no longer generated, but retained so existing databases
+    // and full-state backups containing older stress cards remain readable.
     STRESS_MARK,
     CASE_FILL,
     VERB_FORM,
