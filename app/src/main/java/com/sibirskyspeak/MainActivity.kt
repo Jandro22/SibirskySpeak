@@ -117,18 +117,27 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
     var studyActive by rememberSaveable { mutableStateOf(false) }
     var settingsArea by rememberSaveable { mutableStateOf(SettingsArea.STUDY) }
     var showReference by rememberSaveable { mutableStateOf(false) }
+    val activeTab = state.sessionStep.mainTab()
+    // Manual reader browsing (reached from the Practice/Dashboard "Read" actions)
+    // lives on the READER tab; in-session scheduled reading instead rides on the
+    // study session. Treat both as "in the reader" for back-handling and layout.
+    val inReader = (!studyActive && activeTab == SessionStep.READER) || state.inSessionReading
     BackHandler(enabled = studyActive) { studyActive = false }
     BackHandler(enabled = showReference && !studyActive) { showReference = false }
+    // Back out of the manual reader: close an open text first, else return to Practice.
+    BackHandler(enabled = !studyActive && activeTab == SessionStep.READER) {
+        if (state.selectedReaderTextId != null) viewModel.closeReaderText()
+        else viewModel.setSessionStep(SessionStep.REVIEWS)
+    }
 
-    val activeTab = state.sessionStep.mainTab()
     // The reader word card stays pinned to the bottom while the story scrolls.
-    val showWordCard = state.inSessionReading && state.selectedToken != null
+    val showWordCard = inReader && state.selectedToken != null
     // An open reader text renders its tokens in a LazyColumn for virtualization
     // (see ReaderTextScreen), which needs bounded height constraints from its
     // parent. That's incompatible with the shared verticalScroll Column every
     // other tab uses, so this case gets its own non-scrolling, weighted layout
     // below instead of sharing the general scrollable container.
-    val readerTextOpen = state.inSessionReading && state.selectedReaderTextId != null
+    val readerTextOpen = inReader && state.selectedReaderTextId != null
 
     @Composable
     fun MainTabContent(tab: SessionStep) {
@@ -159,9 +168,10 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
             SessionStep.REVIEWS -> PracticeScreen(
                 state = state,
                 onStart = { studyActive = true },
-                onRead = { studyActive = true },
-                onOpenReader = { _ ->
-                    studyActive = true
+                onRead = { viewModel.setSessionStep(SessionStep.READER) },
+                onOpenReader = { id ->
+                    viewModel.setSessionStep(SessionStep.READER)
+                    viewModel.openReaderText(id)
                 },
                 onFocusedGrammar = {
                     viewModel.setSessionStep(SessionStep.BLOCKED)
@@ -189,8 +199,11 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
             SessionStep.DASHBOARD -> DashboardPanel(
                 state = state,
                 onStart = { studyActive = true },
-                onOpenReader = { studyActive = true },
-                onRead = { studyActive = true },
+                onOpenReader = { id ->
+                    viewModel.setSessionStep(SessionStep.READER)
+                    viewModel.openReaderText(id)
+                },
+                onRead = { viewModel.setSessionStep(SessionStep.READER) },
                 onLoadLeeches = viewModel::loadLeeches,
                 onReleaseLeech = viewModel::releaseLeech,
                 onSaveLeechEdit = viewModel::editLeech
@@ -226,9 +239,10 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
             else -> PracticeScreen(
                 state = state,
                 onStart = { studyActive = true },
-                onRead = { studyActive = true },
-                onOpenReader = { _ ->
-                    studyActive = true
+                onRead = { viewModel.setSessionStep(SessionStep.READER) },
+                onOpenReader = { id ->
+                    viewModel.setSessionStep(SessionStep.READER)
+                    viewModel.openReaderText(id)
                 },
                 onFocusedGrammar = {
                     viewModel.setSessionStep(SessionStep.BLOCKED)
@@ -290,7 +304,7 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
         },
         bottomBar = {
             AnimatedVisibility(
-                visible = !studyActive,
+                visible = !studyActive && !readerTextOpen,
                 enter = slideInVertically(tween(220)) { it } + fadeIn(tween(220)),
                 exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(140))
             ) {

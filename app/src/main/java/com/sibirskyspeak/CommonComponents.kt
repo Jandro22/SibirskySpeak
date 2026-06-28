@@ -566,7 +566,10 @@ internal fun SessionStep.label(): String =
 internal fun SessionStep.mainTab(): SessionStep =
     when (this) {
         SessionStep.DASHBOARD -> SessionStep.DASHBOARD
-        SessionStep.READER -> SessionStep.REVIEWS
+        // The reader is its own destination so it actually renders when selected;
+        // it has no bottom-nav item (it's reached from the Practice/Dashboard
+        // "Read" actions), which is why it isn't one of the MainTabs.
+        SessionStep.READER -> SessionStep.READER
         SessionStep.IMPORT -> SessionStep.IMPORT
         else -> SessionStep.REVIEWS
     }
