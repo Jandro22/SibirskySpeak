@@ -381,6 +381,26 @@ def _level_for_unit(unit: int) -> str:
 # rather than prose ("OR — Да, Кевин играет…").
 _ALTERNATION_RE = re.compile(r"(?:^|\s)(?:or|или)(?:\s|—|$)", re.IGNORECASE)
 
+# "Образец" ("Model"/"Example") introduces a substitution-pattern drill: the
+# template plus its generated variants ("— Пылесос на́до купи́ть? — Коне́чно,
+# пылесо́с на́до купи́ть. — Коне́чно, ла́мпу на́до купи́ть.") reads as broken dialogue
+# without the template, not connected prose. Any activity containing this marker
+# is excluded wholesale from reader-text mining (vocabulary mining is unaffected).
+# Matched against a stress-stripped line: the nominative "образец" and its
+# oblique/plural stem "образц-" both fit "образе?ц".
+_MODEL_DRILL_RE = re.compile(r"\bобразе?ц", re.IGNORECASE)
+
+# A run of two-or-more bare digit groups ("50 ... 60 ... 70 ...") betrays a
+# number/numeral-table drill, not prose, even though the Russian number words
+# themselves ("пятьдесят", "шестьдесят") look like ordinary lowercase vocabulary
+# and would otherwise pass the prose-content check.
+_DIGIT_GROUP_RE = re.compile(r"\d+")
+
+# A drill table's column header ("он/она/оно" gender-agreement grid) repeated
+# verbatim is a strong artifact signal distinct from the rare genuine use of all
+# three pronouns in one sentence of real dialogue.
+_PRONOUN_DRILL_RE = re.compile(r"он\s+она́?\s+оно́?", re.IGNORECASE)
+
 
 def _is_prose_sentence(s: str) -> bool:
     """Accept only genuine connected prose, rejecting the exercise debris that a
@@ -395,6 +415,10 @@ def _is_prose_sentence(s: str) -> bool:
     if any(ch in s for ch in ("_", "/", "…", "•", "=")):
         return False
     if _ALTERNATION_RE.search(s):
+        return False
+    if len(_DIGIT_GROUP_RE.findall(s)) >= 2:
+        return False
+    if _PRONOUN_DRILL_RE.search(s):
         return False
     # Syllable/alphabet soup: too many single letters, too many ≤2-char fragments,
     # or a tiny mean word length.
@@ -466,6 +490,11 @@ def _clean_title(activity: "Activity") -> str:
 def reader_texts_from_activities(activities: list[Activity]) -> list[dict]:
     rows = []
     for activity in activities:
+        # A substitution-pattern drill ("Образец: — Пылесос на́до купи́ть? — ...")
+        # reads as broken dialogue once the template that generates it is removed;
+        # exclude the whole activity rather than salvage individual sentences.
+        if any(_MODEL_DRILL_RE.search(_strip_stress(line)) for line in activity.lines):
+            continue
         sentences = readable_sentences(activity)
         body = " ".join(sentences)
         total_words = sum(len(CYR_WORD_RE.findall(s)) for s in sentences)
@@ -608,7 +637,12 @@ def _vocab_note_from(term: str, gloss: str, unit: int) -> dict | None:
         "pos": "word",
         "translation": translation,
         "tier": 0,
-        "unit": unit,
+        # No "unit": the textbook's own chapter numbering (1-9) is a different
+        # namespace from the curated spine's unit numbering (also 1-40+) and the
+        # two collide by coincidence, not by topic ("Между нами" unit 2 is family
+        # photos; spine unit 2 is plural nouns). Leaving unit unset keeps this
+        # vocabulary core (tier 0, introduced early) without it being silently
+        # folded into - and skewing the mastery stats of - an unrelated spine unit.
         "cefrLevel": level,
         "tags": f"textbook vocab mn1e unit-{unit} {level.lower()}{recognition}",
     }

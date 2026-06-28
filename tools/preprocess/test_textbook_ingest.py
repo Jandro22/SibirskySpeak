@@ -61,7 +61,13 @@ def test_vocab_notes_carry_real_glosses_not_metadata():
         assert n["lemma"].startswith("tb_")          # namespaced, no deck collisions
         assert CYR.search(n["russian"])
         assert n["cefrLevel"] in {"A1", "A2"}
-        assert 1 <= n["unit"] <= 9
+        # No "unit": the textbook's own chapter numbers (1-9) are a different
+        # namespace from the curated spine's unit numbers and collide by
+        # coincidence, not by topic, so these notes intentionally stay unit-less
+        # (tier 0, but not folded into spine unit-mastery stats). The textbook
+        # chapter is still recoverable from the "unit-N" tag.
+        assert "unit" not in n
+        assert re.search(r"unit-[1-9]\b", n["tags"])
         # A gloss is a short meaning, not a sentence-long instruction.
         assert 1 <= len(n["translation"].split()) <= 5
     # Known good glosses are recovered from the book.

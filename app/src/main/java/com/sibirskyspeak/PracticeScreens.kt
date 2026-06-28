@@ -95,7 +95,10 @@ internal fun UnitMasteryPanel(state: ReviewUiState) {
     val activeIndex = units.indexOfFirst { it.unlocked && it.progress < 0.80 }.let { if (it < 0) units.lastIndex else it }
     val visible = units.drop((activeIndex - 1).coerceAtLeast(0)).take(3)
     SectionCard {
-        Text("Textbook mastery", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        // This is the master curriculum progression (hand-authored spine + the
+        // frequency-promoted band) that drives FSRS sequencing, not the literal
+        // textbook-PDF content (that's a small supplementary vocab/reading layer).
+        Text("Curriculum mastery", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Text(
             "A unit unlocks after 80% mastery; grammar requires repeated correct recall.",
             style = MaterialTheme.typography.bodySmall,
@@ -183,7 +186,7 @@ internal fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: (
         state.sessionPlan?.unitMastery?.firstOrNull { it.unlocked && it.progress < 0.80 }?.let { unit ->
             Spacer(Modifier.height(12.dp))
             Text(
-                "Textbook Unit ${unit.unit}: ${(unit.progress * 100).toInt()}% mastered · " +
+                "Curriculum Unit ${unit.unit}: ${(unit.progress * 100).toInt()}% mastered · " +
                     "vocabulary ${unit.vocabularyMastered}/${unit.vocabularyTotal} · " +
                     "grammar ${unit.grammarMastered}/${unit.grammarTotal}",
                 style = MaterialTheme.typography.bodySmall,
