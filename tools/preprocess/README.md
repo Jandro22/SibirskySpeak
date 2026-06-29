@@ -60,3 +60,21 @@ This emits ~10,300 real notes in three layers:
 Regenerate the general source once from the deck with `extract_general.py` (writes the repo-local `general_source.jsonl` artifact so later builds don't need the original `.apkg`). Re-run `build_bootstrap.py` after editing any wordlist module.
 
 `validate-notes` checks that an import file has at least 200 ready noun/adjective rows, 100 aspect-ready verb rows, valid aspect-partner lemmas, domain ranks, examples, and optionally high/manual Aktionsart verification.
+## Shipped-word quality gate
+
+`python validate_bootstrap_quality.py` audits every note in the final Android asset,
+not merely the source generators. For the release gate, run
+`python validate_bootstrap_quality.py --require-reviewed`. That stricter command
+passes only when every exact record has checksum-bound lexical evidence in
+`bootstrap_verified.json`; any later edit automatically makes it unverified.
+
+Refresh evidence with `python verify_lexicon.py` using the English Wiktionary
+Russian extraction from Kaikki. The verifier checks exact lexeme, compatible part
+of speech, and English-gloss overlap. It can also collect approved direct
+Russian-English Tatoeba examples; `lexical_examples.json` freezes those citations
+so app builds remain deterministic. Unsupported records are excluded by
+`build_bootstrap.py` rather than shipped on trust.
+
+Lexical evidence derives from English Wiktionary via Kaikki (CC BY-SA); cited
+sentence pairs derive from Tatoeba via OPUS (CC BY 2.0 FR). See each project's
+license and attribution requirements.

@@ -1,0 +1,866 @@
+{
+  "авиалиния": {
+    "ru": "Мой отец - лётчик местных авиалиний.",
+    "en": "My father is a pilot on the domestic line.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 40207"
+  },
+  "америка": {
+    "ru": "Я из Америки.",
+    "en": "I'm from America.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 41129"
+  },
+  "апельсиновый": {
+    "ru": "апельси́новый сок",
+    "en": "orange juice",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "в-третьих": {
+    "ru": "Во-первых: мы, твои праотцы, не можем помочь тебе из загробного мира. Во-вторых: покоритель инвалидных колясок прибыл сюда инкогнито и потому мог взять с собой лишь немного стражи. И в-третьих: нет (по идее) никакой принцессы-красавицы. Всё уяснил? Что ж, тогда наслаждайся своей миссией.",
+    "en": "Firstly: We, your forebears, cannot help you from the land beyond. Secondly: The slayer of wheelchairs came here incognito and therefore could only have brought a small number of guards with him. And thirdly: there is (supposedly) no beautiful princess. Got all that? Well, then have fun with your task.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 254902"
+  },
+  "взятый": {
+    "ru": "Откуда это взято?",
+    "en": "Where is this taken from?",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 252422"
+  },
+  "визитка": {
+    "ru": "Сами дал Лейле визитку местного оружейного магазина и тира.",
+    "en": "Sami gave Layla the business card of a local gun store and shooting range.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 422091"
+  },
+  "винительный": {
+    "ru": "вини́тельный паде́ж",
+    "en": "accusative case",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "военно-морской": {
+    "ru": "В эпоху холодной войны на Кубе и во Вьетнаме существовали советские военно-морские и военно-воздушные базы.",
+    "en": "In the Cold War era, Soviet naval and air bases existed in Cuba and Vietnam.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 128958"
+  },
+  "возбудить": {
+    "ru": "Ты возбудил во мне интерес.",
+    "en": "You've aroused my interest.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 256216"
+  },
+  "возобновляемый": {
+    "ru": "Возобновляемая энергия всё время дешевеет.",
+    "en": "Renewable energy is getting cheaper all the time.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 452817"
+  },
+  "встретить": {
+    "ru": "— Ты встре́тил его́? — спроси́ла она́, когда́ они́ се́ли у стола́ под ла́мпой. — Вот тебе́ наказа́ние за то, что опозда́л.",
+    "en": "\"You met him?\" she asked, when they had sat down at the table in the lamplight. \"You're punished, you see, for being late.\"",
+    "source": "English Wiktionary via Kaikki",
+    "reference": "1877, Лев Толстой [Leo Tolstoy], “Часть IV. Глава III”, in Анна Каренина; English translation from Constance Garnett, transl., Anna Karenina, 1901:"
+  },
+  "встретиться": {
+    "ru": "ре́дко встре́титься",
+    "en": "to be uncommon, be rare in occurrence, be a rarity",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "вступить": {
+    "ru": "вступи́ть в брак",
+    "en": "to marry",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "высший": {
+    "ru": "Том получил высший балл.",
+    "en": "Tom got the highest mark.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 531175"
+  },
+  "гид": {
+    "ru": "Я гид.",
+    "en": "I'm a guide.",
+    "source": "Tatoeba",
+    "reference": "https://tatoeba.org/en/sentences/show/8914544"
+  },
+  "грамотность": {
+    "ru": "Во-вторых, уровень грамотности в Европе в то время был низким.",
+    "en": "Secondly, the literacy rate in Europe of that time was low.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 74263"
+  },
+  "грузоподъемность": {
+    "ru": "Какова грузоподъёмность того фургона?",
+    "en": "What is the loading capacity of that van?",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 381969"
+  },
+  "дательный": {
+    "ru": "да́тельный паде́ж",
+    "en": "dative case",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "дать": {
+    "ru": "Лицо́ её каза́лось совсе́м молоды́м, ну не дашь ей бо́льше двадцати́ пяти́ лет, а чуть нахму́рилась, заду́малась, ста́ли ви́дны морщи́нки в уголка́х губ и отвиса́ющая ко́жа под подборо́дком, — не дашь ей ме́ньше сорока́ пяти́.",
+    "en": "Her face looked quite young, you wouldn't think she was over twenty-five, but as soon as she frowned or grew pensive, you could see the fine wrinkles at the corners of her lips, and the skin sagging under her chin: you wouldn't think she was less than forty-five.",
+    "source": "English Wiktionary via Kaikki",
+    "reference": "1960, Василий Семёнович Гроссман (Vasily Semyonovich Grossman), chapter 69, in Жизнь и судьба [Life and Fate], part 1:"
+  },
+  "дешево": {
+    "ru": "Это дёшево.",
+    "en": "This is cheap.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 166997"
+  },
+  "директива": {
+    "ru": "«@implementation» — это директива компилятора, говорящая, что вы собираетесь представить код основы класса.",
+    "en": "«@implementation» is a compiler directive that says you’re about to present the code for the guts of a class.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 244187"
+  },
+  "договориться": {
+    "ru": "договори́лись?",
+    "en": "agreed? (can we consider it arranged?)",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "донный": {
+    "ru": "до́нная часть",
+    "en": "bottom part",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "еженедельный": {
+    "ru": "Мне платят еженедельно.",
+    "en": "I am paid by the week.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 39638"
+  },
+  "жираф": {
+    "ru": "Где жираф?",
+    "en": "Where is the giraffe?",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 165514"
+  },
+  "завершить": {
+    "ru": "Заверши работу.",
+    "en": "Finish the job.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 183031"
+  },
+  "завершиться": {
+    "ru": "Матч завершился вничью.",
+    "en": "The match ended in a draw.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 48466"
+  },
+  "задействованный": {
+    "ru": "Сколько людей задействовано?",
+    "en": "How many people are involved?",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 382533"
+  },
+  "зайти": {
+    "ru": "— А вы ра́зве не зайдёте к нам? — спроси́ла она́ нереши́тельным го́лосом.",
+    "en": "‘But won’t you come in?’ she said in a hesitating voice.",
+    "source": "English Wiktionary via Kaikki",
+    "reference": "1856, Иван Тургенев [Ivan Turgenev], “I”, in Рудин; English translation from Constance Garnett, transl., Rudin, 1894:"
+  },
+  "заросль": {
+    "ru": "Панды живут в бамбуковых зарослях.",
+    "en": "Pandas live in bamboo thickets.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 73866"
+  },
+  "защищенный": {
+    "ru": "Все права защищены.",
+    "en": "All rights reserved.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 301395"
+  },
+  "зебра": {
+    "ru": "Это твоя зебра?",
+    "en": "Is this zebra yours?",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 490121"
+  },
+  "зерновой": {
+    "ru": "зерново́й спирт",
+    "en": "grain alcohol",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "зонт": {
+    "ru": "Где зонтик?",
+    "en": "Where is the umbrella?",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 459654"
+  },
+  "измениться": {
+    "ru": "измениться к лучшему",
+    "en": "to change for the better",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "именительный": {
+    "ru": "имени́тельный паде́ж",
+    "en": "nominative case",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "импортер": {
+    "ru": "Эта страна - ведущий импортёр нефти.",
+    "en": "This country is a leading importer of oil.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 359923"
+  },
+  "инфляционный": {
+    "ru": "инфляцио́нный риск",
+    "en": "inflation risk",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "код": {
+    "ru": "Я взломал код.",
+    "en": "I cracked the code.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 197999"
+  },
+  "крупнейший": {
+    "ru": "Каир — крупнейший город Африки.",
+    "en": "Cairo is the biggest city in Africa.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 100885"
+  },
+  "ледник": {
+    "ru": "Под его́ почти́тельностью и смире́нием скрыва́ется са́мое иезуи́тское ехи́дство. Никто́ лу́чше его́ не уме́ет во́время подкра́сться и ца́пнуть за но́гу, забра́ться в ле́дник и́ли укра́сть у мужика́ ку́рицу.",
+    "en": "Beneath his deference and humbleness was hid the most inquisitorial maliciousness. No one knew better than he how to sneak up and take a bite at a leg, or slip into the larder or steal a muzhik's chicken.",
+    "source": "English Wiktionary via Kaikki",
+    "reference": "1886, Антон Чехов [Anton Chekhov], Ванька, Санкт-Петербург: Петербургская газета; English translation from Thomas Seltzer, transl., Vanka, 1925:"
+  },
+  "лучший": {
+    "ru": "Э́тo лу́чшая ко́мната.",
+    "en": "This is the best room.",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "межвидовой": {
+    "ru": "Иерархия есть у всех социальных животных (в т.ч. и у человека), т.е. тех, которые живут группами. Иерархия нужна для снижения межвидовой агрессии. Т.е. чтобы двум самцам не приходилось каждый раз драться из-за куска еды или самки, природа придумала ранги.",
+    "en": "Hierarchy is present in all social animals (including humans), I mean the ones that live in groups. Hierarchy is meant to decrease the intraspecific aggression. To keep two males from fighting over every piece of food or a female, nature came up with ranks.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 416445"
+  },
+  "миндальный": {
+    "ru": "Его́ ти́хие успокои́тельные ре́чи и улы́бки де́йствовали смягча́юще успокои́тельно, как минда́льное ма́сло. И А́нна ско́ро почу́вствовала э́то.",
+    "en": "His gentle, soothing words and smiles were as soothing and softening as almond oil. And Anna soon felt this.",
+    "source": "English Wiktionary via Kaikki",
+    "reference": "1877, Лев Толстой [Leo Tolstoy], “Часть IV Глава XXI”, in Анна Каренина; English translation from Constance Garnett, transl., Anna Karenina, 1901:"
+  },
+  "навигация": {
+    "ru": "Ранние исследователи использовали звёзды для навигации.",
+    "en": "Early explorers used the stars for navigation.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 50255"
+  },
+  "найти": {
+    "ru": "и себя́ не найдёшь в нелюби́мых дома́х\nи нарвёшься на страх как на ми́нах впотьма́х",
+    "en": "And you will not find yourself in an unloved home\nAnd you will run into fear like into mines in the dark",
+    "source": "English Wiktionary via Kaikki",
+    "reference": "2005, “Вся моя́ любо́вь [Vsja mojá ljubóvʹ]”, performed by t.A.T.u:"
+  },
+  "направленный": {
+    "ru": "С какого направления?",
+    "en": "From which direction?",
+    "source": "Tatoeba",
+    "reference": "https://tatoeba.org/en/sentences/show/8120609"
+  },
+  "наращивать": {
+    "ru": "Первым делом тебе надо наращивать свой словарный запас.",
+    "en": "First you have to build up your vocabulary.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 12118"
+  },
+  "научно-исследовательский": {
+    "ru": "нау́чно-иссле́довательский институ́т",
+    "en": "(scientific) research institute",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "научно-технический": {
+    "ru": "Научно-техническая революция дала мощный толчок развитию искусства авангарда.",
+    "en": "The scientific and technological revolution gave a powerful impetus to the development of avant-garde art.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 528541"
+  },
+  "начаться": {
+    "ru": "Началось.",
+    "en": "It has begun.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 137486"
+  },
+  "неделимый": {
+    "ru": "По Левкиппу и Демокриту атом является неделимым. Сегодня мы знаем, что это неверно.",
+    "en": "According to Leucippus and Democritus, the atom would be indivisible. Today we know that is not true.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 125483"
+  },
+  "необоснованный": {
+    "ru": "Это совершенно необоснованный слух.",
+    "en": "That's a completely unfounded rumor.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 17824"
+  },
+  "неравный": {
+    "ru": "Самым неравным финалом Большого Шлема в истории тенниса был финал «Ролан Гаррос»-1988, в котором Штеффи Граф из ФРГ уничтожила представляющую СССР Наталью Звереву со счётом 6-0, 6-0. Весь матч продолжался каких-то 34 минуты.",
+    "en": "The most lopsided Grand Slam final in tennis history was the 1988 French Open final, when Steffi Graf of FRG pummeled Natasha Zvereva of USSR 6-0, 6-0. The entire match lasted merely 34 minutes.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 368468"
+  },
+  "нестабильный": {
+    "ru": "Это слишком нестабильно.",
+    "en": "It's too unstable.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 185623"
+  },
+  "несущий": {
+    "ru": "несу́щая ось",
+    "en": "supporting axel",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "нефтегазовый": {
+    "ru": "нефтега́зовая промы́шленность",
+    "en": "oil and gas production",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "обеспокоенность": {
+    "ru": "Том казался обеспокоенным.",
+    "en": "Tom seemed to be anxious.",
+    "source": "Tatoeba",
+    "reference": "https://tatoeba.org/en/sentences/show/9209001"
+  },
+  "обменяться": {
+    "ru": "обменя́ться мне́ниями",
+    "en": "to exchange opinions",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "обойти": {
+    "ru": "Они меня обошли.",
+    "en": "They passed me by.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 213121"
+  },
+  "обратить": {
+    "ru": "обрати́ть в прах",
+    "en": "to reduce to dust / ashes",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "оказаться": {
+    "ru": "оказа́ться под вопро́сом",
+    "en": "to be called into question",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "опять-таки": {
+    "ru": "Что опять не так?",
+    "en": "What's wrong now?",
+    "source": "Tatoeba",
+    "reference": "https://tatoeba.org/en/sentences/show/5384228"
+  },
+  "оставшийся": {
+    "ru": "В по́лдень едя́т щи из ки́слой капу́сты и ка́шу, ве́чером у́жинают ка́шей, оста́вшеюся от обе́да.",
+    "en": "At midday they have soup made out of sour cabbage and boiled grain, in the evening their supper consists of grain left from dinner.",
+    "source": "English Wiktionary via Kaikki",
+    "reference": "1892, Антон Чехов [Anton Chekhov], “Глава IV”, in Палата № 6; English translation from Constance Garnett, transl., Ward No. 6, 1921:"
+  },
+  "остаться": {
+    "ru": "Будь таки́е все как вы, ротозéи, что б оста́лось от Москвы́, oт Расéи?",
+    "en": "If everyone were like you gapers, what would be left of Moscow, of Russia?",
+    "source": "English Wiktionary via Kaikki",
+    "reference": "1928 [1918], “Seeing off [Проводы]”, Demyan Bedny (lyrics), Dmitry Vasilyev-Buglay (music):"
+  },
+  "открыть": {
+    "ru": "Открой.",
+    "en": "Open up.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 6171"
+  },
+  "отметить": {
+    "ru": "Ты это отметил?",
+    "en": "Did you notice that?",
+    "source": "Tatoeba",
+    "reference": "https://tatoeba.org/en/sentences/show/3697085"
+  },
+  "отремонтировать": {
+    "ru": "Я это отремонтирую.",
+    "en": "I will fix it.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 250463"
+  },
+  "отслеживать": {
+    "ru": "Мы пытались тебя отследить.",
+    "en": "We've been trying to track you down.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 285693"
+  },
+  "падеж": {
+    "ru": "Мне не даются падежи.",
+    "en": "I can't deal with cases.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 519080"
+  },
+  "пароль": {
+    "ru": "Пароль?",
+    "en": "Password?",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 118528"
+  },
+  "платежный": {
+    "ru": "платёжный бала́нс",
+    "en": "balance of payment",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "платформа": {
+    "ru": "С наслажде́нием, по́лною гру́дью, она́ вдыха́ла в себя́ сне́жный, моро́зный во́здух и, сто́я по́дле ваго́на, огля́дывала платфо́рму и освещённую ста́нцию.",
+    "en": "With enjoyment she drew deep breaths of the frozen, snowy air, and standing near the carriage looked about the platform and the lighted station.",
+    "source": "English Wiktionary via Kaikki",
+    "reference": "1877, Лев Толстой [Leo Tolstoy], “Часть I Глава XXIX”, in Анна Каренина; English translation from Constance Garnett, transl., Anna Karenina, 1901:"
+  },
+  "повысить": {
+    "ru": "Её повысили.",
+    "en": "She was promoted.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 76089"
+  },
+  "поговорить": {
+    "ru": "Я поговорю.",
+    "en": "I'll talk.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 251694"
+  },
+  "подвести": {
+    "ru": "Князь подвёл госте́й к окну́, и им откры́лся преле́стный вид.",
+    "en": "The prince led his guests to the window, and before them opened a lovely view.",
+    "source": "English Wiktionary via Kaikki",
+    "reference": "1833, Александр Пушкин [Alexander Pushkin], “Том второй. Глава XIII”, in Дубровский; English translation from Richard Pevear and Larissa Volokhonsky, transl., Dubrovsky, New York: Alfred A. Knopf, 2016:"
+  },
+  "подписанный": {
+    "ru": "Договор был подписан.",
+    "en": "The treaty was signed.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 98130"
+  },
+  "подрывать": {
+    "ru": "подрыва́ть эконо́мику",
+    "en": "to undermine the economy",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "подчеркнуть": {
+    "ru": "Я хотел это подчеркнуть.",
+    "en": "I wanted to emphasize this.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 169438"
+  },
+  "поздравить": {
+    "ru": "Он её поздравил.",
+    "en": "He congratulated her.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 495848"
+  },
+  "получить": {
+    "ru": "получи́ть пре́мию",
+    "en": "to receive a prize",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "пообещать": {
+    "ru": "Я пообещал.",
+    "en": "I promised.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 171443"
+  },
+  "попасть": {
+    "ru": "куда́ попа́ло",
+    "en": "(to) everywhere, (to) anywhere, (to) wherever, all over the place",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "попросить": {
+    "ru": "Оте́ц попроси́л у до́чери проще́ния.",
+    "en": "The father asked his daughter for forgiveness.",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "попытаться": {
+    "ru": "Попытаюсь.",
+    "en": "I'll try.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 170776"
+  },
+  "портал": {
+    "ru": "Том обнаружил портал в другое измерение.",
+    "en": "Tom found a portal to another dimension.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 524219"
+  },
+  "посмотреть": {
+    "ru": "Пасущие же свиней побежали и рассказали в городе и в деревнях. И жители вышли посмотреть, что случилось.",
+    "en": "The swineherds ran off and told it in the city and in the villages. Then the inhabitants came to see what had happened.",
+    "source": "English Wiktionary via Kaikki",
+    "reference": "1876, Russian Synodal Bible, Mark 5:14:"
+  },
+  "пострадавший": {
+    "ru": "Пострадавших нет.",
+    "en": "No one's injured.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 365642"
+  },
+  "пострадать": {
+    "ru": "Ты пострадал?",
+    "en": "Were you hurt?",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 398392"
+  },
+  "построенный": {
+    "ru": "Мой дом построен.",
+    "en": "My house is built.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 243737"
+  },
+  "потерять": {
+    "ru": "Не потеряй.",
+    "en": "Keep this.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 170531"
+  },
+  "предложный": {
+    "ru": "предло́жный паде́ж",
+    "en": "prepositional case",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "предназначить": {
+    "ru": "Гидрофон — это микрофон, предназначенный для использования под водой.",
+    "en": "A hydrophone is a microphone designed to be used underwater.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 378400"
+  },
+  "предупредить": {
+    "ru": "Предупреди Тома.",
+    "en": "Warn Tom.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 155774"
+  },
+  "прибавить": {
+    "ru": "То́лько раз, когда́ они́ е́хали в го́сти в откры́той коля́ске, он осме́лился в чём-то противоре́чить ей и был за это жесто́ко нака́зан. Наста́сья Дми́триевна сорвала́ с него́ шля́пу и пари́к, бро́сила на мостову́ю, а ку́черу веле́ла приба́вить хо́ду.",
+    "en": "Sergey Shubinsky",
+    "source": "English Wiktionary via Kaikki",
+    "reference": "1869, Сергей Шубинский [Sergey Shubinsky], Один из грибоедовских типов; English translation from (Please provide a date or year):"
+  },
+  "привезти": {
+    "ru": "— Я вам, А́нна Серге́евна, — на́чал он, — привёз не́что тако́е, чего́ вы ника́к не ожида́ете…\n— Вы себя́ привезли́; э́то лу́чше всего́.",
+    "en": "\"I have brought you something, Anna Sergeyevna,\" he began, \"which you certainly don't expect . . .\"\n\"You have brought yourself; that's better than anything else.\"",
+    "source": "English Wiktionary via Kaikki",
+    "reference": "1862, Иван Тургенев [Ivan Turgenev], “Глава 22”, in Отцы и дети; English translation from Richard Hare, transl., Fathers and Sons, 1947:"
+  },
+  "приверженность": {
+    "ru": "Особенно важной является приверженность к традиционным ценностям.",
+    "en": "What is especially important is the observation of the traditional values.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 53869"
+  },
+  "привести": {
+    "ru": "Приведи улики.",
+    "en": "Get me the evidence.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 145478"
+  },
+  "пригласить": {
+    "ru": "— Что ж вы не пригласи́те меня́ к себе́? Мне о́чень бы интере́сно знать, как вы живёте, — сказа́ла Ю́лия.",
+    "en": "Konstantin Vaginov",
+    "source": "English Wiktionary via Kaikki",
+    "reference": "1934, Константин Вагинов [Konstantin Vaginov], “Глава 9. Жажда приключений”, in Гарпагониана; English translation from (Please provide a date or year):"
+  },
+  "прогулочный": {
+    "ru": "прогу́лочный шаг",
+    "en": "leisurely pace",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "проехать": {
+    "ru": "Проехали.",
+    "en": "Skip it.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 155688"
+  },
+  "пройти": {
+    "ru": "Не пройдёт и полго́да.",
+    "en": "Not even half a year will pass.",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "пропускной": {
+    "ru": "пропускна́я спосо́бность",
+    "en": "throughput capacity; (of transport) traffic/carrying capacity; network capacity",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "профильный": {
+    "ru": "про́фильная сталь",
+    "en": "steel shapes",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "разместить": {
+    "ru": "размести́ть заём",
+    "en": "to distribute/float a loan",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "разрушенный": {
+    "ru": "Шторм принёс много разрушений.",
+    "en": "The storm has destroyed a lot.",
+    "source": "Tatoeba",
+    "reference": "https://tatoeba.org/en/sentences/show/9526050"
+  },
+  "рассчитанный": {
+    "ru": "Этот лифт рассчитан на 10 человек.",
+    "en": "This elevator is capable of carrying 10 persons at a time.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 26516"
+  },
+  "родительный": {
+    "ru": "роди́тельный паде́ж",
+    "en": "genitive case",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "санкт-петербургский": {
+    "ru": "У тебя санкт-петербургский акцент, но одесское чувство юмора.",
+    "en": "You have a St. Petersburg accent, but an Odessan sense of humor.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 487158"
+  },
+  "свердловский": {
+    "ru": "До 1991 года «дятловедение» пребывало в свердловском подполье.",
+    "en": "Until 1991, investigation into the death of the Dyatlov group was in the Sverdlovsk underground.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 491108"
+  },
+  "свинина": {
+    "ru": "Я ем свинину.",
+    "en": "I eat pork.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 508127"
+  },
+  "сдать": {
+    "ru": "сдать в аре́нду",
+    "en": "to lease (out), to grant on lease (out), to rent (out)",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "скользко": {
+    "ru": "Очень скользко.",
+    "en": "It's very slippery.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 396685"
+  },
+  "сладкое": {
+    "ru": "Было сладким.",
+    "en": "It tasted sweet.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 17975"
+  },
+  "смочь": {
+    "ru": "Перепу́тались пути́,\nПерламу́тровые ни́ти,\nПа́дать и не смочь идти́,\nСохрани́те, сохрани́те",
+    "en": "The paths have gotten mixed up,\nPearlescent threads,\nFall and won't be able to go,\nPreserve [them], preserve [them]",
+    "source": "English Wiktionary via Kaikki",
+    "reference": "2021, Chernoburkv, “Спутники [Sputniki]”, in Ловец слов:"
+  },
+  "снизить": {
+    "ru": "Том не снизит цену.",
+    "en": "Tom won't lower the price.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 194956"
+  },
+  "снизиться": {
+    "ru": "Цены снизятся.",
+    "en": "The prices will come down.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 70706"
+  },
+  "согласиться": {
+    "ru": "Я согласился.",
+    "en": "I agreed.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 212108"
+  },
+  "созданный": {
+    "ru": "Ты был создан для меня.",
+    "en": "You were meant for me.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 378674"
+  },
+  "составить": {
+    "ru": "Как соста́вить/составля́ть резюме́?",
+    "en": "How should one prepare a résumé?",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "сохранить": {
+    "ru": "Мединский сохранил пост министра культуры в новом правительстве.",
+    "en": "Medinsky retained the post of minister of culture in the new government.",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "сохраниться": {
+    "ru": "Он хорошо сохранился.",
+    "en": "He looks good for his age.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 173250"
+  },
+  "спутниковый": {
+    "ru": "спу́тниковый телефо́н",
+    "en": "satellite phone",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "среднее": {
+    "ru": "Среднее моё.",
+    "en": "The middle one is mine.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 274764"
+  },
+  "суметь": {
+    "ru": "Он не суме́ет э́того сде́лать",
+    "en": "He won’t be able to do it.",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "сырьевой": {
+    "ru": "сырьево́й алма́з",
+    "en": "rough diamond",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "такой-то": {
+    "ru": "в тако́й-то час",
+    "en": "at such-and-such an hour",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "таяние": {
+    "ru": "Какова точка таяния льда?",
+    "en": "What is the melting point of water?",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 420755"
+  },
+  "творительный": {
+    "ru": "твори́тельный паде́ж",
+    "en": "instrumental case",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "тихоокеанский": {
+    "ru": "Я живу в Тихоокеанской временной зоне США.",
+    "en": "I live in the Pacific time zone in the USA.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 94230"
+  },
+  "то-то": {
+    "ru": "То́-то он удиви́тся!",
+    "en": "How surprised he will be!, Won't he be surprised?",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "тогда-то": {
+    "ru": "Тогда́-то и ну́жно бы́ло э́то ей сказа́ть",
+    "en": "That was just when you should have told her that.",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "углеводород": {
+    "ru": "Сколько углеводорода экспортирует Алжир?",
+    "en": "How much hydrocarbons does Algeria export?",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 517916"
+  },
+  "уделить": {
+    "ru": "Удели́те мне три́дцать секу́нд, пожа́луйста.",
+    "en": "Spare me thirty seconds, please.",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "уехать": {
+    "ru": "Том уехал?",
+    "en": "Did Tom leave?",
+    "source": "Tatoeba",
+    "reference": "https://tatoeba.org/en/sentences/show/5887394"
+  },
+  "узнать": {
+    "ru": "Том узнает.",
+    "en": "Tom'll know.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 171338"
+  },
+  "укрепиться": {
+    "ru": "его́ здоро́вье укрепи́лось",
+    "en": "his health improved [became stronger]",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "улучшиться": {
+    "ru": "Погода улучшилась.",
+    "en": "The weather turned better.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 53145"
+  },
+  "уменьшить": {
+    "ru": "уме́ньшить ско́рость",
+    "en": "to slow down",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "ускорить": {
+    "ru": "Мо́лодость и приро́да уско́рили моё выздоровле́ние.",
+    "en": "Youth and nature hastened my recovery.",
+    "source": "English Wiktionary via Kaikki",
+    "reference": "1836, Александр Пушкин [Alexander Pushkin], “Глава V. Любовь”, in Капитанская дочка, London: Henry S. King & Co.; English translation from Ekaterina Telfer, transl., The Captain's Daughter, 1875:"
+  },
+  "устав": {
+    "ru": "боево́й уста́в",
+    "en": "training regulations; field manual",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "фри": {
+    "ru": "Я люблю картофель фри.",
+    "en": "I love french fries.",
+    "source": "Tatoeba via OPUS",
+    "reference": "OPUS Tatoeba v2023-04-12 aligned row 483571"
+  },
+  "шалаш": {
+    "ru": "рыбачий шалаш",
+    "en": "a fishing hut",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  },
+  "экспортер": {
+    "ru": "Тем временем РФ стала вторым (после Канады) крупнейшим экспортёром нефти в США.",
+    "en": "Meanwhile, Russia has become the second (after Canada) largest oil exporter to the United States.",
+    "source": "English Wiktionary via Kaikki",
+    "reference": ""
+  }
+}

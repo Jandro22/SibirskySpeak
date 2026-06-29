@@ -41,6 +41,13 @@ data class LessonContent(
     val exampleEn: String
 )
 
+/** True only for the teaching screen that introduces a vocabulary note. */
+fun ReviewPrompt.isNewVocabularyIntroduction(): Boolean =
+    card.queue == com.sibirskyspeak.data.Queue.VOCAB &&
+        card.state == com.sibirskyspeak.data.CardState.NEW &&
+        card.reps == 0 &&
+        answerMode == AnswerMode.LESSON
+
 enum class AnswerMode {
     ENGLISH,
     RUSSIAN_TYPED,

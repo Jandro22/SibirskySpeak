@@ -5,7 +5,10 @@ import com.sibirskyspeak.review.AnswerMode
 import com.sibirskyspeak.review.LessonContent
 import com.sibirskyspeak.review.buildPrompt
 import com.sibirskyspeak.scheduler.Scheduler
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.Locale
 
@@ -38,7 +41,11 @@ class LearningRepository(
     private val telemetryDao: TelemetryDao? = null,
     private val readingScheduleDao: ReadingScheduleDao? = null,
     private val readerEncounterDao: ReaderEncounterDao? = null,
-    private val readingActivityDao: ReadingActivityDao? = null
+    private val readingActivityDao: ReadingActivityDao? = null,
+    // Dispatcher for the repository's CPU-bound work (surface-form indexing, reader
+    // tokenization). Injectable so tests can pass a deterministic test dispatcher
+    // instead of the real Default pool, which would escape the test scheduler.
+    private val computeDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
     // Holds the most recent review so the user can undo a misclick or typo. Kept
     // in memory only: undo is a within-session affordance, not durable history.
@@ -107,7 +114,12 @@ class LearningRepository(
         notesCache ?: noteDao.getAll().also { notesCache = it }
 
     private suspend fun formIndex(): Map<String, Note> =
-        formIndexCache ?: buildFormIndex(allNotesCached()).also { formIndexCache = it }
+        formIndexCache ?: run {
+            // Surface-form generation over the full note set is the most expensive
+            // CPU operation in the app; keep it off the main thread on a cold cache.
+            val notes = allNotesCached()
+            withContext(computeDispatcher) { buildFormIndex(notes) }.also { formIndexCache = it }
+        }
 
     private suspend fun knownNoteIds(): Set<Long> =
         knownIdsCache ?: computeKnownNoteIds(allNotesCached()).also { knownIdsCache = it }
@@ -131,6 +143,7 @@ class LearningRepository(
         if (noteDao.count() > 0) {
             syncMissingConceptDrillCards()
             runCatching { syncBootstrapTextbookNotes() }
+            runCatching { retireRejectedBootstrapNotes() }
             runCatching { syncBootstrapReaderTexts() }
             runCatching { performDataMaintenance() }
             return
@@ -827,7 +840,7 @@ class LearningRepository(
         runInTransaction {
             // Retire names/PDF fragments removed by the improved textbook miner.
             existing.filter { it.tags.contains("textbook") && it.lemma !in validTextbookLemmas }.forEach { stale ->
-                noteDao.update(stale.copy(status = WordStatus.IGNORED))
+                if (stale.status != WordStatus.IGNORED) noteDao.update(stale.copy(status = WordStatus.IGNORED))
                 cardDao.graduateVocabForNote(stale.id, Long.MAX_VALUE)
             }
             textbookRows.forEach { json ->
@@ -837,14 +850,15 @@ class LearningRepository(
                     if (current != null) {
                         // Upgrade existing installs from the old 61..69 numbering and
                         // refresh corrected concise glosses without touching SRS state.
-                        noteDao.update(current.copy(
+                        val refreshed = current.copy(
                             russian = json.getString("russian"),
                             translation = json.getString("translation"),
                             unit = json.optIntOrNull("unit"),
                             cefrLevel = json.optCleanString("cefrLevel"),
                             mnemonic = json.optCleanString("mnemonic") ?: current.mnemonic,
                             tags = tags
-                        ))
+                        )
+                        if (refreshed != current) noteDao.update(refreshed)
                         return@forEach
                     }
                     addNote(
@@ -882,6 +896,49 @@ class LearningRepository(
         }
         invalidateNoteStructure()
         return imported
+    }
+
+    /**
+     * Retire bundled matrix/domain records removed by the release quality gate.
+     * Imported and reader-mined notes are deliberately out of scope. We preserve
+     * rows and review history, but stop every card so upgrades cannot keep serving
+     * material that no longer exists in the verified bootstrap asset.
+     */
+    suspend fun retireRejectedBootstrapNotes(): Int {
+        val payload = bootstrapNotes?.invoke()?.takeIf { it.isNotBlank() } ?: return 0
+        val validLemmas = payload.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .map { RussianForms.normalize(JSONObject(it).getString("lemma")) }
+            .toHashSet()
+        val priorQualityRetirement = (telemetryDao?.countByType("quality_retirement") ?: 0) > 0
+        val rejected = noteDao.getAll().filter { note ->
+            val bundledLayer = note.tags.startsWith("general ") || note.tags.startsWith("domain ")
+            val alreadyRepaired = priorQualityRetirement && note.status == WordStatus.NEW
+            bundledLayer && !alreadyRepaired && RussianForms.normalize(note.lemma) !in validLemmas
+        }
+        if (rejected.isEmpty()) return 0
+        var changedNotes = 0
+        var changedCards = 0
+        runInTransaction {
+            rejected.forEach { note ->
+                // NEW is intentional: IGNORED counts as known reader coverage and
+                // previously inflated vocabulary totals and word achievements.
+                if (note.status != WordStatus.NEW) {
+                    noteDao.update(note.copy(status = WordStatus.NEW))
+                    changedNotes += 1
+                }
+                changedCards += cardDao.suspendAllForNote(note.id)
+            }
+        }
+        if (changedNotes > 0 || changedCards > 0) {
+            invalidateNoteState()
+            recordTelemetry(TelemetryEvent(
+                eventType = "quality_retirement",
+                metadataJson = JSONObject().put("notes", changedNotes).put("cards", changedCards).toString()
+            ))
+        }
+        return changedNotes
     }
 
     /** One-time/idempotent cleanup for upgrades: merge duplicate notes without
@@ -1053,8 +1110,11 @@ class LearningRepository(
         val statusById = HashMap<Long, WordStatus>(notes.size)
         for (n in notes) statusById[n.id] = n.status
         val body = text.body
+        // Tokenizing the full body and resolving every token against the form index
+        // is CPU-bound; run it off the main thread (callers launch from the UI scope).
+        return withContext(computeDispatcher) {
         val matches = Regex("""[\p{L}́]+""").findAll(body).toList()
-        return matches.mapIndexed { i, match ->
+        matches.mapIndexed { i, match ->
             val token = match.value
             val start = match.range.first
             val end = match.range.last + 1
@@ -1103,6 +1163,7 @@ class LearningRepository(
                 exampleSentence3 = note?.exampleSentence3,
                 exampleTranslation3 = note?.exampleTranslation3
             )
+        }
         }
     }
 
@@ -1435,7 +1496,13 @@ class LearningRepository(
             remaining -= level * XP_PER_LEVEL_STEP
             level += 1
         }
-        val knownWords = knownNoteIds().size
+        // Reader coverage treats IGNORED noise/names as covered, but the learner's
+        // "words known" total and achievements must only count learned vocabulary.
+        val ignoredIds = allNotesCached().asSequence()
+            .filter { it.status == WordStatus.IGNORED }
+            .map { it.id }
+            .toHashSet()
+        val knownWords = knownNoteIds().count { it !in ignoredIds }
         val reviewedToday = reviewedToday(now)
         val activeDays = days.size
         val last7 = (6 downTo 0).map { offset -> (todayBucket - offset) in daySet }

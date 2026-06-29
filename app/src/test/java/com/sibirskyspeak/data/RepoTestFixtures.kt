@@ -1,6 +1,7 @@
 package com.sibirskyspeak.data
 
 import com.sibirskyspeak.scheduler.FsrsScheduler
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
@@ -41,7 +42,10 @@ internal class RepoFixture(
         telemetryDao = telemetry,
         readingScheduleDao = readingSchedules,
         readerEncounterDao = readerEncounters,
-        readingActivityDao = readingActivities
+        readingActivityDao = readingActivities,
+        // Unconfined runs the repository's withContext(compute) blocks inline on the
+        // caller, so the deterministic test scheduler still controls all of its work.
+        computeDispatcher = Dispatchers.Unconfined
     )
 }
 
@@ -162,7 +166,7 @@ internal class FakeCardDao(
     override suspend fun graduateVocabForNote(noteId: Long, due: Long): Int {
         var changed = 0
         cards.replaceAll { card ->
-            if (card.noteId == noteId && card.queue == Queue.VOCAB) {
+            if (card.noteId == noteId && card.queue == Queue.VOCAB && (card.state != CardState.GRADUATED || card.due != due)) {
                 changed += 1
                 card.copy(state = CardState.GRADUATED, due = due)
             } else card
@@ -231,6 +235,7 @@ internal class FakeCardDao(
     override suspend fun getKnownVocabNoteIds(): List<Long> =
         cards.filter {
             it.queue == Queue.VOCAB &&
+                !it.suspended &&
                 (it.state == CardState.GRADUATED || (it.reps >= 2 && it.consecutiveCorrect >= 2 && it.state == CardState.REVIEW))
         }.map { it.noteId }.distinct()
     override suspend fun update(card: Card) {
@@ -305,6 +310,16 @@ internal class FakeCardDao(
         cards.replaceAll {
             if (it.noteId == noteId && it.cardType in setOf(CardType.MEANING_TO_RU, CardType.CLOZE, CardType.SENTENCE_BUILD) && !it.suspended) {
                 changed += 1; it.copy(suspended = true)
+            } else it
+        }
+        return changed
+    }
+    override suspend fun suspendAllForNote(noteId: Long): Int {
+        var changed = 0
+        cards.replaceAll {
+            if (it.noteId == noteId && !it.suspended) {
+                changed += 1
+                it.copy(suspended = true)
             } else it
         }
         return changed

@@ -124,7 +124,7 @@ interface CardDao {
     /** Mark a single note's VOCAB cards known (graduated, pushed far out) — used when
      *  the learner marks the word KNOWN/IGNORED in the reader, so practice stops
      *  quizzing a word they already know. */
-    @Query("UPDATE cards SET state = 'GRADUATED', due = :due WHERE noteId = :noteId AND queue = 'VOCAB'")
+    @Query("UPDATE cards SET state = 'GRADUATED', due = :due WHERE noteId = :noteId AND queue = 'VOCAB' AND (state != 'GRADUATED' OR due != :due)")
     suspend fun graduateVocabForNote(noteId: Long, due: Long): Int
 
     /** Re-activate a note's graduated VOCAB cards as fresh NEW — used when the learner
@@ -243,6 +243,7 @@ interface CardDao {
         SELECT DISTINCT noteId
         FROM cards
         WHERE queue = 'VOCAB'
+          AND suspended = 0
           AND (
               state = 'GRADUATED'
               OR (reps >= 2 AND consecutiveCorrect >= 2 AND state = 'REVIEW')
@@ -321,8 +322,11 @@ interface CardDao {
     @Query("DELETE FROM cards WHERE id = :cardId")
     suspend fun deleteById(cardId: Long)
 
-    @Query("UPDATE cards SET suspended = 1 WHERE noteId = :noteId AND cardType IN ('MEANING_TO_RU', 'CLOZE', 'SENTENCE_BUILD')")
+    @Query("UPDATE cards SET suspended = 1 WHERE noteId = :noteId AND cardType IN ('MEANING_TO_RU', 'CLOZE', 'SENTENCE_BUILD') AND suspended = 0")
     suspend fun suspendAmbiguousProduction(noteId: Long): Int
+
+    @Query("UPDATE cards SET suspended = 1 WHERE noteId = :noteId AND suspended = 0")
+    suspend fun suspendAllForNote(noteId: Long): Int
 }
 
 @Dao

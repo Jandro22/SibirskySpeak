@@ -71,7 +71,7 @@ class ReviewViewModelTest {
         // card, whose first exposure is an uncounted spaced introduction — see
         // spacedIntroductionOfNewVocabIsNotCountedAsRecall).
         val (fixture, caseFillCard) = caseFillOnlyFixture(lemma = "войска-rate", freqRank = 9)
-        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore())
+        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore(), Dispatchers.Unconfined)
         advanceUntilIdle()
         viewModel.startStudySession()
         advanceUntilIdle()
@@ -107,7 +107,7 @@ class ReviewViewModelTest {
         fixture.repository.importJsonLines(
             """{"russian":"дом","lemma":"дом","pos":"noun","translation":"house","tier":0,"unit":1}"""
         )
-        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore())
+        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore(), Dispatchers.Unconfined)
         advanceUntilIdle()
         viewModel.startStudySession()
         advanceUntilIdle()
@@ -133,7 +133,7 @@ class ReviewViewModelTest {
     @Test
     fun missedProductionCardAutoGradesAgainThenOverrideKnewItUndoesWithoutDoubleCounting() = runTest(dispatcher) {
         val (fixture, caseFillCard) = caseFillOnlyFixture(lemma = "войска-override", freqRank = 10)
-        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore())
+        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore(), Dispatchers.Unconfined)
         advanceUntilIdle()
         viewModel.startStudySession()
         advanceUntilIdle()
@@ -180,7 +180,7 @@ class ReviewViewModelTest {
     @Test
     fun autoAgainOnCommittedMissAdvancesLapsesAndGatesOnCorrection() = runTest(dispatcher) {
         val (fixture, caseFillCard) = caseFillOnlyFixture(lemma = "войска-leech", freqRank = 11)
-        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore())
+        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore(), Dispatchers.Unconfined)
         advanceUntilIdle()
         viewModel.startStudySession()
         advanceUntilIdle()
@@ -215,7 +215,7 @@ class ReviewViewModelTest {
             {"russian":"one","lemma":"one","pos":"noun","translation":"one"}
             {"russian":"two","lemma":"two","pos":"noun","translation":"two"}
         """.trimIndent())
-        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore())
+        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore(), Dispatchers.Unconfined)
 
         // Deliberately race the Study screen against the queued startup load.
         viewModel.startStudySession()
@@ -228,5 +228,39 @@ class ReviewViewModelTest {
 
         assertNotNull("the second planned card must remain in the frozen queue", viewModel.state.value.prompt)
         assertTrue(viewModel.state.value.prompt!!.card.id != first!!.card.id)
+    }
+
+    /**
+     * The in-progress typed answer lives in its own [ReviewViewModel.typedAnswer]
+     * flow (kept out of ReviewUiState so a keystroke doesn't re-emit the whole state
+     * and recompose the screen). It must still feed reveal()'s grading and reset when
+     * the card advances — the behavior the old per-card ReviewUiState rebuild gave us.
+     */
+    @Test
+    fun typedAnswerUsesADedicatedFlowAndResetsWhenTheCardAdvances() = runTest(dispatcher) {
+        val (fixture, caseFillCard) = caseFillOnlyFixture(lemma = "войска-typed", freqRank = 12)
+        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore(), Dispatchers.Unconfined)
+        advanceUntilIdle()
+        viewModel.startStudySession()
+        advanceUntilIdle()
+
+        val prompt = viewModel.state.value.prompt
+        assertNotNull("expected a queued prompt after starting the session", prompt)
+        assertEquals(caseFillCard.id, prompt!!.card.id)
+
+        // Typing is observable on the dedicated flow.
+        viewModel.setTypedAnswer("draft answer")
+        assertEquals("draft answer", viewModel.typedAnswer.value)
+
+        // reveal() must grade against the flow's value, not a stale ReviewUiState field.
+        viewModel.setTypedAnswer(prompt.expectedAnswer)
+        viewModel.reveal()
+        advanceUntilIdle()
+        assertEquals(true, viewModel.state.value.isAnswerCorrect)
+
+        // Committing the card rebuilds the session, which must clear the input.
+        viewModel.rate(Rating.GOOD)
+        advanceUntilIdle()
+        assertEquals("", viewModel.typedAnswer.value)
     }
 }

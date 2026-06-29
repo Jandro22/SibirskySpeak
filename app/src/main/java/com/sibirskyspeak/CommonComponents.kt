@@ -52,6 +52,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
@@ -74,6 +75,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import com.sibirskyspeak.data.CardType
 import com.sibirskyspeak.data.Rating
 import com.sibirskyspeak.data.ReaderRecommendation
@@ -262,6 +264,13 @@ internal fun SectionCard(emphasis: Boolean = false, content: @Composable ColumnS
 
 @Composable
 internal fun StatusBanner(message: String, onDismiss: (() -> Unit)? = null) {
+    val dismissAfter = statusMessageAutoDismissMillis(message)
+    LaunchedEffect(message, dismissAfter) {
+        if (dismissAfter != null && onDismiss != null) {
+            delay(dismissAfter)
+            onDismiss()
+        }
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -282,6 +291,21 @@ internal fun StatusBanner(message: String, onDismiss: (() -> Unit)? = null) {
                 Icon(Icons.Filled.Close, contentDescription = "Dismiss message", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
             }
         }
+    }
+}
+
+/** Success and informational banners clear themselves; errors wait for the user. */
+internal fun statusMessageAutoDismissMillis(message: String): Long? {
+    val normalized = message.lowercase()
+    if (listOf(
+            "couldn't", "could not", "failed", "error", "is empty", "exception",
+            "permission", "denied", "not available", "unknown error"
+        ).any(normalized::contains)
+    ) return null
+    return when {
+        normalized.startsWith("card updated") || normalized.startsWith("updated ") -> 2_500L
+        normalized.startsWith("parked ") || normalized.startsWith("pace protected") -> 7_000L
+        else -> 4_000L
     }
 }
 

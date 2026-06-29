@@ -369,7 +369,7 @@ internal fun ReadingSuggestion(state: ReviewUiState, onOpenReader: (Long) -> Uni
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                state.sessionPlan?.readingReason?.let { reason ->
+                state.sessionPlan.readingReason?.let { reason ->
                     Text(reason, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 }
             }

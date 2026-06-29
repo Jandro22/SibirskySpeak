@@ -144,6 +144,7 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
         when (tab) {
             SessionStep.RULE -> StudySessionScreen(
                 state = state,
+                typedAnswer = viewModel.typedAnswer,
                 onAnswerChanged = viewModel::setTypedAnswer,
                 onChoice = viewModel::chooseAnswer,
                 onReveal = viewModel::reveal,
@@ -152,7 +153,10 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
                 onCorrectionChanged = viewModel::setCorrectionAnswer,
                 onSubmitCorrection = viewModel::submitCorrection,
                 onSpeak = { p -> tts.speak(p.speechText()) },
-                onExit = { studyActive = false },
+                onExit = {
+                    viewModel.recordStudyScreenExit()
+                    studyActive = false
+                },
                 onUndo = viewModel::undoLastReview,
                 onKnewIt = viewModel::overrideKnewIt,
                 onSuspend = viewModel::suspendCurrentCard,
@@ -168,7 +172,10 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
             SessionStep.REVIEWS -> PracticeScreen(
                 state = state,
                 onStart = { studyActive = true },
-                onRead = { viewModel.setSessionStep(SessionStep.READER) },
+                onRead = {
+                    settingsArea = SettingsArea.READER
+                    viewModel.setSessionStep(SessionStep.IMPORT)
+                },
                 onOpenReader = { id ->
                     viewModel.setSessionStep(SessionStep.READER)
                     viewModel.openReaderText(id)
@@ -195,7 +202,10 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
                     viewModel.setSessionStep(SessionStep.READER)
                     viewModel.openReaderText(id)
                 },
-                onRead = { viewModel.setSessionStep(SessionStep.READER) },
+                onRead = {
+                    settingsArea = SettingsArea.READER
+                    viewModel.setSessionStep(SessionStep.IMPORT)
+                },
                 onLoadLeeches = viewModel::loadLeeches,
                 onReleaseLeech = viewModel::releaseLeech,
                 onSaveLeechEdit = viewModel::editLeech
@@ -231,7 +241,10 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
             else -> PracticeScreen(
                 state = state,
                 onStart = { studyActive = true },
-                onRead = { viewModel.setSessionStep(SessionStep.READER) },
+                onRead = {
+                    settingsArea = SettingsArea.READER
+                    viewModel.setSessionStep(SessionStep.IMPORT)
+                },
                 onOpenReader = { id ->
                     viewModel.setSessionStep(SessionStep.READER)
                     viewModel.openReaderText(id)
@@ -262,7 +275,7 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            CenterAlignedTopAppBar(
+            if (!readerTextOpen) CenterAlignedTopAppBar(
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("SibirskySpeak", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)

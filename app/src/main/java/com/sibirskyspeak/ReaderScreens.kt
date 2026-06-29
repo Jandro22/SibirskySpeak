@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoStories
@@ -110,6 +111,13 @@ internal fun ReaderBookshelf(
 ) {
     val texts = state.allReaderTexts.sortedWith(compareByDescending<ReaderRecommendation> { it.coverage }.thenBy { it.text.title })
     val recommended = state.readerRecommendation
+    var shelfQuery by rememberSaveable { mutableStateOf("") }
+    val matchingTexts = texts
+        .asSequence()
+        .filter { shelfQuery.isBlank() || it.text.title.contains(shelfQuery, ignoreCase = true) }
+        .filterNot { it.text.id == recommended?.text?.id }
+        .take(24)
+        .toList()
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         SectionCard {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -121,6 +129,9 @@ internal fun ReaderBookshelf(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+                IconButton(onClick = onAddText) {
+                    Icon(Icons.Filled.Add, contentDescription = "Add reader text")
                 }
             }
             if (recommended != null) {
@@ -145,6 +156,20 @@ internal fun ReaderBookshelf(
                 }
             }
         } else {
+            OutlinedTextField(
+                value = shelfQuery,
+                onValueChange = { shelfQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Find a text") },
+                trailingIcon = {
+                    if (shelfQuery.isNotBlank()) {
+                        IconButton(onClick = { shelfQuery = "" }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Clear search")
+                        }
+                    }
+                }
+            )
             // A real shelf: each text is a tappable book standing on the boards.
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -156,7 +181,7 @@ internal fun ReaderBookshelf(
                     horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
                     verticalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
-                    texts.forEachIndexed { index, item ->
+                    matchingTexts.forEachIndexed { index, item ->
                         BookCover(
                             item = item,
                             index = index,
@@ -167,6 +192,12 @@ internal fun ReaderBookshelf(
                     }
                 }
             }
+            Text(
+                if (shelfQuery.isBlank()) "Showing the 24 best-fit texts. Search to find another."
+                else "${matchingTexts.size} matching ${if (matchingTexts.size == 1) "text" else "texts"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -350,7 +381,6 @@ internal fun ReaderTextScreen(
         label = "reader-progress"
     )
     val coveredCount = state.readerTokens.count { it.status == WordStatus.KNOWN || it.status == WordStatus.IGNORED }
-    val learningCount = state.readerTokens.count { it.status == WordStatus.LEARNING }
     val newTokens = state.readerTokens
         .filter { it.status == WordStatus.NEW }
         .distinctBy { it.normalized }
@@ -373,7 +403,16 @@ internal fun ReaderTextScreen(
     // chunks near the viewport (plus a little overscan) ever get composed/laid
     // out — long texts no longer force every word in the story into one pass.
     val tokenChunks = remember(state.readerTokens) { state.readerTokens.withIndex().chunked(READER_WORD_CHUNK_SIZE) }
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    val readingListState = rememberLazyListState()
+    LaunchedEffect(selected.text.id) {
+        if (state.readerProgressIndex > 0) {
+            readingListState.scrollToItem(
+                (state.readerProgressIndex / READER_WORD_CHUNK_SIZE)
+                    .coerceAtMost(tokenChunks.lastIndex.coerceAtLeast(0))
+            )
+        }
+    }
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.medium,
@@ -381,7 +420,7 @@ internal fun ReaderTextScreen(
             tonalElevation = 1.dp,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
         ) {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -389,14 +428,16 @@ internal fun ReaderTextScreen(
                 ) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(selected.text.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(selected.text.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             ReaderStatusChip(selected.status)
                         }
                         Text(
-                            if (state.inSessionReading) "Scheduled reading · read 60%, then clear the checkpoint to continue."
-                            else "Tap any word for meaning, status, and examples.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            "${(selected.coverage * 100).toInt()}% coverage · ${formatCount(reachedCount)} reached · ${formatCount(coveredCount)} covered" +
+                                if (newTokens.isNotEmpty()) " · ${formatCount(newTokens.size)} new" else "",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -417,7 +458,7 @@ internal fun ReaderTextScreen(
                                 contentDescription = if (isPlaying) "Stop reading" else "Listen to the text"
                             )
                         }
-                        OutlinedButton(onClick = onClose) {
+                        TextButton(onClick = onClose) {
                             Text(if (state.inSessionReading) "Postpone" else "Close")
                         }
                     }
@@ -441,26 +482,13 @@ internal fun ReaderTextScreen(
                     progress = { animatedProgress },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(8.dp)
+                        .height(4.dp)
                         .clip(RoundedCornerShape(99.dp)),
                     color = MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant
                 )
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ReaderMetricChip("${(selected.coverage * 100).toInt()}%", "coverage")
-                    ReaderMetricChip(formatCount(reachedCount), "reached")
-                    ReaderMetricChip(formatCount(coveredCount), "covered")
-                    if (learningCount > 0) ReaderMetricChip(formatCount(learningCount), "learning")
-                    if (newTokens.isNotEmpty()) ReaderMetricChip(formatCount(newTokens.size), "new")
-                }
             }
         }
-        WordLegend()
-        ReaderContinueCard(
-            tokens = state.readerTokens,
-            progressIndex = state.readerProgressIndex,
-            onSpeakRussian = onSpeakRussian
-        )
         // Paper-like reading surface: words flow as real text, not buttons. The
         // surface itself takes the remaining vertical space in the screen; the
         // LazyColumn inside virtualizes by chunk so only the visible portion of
@@ -474,6 +502,7 @@ internal fun ReaderTextScreen(
         ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
+                state = readingListState,
                 contentPadding = PaddingValues(
                     horizontal = 18.dp,
                     vertical = 22.dp
@@ -502,48 +531,23 @@ internal fun ReaderTextScreen(
                         }
                     }
                 }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        WordLegend()
+                        ReaderCheckpointCard(state = state, onAnswer = onCheckpointAnswer)
+                        if (newTokens.isNotEmpty()) {
+                            ReaderNewWordsCard(
+                                newTokens = newTokens,
+                                reachedNewTokens = reachedNewTokens,
+                                onMarkVisible = onMarkVisible,
+                                onConfirmKnown = { confirmKnownBatch = true }
+                            )
+                        }
+                    }
+                }
                 // Leave room so the last lines aren't hidden behind the pinned word card.
                 if (state.selectedToken != null) {
                     item { Spacer(Modifier.height(260.dp)) }
-                }
-            }
-        }
-        ReaderCheckpointCard(state = state, onAnswer = onCheckpointAnswer)
-        if (newTokens.isNotEmpty()) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
-            ) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("New words in this text", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "${formatCount(newTokens.size)} unique new words are highlighted. Mark reached words learning after a pass; mark known only if every reached word was already familiar.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (reachedNewTokens.isEmpty()) {
-                        Text(
-                            "Read or tap words first, then batch-mark the new words you have actually reached.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = { onMarkVisible(reachedNewTokens, WordStatus.LEARNING) },
-                            enabled = reachedNewTokens.isNotEmpty()
-                        ) {
-                            Text("Mark Reached Learning")
-                        }
-                        OutlinedButton(
-                            onClick = { confirmKnownBatch = true },
-                            enabled = reachedNewTokens.isNotEmpty()
-                        ) {
-                            Text("Already Knew Reached")
-                        }
-                    }
                 }
             }
         }
@@ -567,6 +571,40 @@ internal fun ReaderTextScreen(
                 TextButton(onClick = { confirmKnownBatch = false }) { Text(stringResource(R.string.action_cancel)) }
             }
         )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun ReaderNewWordsCard(
+    newTokens: List<String>,
+    reachedNewTokens: List<String>,
+    onMarkVisible: (List<String>, WordStatus) -> Unit,
+    onConfirmKnown: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("New words in this text", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                "${formatCount(newTokens.size)} unique new words. Mark only those you reached.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { onMarkVisible(reachedNewTokens, WordStatus.LEARNING) },
+                    enabled = reachedNewTokens.isNotEmpty()
+                ) { Text("Learn reached") }
+                OutlinedButton(onClick = onConfirmKnown, enabled = reachedNewTokens.isNotEmpty()) {
+                    Text("Already knew")
+                }
+            }
+        }
     }
 }
 

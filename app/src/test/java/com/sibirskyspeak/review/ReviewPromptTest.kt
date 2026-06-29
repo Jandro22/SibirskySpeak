@@ -111,6 +111,7 @@ class ReviewPromptTest {
         val queue = recoveryQueueAfter(listOf(intro) + rest, intro, Rating.GOOD)
 
         assertEquals(AnswerMode.LESSON, intro.answerMode)
+        assertTrue(intro.isNewVocabularyIntroduction())
         assertEquals(1L, queue[6].card.id)
         assertTrue(queue[6].queueReason.orEmpty().contains("First recall"))
     }

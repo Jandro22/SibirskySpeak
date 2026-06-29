@@ -193,6 +193,49 @@ class LearningRepositoryTest {
     }
 
     @Test
+    fun maintenanceDoesNotRewriteAlreadySuspendedAmbiguousCards() = runTest {
+        val fixture = RepoFixture(withTelemetry = true)
+        val noteId = fixture.notes.insert(Note(russian = "по", lemma = "по", translation = "along, about", partOfSpeech = "preposition"))
+        fixture.cards.insert(Card(noteId = noteId, cardType = CardType.MEANING_TO_RU, queue = Queue.VOCAB))
+
+        assertEquals(1, fixture.repository.performDataMaintenance())
+        assertEquals(0, fixture.repository.performDataMaintenance())
+        assertEquals(1, fixture.telemetry?.events?.count { it.eventType == "data_maintenance" })
+    }
+
+    @Test
+    fun ignoredNoiseCountsAsReaderCoverageButNotAsKnownVocabulary() = runTest {
+        val fixture = RepoFixture()
+        val noteId = fixture.notes.insert(Note(russian = "Том", lemma = "том", translation = "Tom", partOfSpeech = "noun", status = WordStatus.IGNORED))
+        fixture.cards.insert(Card(noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.GRADUATED))
+        fixture.readers.insert(ReaderText(title = "Names", body = "Том пришёл.", source = "local"))
+
+        val plan = fixture.repository.sessionPlan()
+
+        assertEquals(0, plan.gamification.knownWords)
+        assertTrue(fixture.repository.readerTexts().single().knownTokens > 0)
+    }
+
+    @Test
+    fun upgradeRetiresBundledWordsRejectedByQualityGateWithoutDeletingHistory() = runTest {
+        val bootstrap = """{"russian":"дом","lemma":"дом","pos":"noun","translation":"house","tags":"general curated matrix"}"""
+        val fixture = RepoFixture(bootstrapNotes = bootstrap, withTelemetry = true)
+        val staleId = fixture.notes.insert(Note(russian = "bad", lemma = "bad", translation = "bad", partOfSpeech = "word", tags = "general matrix", status = WordStatus.IGNORED))
+        val cardId = fixture.cards.insert(Card(noteId = staleId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.GRADUATED))
+        fixture.logs.insert(ReviewLog(cardId = cardId, reviewDatetime = 1_000L, rating = Rating.GOOD, stateBefore = CardState.NEW, scheduledDays = 0, elapsedDays = 0, source = ReviewSource.SRS_REVIEW))
+
+        fixture.repository.seedIfEmpty()
+
+        assertEquals(WordStatus.NEW, fixture.notes.getById(staleId)?.status)
+        assertTrue(fixture.cards.cards.single { it.id == cardId }.suspended)
+        assertEquals(cardId, fixture.logs.logs.single().cardId)
+        assertEquals(1, fixture.telemetry?.events?.count { it.eventType == "quality_retirement" })
+        assertEquals(0, fixture.repository.sessionPlan().gamification.knownWords)
+        assertEquals(0, fixture.repository.retireRejectedBootstrapNotes())
+        assertEquals(1, fixture.telemetry?.events?.count { it.eventType == "quality_retirement" })
+    }
+
+    @Test
     fun anyTwoDayOverdueBacklogPausesNewWords() = runTest {
         val fixture = RepoFixture(config = { LearningConfig(newCardsPerDay = 10, sessionSize = 10) })
         val oldId = fixture.notes.insert(Note(russian = "old", lemma = "old", translation = "old", partOfSpeech = "noun"))

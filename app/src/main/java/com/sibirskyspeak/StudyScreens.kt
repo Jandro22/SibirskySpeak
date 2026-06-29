@@ -81,6 +81,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -112,6 +113,7 @@ import com.sibirskyspeak.review.AnswerMode
 import com.sibirskyspeak.review.AnswerMatch
 import com.sibirskyspeak.review.ReviewPrompt
 import com.sibirskyspeak.review.ReviewUiState
+import com.sibirskyspeak.review.isNewVocabularyIntroduction
 import kotlinx.coroutines.delay
 
 // ---------------------------------------------------------------------------
@@ -121,6 +123,7 @@ import kotlinx.coroutines.delay
 @Composable
 internal fun StudySessionScreen(
     state: ReviewUiState,
+    typedAnswer: StateFlow<String>,
     onAnswerChanged: (String) -> Unit,
     onChoice: (String) -> Unit,
     onReveal: () -> Unit,
@@ -270,6 +273,7 @@ internal fun StudySessionScreen(
                 ReviewContent(
                     state = state,
                     prompt = prompt,
+                    typedAnswerFlow = typedAnswer,
                     onAnswerChanged = onAnswerChanged,
                     onChoice = onChoice,
                     onReveal = onReveal,
@@ -443,7 +447,11 @@ internal fun SessionProgressStrip(
             QueueCount(reviewCount, Color(0xFF2E9E5B))
         }
         Text(
-            "$reviewedToday today · goal $dailyGoal",
+            if (reviewedToday > dailyGoal) {
+                "$dailyGoal goal · +${reviewedToday - dailyGoal} extra (retries count)"
+            } else {
+                "$reviewedToday/$dailyGoal today · retries count"
+            },
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -508,6 +516,7 @@ internal fun AutoPlayCardAudio(cardId: Long, onSpeak: () -> Unit) {
 internal fun ReviewContent(
     state: ReviewUiState,
     prompt: ReviewPrompt,
+    typedAnswerFlow: StateFlow<String>,
     onAnswerChanged: (String) -> Unit,
     onChoice: (String) -> Unit,
     onReveal: () -> Unit,
@@ -535,10 +544,19 @@ internal fun ReviewContent(
     // A lesson is a teaching screen, not a quiz: render it on its own and bail out
     // of the normal answer/reveal flow.
     prompt.lesson?.let { lesson ->
-        LessonCard(lesson = lesson, onSpeak = onSpeak, onGotIt = { onRate(Rating.GOOD) }, ratingInProgress = state.ratingInProgress)
+        LessonCard(
+            lesson = lesson,
+            onSpeak = onSpeak,
+            onGotIt = { onRate(Rating.GOOD) },
+            onKnowWord = onKnowWord.takeIf { prompt.isNewVocabularyIntroduction() },
+            ratingInProgress = state.ratingInProgress
+        )
         return
     }
 
+    // The typed answer is collected here (not read from ReviewUiState) so a keystroke
+    // only recomposes this quiz card, not the whole screen — see ReviewViewModel.
+    val typedAnswer by typedAnswerFlow.collectAsStateWithLifecycle()
     // Offer tiles for Russian typing and for listening (AUDIO_ONLY) so the learner
     // rarely needs a Russian keyboard at all. LetterTileBank switches to whole-word
     // tiles automatically for multi-word answers, so short phrases work too.
@@ -699,7 +717,7 @@ internal fun ReviewContent(
                     if (prompt.answerMode == AnswerMode.SPEAK) {
                         SpeakingAnswerInput(
                             cardId = prompt.card.id,
-                            recognized = state.typedAnswer,
+                            recognized = typedAnswer,
                             onRecognized = onAnswerChanged
                         )
                     } else {
@@ -737,7 +755,7 @@ internal fun ReviewContent(
                         ) { useKeyboard ->
                             if (useKeyboard) {
                                 KeyboardAnswerInput(
-                                    value = state.typedAnswer,
+                                    value = typedAnswer,
                                     prompt = prompt,
                                     onChange = onAnswerChanged,
                                     onDone = onReveal
@@ -761,7 +779,7 @@ internal fun ReviewContent(
             enter = fadeIn(tween(180)) + slideInVertically(tween(200)) { it / 8 },
             exit = fadeOut(tween(120)) + slideOutVertically(tween(140)) { it / 8 }
         ) {
-            val hasAnswer = state.typedAnswer.isNotBlank()
+            val hasAnswer = typedAnswer.isNotBlank()
             PrimaryPracticeButton(
                 hasAnswer = hasAnswer,
                 onClick = onReveal,
@@ -773,7 +791,7 @@ internal fun ReviewContent(
             enter = fadeIn(tween(200)) + slideInVertically(spring(stiffness = Spring.StiffnessMediumLow)) { it / 6 },
             exit = fadeOut(tween(120))
         ) {
-            RevealPanel(state, prompt, onRate, onContinue, onKnewIt, onSpeak, onCorrectionChanged, onSubmitCorrection)
+            RevealPanel(state, prompt, typedAnswer, onRate, onContinue, onKnewIt, onSpeak, onCorrectionChanged, onSubmitCorrection)
         }
     }
 }
@@ -897,6 +915,7 @@ internal fun LessonCard(
     lesson: com.sibirskyspeak.review.LessonContent,
     onSpeak: () -> Unit,
     onGotIt: () -> Unit,
+    onKnowWord: (() -> Unit)? = null,
     ratingInProgress: Boolean
 ) {
     SectionCard(emphasis = true) {
@@ -944,6 +963,17 @@ internal fun LessonCard(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 14.dp)
         ) {
             Text(if (ratingInProgress) "Saving..." else "Got it", fontWeight = FontWeight.SemiBold)
+        }
+        onKnowWord?.let { markKnown ->
+            TextButton(
+                onClick = markKnown,
+                enabled = !ratingInProgress,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            ) {
+                Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("I already know this word")
+            }
         }
     }
 }
@@ -1150,6 +1180,7 @@ internal fun KeyboardAnswerInput(
 internal fun RevealPanel(
     state: ReviewUiState,
     prompt: ReviewPrompt,
+    typedAnswer: String,
     onRate: (Rating) -> Unit,
     onContinue: () -> Unit,
     onKnewIt: () -> Unit,
@@ -1169,7 +1200,7 @@ internal fun RevealPanel(
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ResultBanner(state, prompt, onSpeak)
+        ResultBanner(state, prompt, typedAnswer, onSpeak)
         prompt.explanation?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -1432,7 +1463,7 @@ internal fun CorrectionPractice(
 }
 
 @Composable
-internal fun ResultBanner(state: ReviewUiState, prompt: ReviewPrompt, onSpeak: () -> Unit) {
+internal fun ResultBanner(state: ReviewUiState, prompt: ReviewPrompt, typedAnswer: String, onSpeak: () -> Unit) {
     val matched = state.isAnswerCorrect == true
     val color = if (matched) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
     val title = when (state.answerMatch) {
@@ -1465,8 +1496,8 @@ internal fun ResultBanner(state: ReviewUiState, prompt: ReviewPrompt, onSpeak: (
                 SelectionContainer {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(prompt.expectedAnswer, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        if (state.typedAnswer.isNotBlank()) {
-                            Text("You answered: ${state.typedAnswer}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (typedAnswer.isNotBlank()) {
+                            Text("You answered: $typedAnswer", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }

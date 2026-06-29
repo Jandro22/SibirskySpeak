@@ -410,6 +410,51 @@ def write_jsonl(path: Path, rows):
             fh.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
 
 
+def finalize_notes(notes):
+    """Enrich incomplete notes from cited examples, then remove exact duplicates."""
+    examples_path = HERE / "lexical_examples.json"
+    examples = json.loads(examples_path.read_text(encoding="utf-8")) if examples_path.exists() else {}
+    verified_path = HERE / "lexical_verified_identities.json"
+    verified = set(json.loads(verified_path.read_text(encoding="utf-8"))) if verified_path.exists() else set()
+
+    def key(note):
+        lemma = note.get("lemma", "")
+        if lemma.startswith("tb_"):
+            lemma = lemma[3:]
+        if not lemma or " " in lemma or "(" in lemma:
+            lemma = note.get("russian", lemma).split("/")[0]
+        return normalize_text(lemma).strip()
+
+    unique = []
+    identities = set()
+    lemmas = set()
+    for note in notes:
+        verified_identity = json.dumps(
+            [normalize_text(note.get("lemma", "")), note.get("pos", ""), note.get("translation", "").strip().lower()],
+            ensure_ascii=False, separators=(",", ":"),
+        )
+        if note.get("pos") != "lesson" and verified and verified_identity not in verified:
+            continue
+        if note.get("pos") != "lesson" and (not note.get("exampleSentence") or not note.get("exampleTranslation")):
+            example = examples.get(key(note))
+            if example:
+                note["exampleSentence"] = example["ru"]
+                note["exampleTranslation"] = example["en"]
+                note["exampleSource"] = example["source"]
+                note["exampleReference"] = example["reference"]
+        if note.get("pos") != "lesson" and (not note.get("exampleSentence") or not note.get("exampleTranslation")):
+            continue
+        identity = (normalize_text(note.get("lemma", "")), note.get("pos", ""), note.get("translation", "").lower())
+        lemma_key = normalize_text(note.get("lemma", ""))
+        if identity in identities or (note.get("pos") != "lesson" and lemma_key in lemmas):
+            continue
+        identities.add(identity)
+        if note.get("pos") != "lesson":
+            lemmas.add(lemma_key)
+        unique.append(note)
+    return unique
+
+
 def main():
     nouns = noun_rows()
     adjs = adjective_rows(start_rank=100 + len(wl.NOUNS))
@@ -511,6 +556,7 @@ def main():
     except ImportError:
         pass
 
+    notes = finalize_notes(notes)
     reader_texts = a1_readers + all_reader_texts() + textbook_readers
     write_jsonl(ASSETS / "bootstrap_notes.jsonl", notes)
     write_jsonl(ASSETS / "bootstrap_reader_texts.jsonl", reader_texts)
