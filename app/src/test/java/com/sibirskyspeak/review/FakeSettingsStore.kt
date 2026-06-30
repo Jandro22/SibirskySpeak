@@ -1,6 +1,7 @@
 package com.sibirskyspeak.review
 
 import com.sibirskyspeak.data.SettingsStore
+import com.sibirskyspeak.learning.Doctrine
 import com.sibirskyspeak.scheduler.FsrsScheduler
 
 /** In-memory SettingsStore for tests — no Android Context/SharedPreferences needed. */
@@ -9,6 +10,7 @@ internal class FakeSettingsStore : SettingsStore {
     override var sessionSize: Int = SettingsStore.DEFAULT_SESSION_SIZE
     override var newCardsPerDay: Int = SettingsStore.DEFAULT_NEW_CARDS_PER_DAY
     override var desiredRetention: Double = SettingsStore.DEFAULT_RETENTION
+    override var doctrine: Doctrine = Doctrine.BALANCED
     override var intervalModifier: Double = 1.0
     override var fsrsWeights: DoubleArray = FsrsScheduler.DEFAULT_WEIGHTS.copyOf()
     override var lastWeightFitDay: Long = Long.MIN_VALUE

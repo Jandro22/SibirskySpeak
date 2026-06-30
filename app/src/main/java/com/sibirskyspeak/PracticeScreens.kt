@@ -36,13 +36,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sibirskyspeak.data.GamificationStats
 import com.sibirskyspeak.data.ReaderStatus
 import com.sibirskyspeak.review.ReviewUiState
+import com.sibirskyspeak.learning.SessionMode
 
 // ---------------------------------------------------------------------------
 // Practice home
@@ -51,12 +50,12 @@ import com.sibirskyspeak.review.ReviewUiState
 @Composable
 internal fun PracticeScreen(
     state: ReviewUiState,
-    onStart: () -> Unit,
+    onStart: (SessionMode) -> Unit,
     onRead: () -> Unit,
     onOpenReader: (Long) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        DailyPlanPanel(state, onStart, onRead, onOpenReader)
+        DailyPlanPanel(state, onStart, onRead)
         PracticeFocusPanel(state)
         UnitMasteryPanel(state)
         ProblemCardAuditPanel(state)
@@ -126,46 +125,23 @@ internal fun UnitMasteryPanel(state: ReviewUiState) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: () -> Unit, onOpenReader: (Long) -> Unit) {
+internal fun DailyPlanPanel(state: ReviewUiState, onStart: (SessionMode) -> Unit, onRead: () -> Unit) {
     val plan = state.dailyPlan ?: return
     val prompts = state.sessionPlan?.reviewQueue.orEmpty()
     val sessionSize = prompts.size
     val backlog = plan.dueVocab + plan.dueGrammar
     val reader = state.sessionPlan?.readingAssignment?.recommendation
-    // Read the goal from the live setting (updates instantly when changed), not the
-    // gamification snapshot which only refreshes on the next session rebuild.
-    val dailyGoal = state.dailyGoalSetting.coerceAtLeast(1)
-    val progress = (state.reviewedToday.toFloat() / dailyGoal).coerceIn(0f, 1f)
-    val goalRemaining = (dailyGoal - state.reviewedToday).coerceAtLeast(0)
-    val newCount = prompts.count { it.card.state.name == "NEW" }
-    val grammarCount = prompts.count { it.card.queue.name == "GRAMMAR" }
     val focus = plan.grammarFocus.firstOrNull()?.label?.takeIf { it.isNotBlank() }
 
     HeroCard {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            ProgressRing(
-                progress = progress,
-                modifier = Modifier.size(108.dp),
-                trackColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.22f),
-                color = MaterialTheme.colorScheme.onPrimary
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        "${(progress * 100).toInt()}%",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
-                    Text("goal", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f))
-                }
-            }
+            Icon(Icons.Filled.School, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onPrimary)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Today's Practice", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                Text("Study", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
                 Text(
                     when {
-                        (plan.triageMode || plan.overdueBacklog) && sessionSize > 0 -> "$sessionSize older due cards are ready. Clear these first; new material is paused."
-                        sessionSize > 0 && goalRemaining > 0 -> "$sessionSize cards are ready. $goalRemaining more reviews hit today's goal."
-                        sessionSize > 0 -> "$sessionSize cards are ready if you want to keep the streak warm."
+                        (plan.triageMode || plan.overdueBacklog) && sessionSize > 0 -> "Older material comes first today; new material is paused."
+                        sessionSize > 0 -> "Your session is generated from memory, energy, and recent accuracy."
                         reader != null -> "All caught up. Read the recommended text for fresh exposure."
                         else -> "You're caught up. Add a reader text or import notes for new material."
                     },
@@ -173,15 +149,6 @@ internal fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: (
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
                 )
             }
-        }
-        Spacer(Modifier.height(16.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            HeroPill(animatedInt(state.reviewedToday).toString(), "done today")
-            HeroPill(dailyGoal.toString(), "daily goal")
-            HeroPill(sessionSize.toString(), "ready now")
-            if (prompts.isNotEmpty()) HeroPill(newCount.toString(), "new cards")
-            if (grammarCount > 0) HeroPill(grammarCount.toString(), "grammar")
-            if (reader != null) HeroPill("${(reader.coverage * 100).toInt()}%", "reader fit")
         }
         state.sessionPlan?.unitMastery?.firstOrNull { it.unlocked && it.progress < 0.80 }?.let { unit ->
             Spacer(Modifier.height(12.dp))
@@ -205,13 +172,17 @@ internal fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: (
             )
         }
         Spacer(Modifier.height(18.dp))
-        // One button drives the whole integrated session: due reviews, new vocab, and
-        // due grammar are interleaved automatically, and a due reading is inserted
-        // mid-session and at the end — so there is no separate Read or grammar button.
-        // When fully caught up the same button drops straight into the recommended text.
+        // ONE route, ONE button (see docs/DESIGN_VISION.md). The learner never chooses a
+        // pace/mode — the system generates the optimal session. Quick/Full/Stretch are an
+        // INTERNAL decision of the pace engine, never user-facing buttons. (The mode is
+        // chosen for the session when it starts; until the generative PaceController lands
+        // it defaults to FULL, which BlueprintBuilder already adapts by at-risk + accuracy.)
         Button(
             onClick = {
-                if (sessionSize > 0) onStart() else reader?.let { onOpenReader(it.text.id) } ?: onRead()
+                // A due reading must enter through the study-session state machine so
+                // its checkpoint updates the reading schedule. Opening it as a manual
+                // reader leaves the assignment due forever.
+                if (sessionSize > 0 || reader != null) onStart(SessionMode.FULL) else onRead()
             },
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(
@@ -223,7 +194,7 @@ internal fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: (
             Spacer(Modifier.width(8.dp))
             Text(
                 when {
-                    sessionSize > 0 -> "Start Session · $sessionSize"
+                    sessionSize > 0 -> "Study"
                     reader != null -> "Read"
                     else -> "Add material"
                 },
@@ -234,9 +205,9 @@ internal fun DailyPlanPanel(state: ReviewUiState, onStart: () -> Unit, onRead: (
             Spacer(Modifier.height(12.dp))
             Text(
                 if (plan.triageMode)
-                    "${formatCount(backlog)} cards wait in the backlog. This session stays capped at $sessionSize and pulls older due cards first."
+                    "There is an older backlog. This session stays bounded and pulls the most urgent material first."
                 else
-                    "${formatCount(backlog)} cards wait in the backlog, but today's session is capped at $sessionSize to stay manageable.",
+                    "There is more due work than one sustainable session; the remainder will wait safely.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
             )
@@ -250,10 +221,10 @@ internal fun PracticeFocusPanel(state: ReviewUiState) {
     val plan = state.dailyPlan ?: return
     val prompts = state.sessionPlan?.reviewQueue.orEmpty()
     val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
-    val vocabCount = prompts.count { it.card.queue.name == "VOCAB" }
-    val grammarCount = prompts.count { it.card.queue.name == "GRAMMAR" }
-    val newCount = prompts.count { it.card.state.name == "NEW" }
-    val dueCount = prompts.size - newCount
+    val hasVocab = prompts.any { it.card.queue.name == "VOCAB" }
+    val hasGrammar = prompts.any { it.card.queue.name == "GRAMMAR" }
+    val hasNew = prompts.any { it.card.state.name == "NEW" }
+    val hasReview = prompts.any { it.card.state.name != "NEW" }
     val ruleSummary = state.sessionPlan?.ruleSummary
 
     SectionCard {
@@ -263,9 +234,9 @@ internal fun PracticeFocusPanel(state: ReviewUiState) {
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Session Mix", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Today's Focus", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(
-                    if (prompts.isEmpty()) "No review cards are waiting right now." else "A quick scan of what practice will ask from you.",
+                    if (prompts.isEmpty()) "Nothing scheduled right now." else "The generated session balances these kinds of practice.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -273,13 +244,16 @@ internal fun PracticeFocusPanel(state: ReviewUiState) {
             if (game.currentStreak > 0) {
                 StatusTag("${game.currentStreak} day streak")
             }
+            if (game.inputStreak > 0) {
+                StatusTag("${game.inputStreak} day input streak")
+            }
         }
         Spacer(Modifier.height(14.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            PracticeMetricTile("Due", dueCount.toString(), Icons.Filled.Bolt, MaterialTheme.colorScheme.primaryContainer)
-            PracticeMetricTile("New", newCount.toString(), Icons.Filled.School, MaterialTheme.colorScheme.secondaryContainer)
-            PracticeMetricTile("Vocab", vocabCount.toString(), Icons.Filled.AutoStories, MaterialTheme.colorScheme.surfaceVariant)
-            PracticeMetricTile("Grammar", grammarCount.toString(), Icons.Filled.Insights, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f))
+            if (hasReview) PracticeFocusChip("Memory review", null)
+            if (hasNew) PracticeFocusChip("New material", null)
+            if (hasVocab) PracticeFocusChip("Vocabulary", null)
+            if (hasGrammar) PracticeFocusChip("Grammar", null)
         }
         // Grammar is woven into the one session automatically (interleaved with vocab
         // and reviews), so this is read-only context, not a set of separate actions:
@@ -307,28 +281,6 @@ internal fun PracticeFocusPanel(state: ReviewUiState) {
                     if (focus.label.isNotBlank()) PracticeFocusChip(focus.label, focus.accuracy)
                 }
                 if (plan.triageMode) PracticeFocusChip("Older due cards first", null)
-            }
-        }
-    }
-}
-
-@Composable
-internal fun PracticeMetricTile(label: String, value: String, icon: ImageVector, container: Color) {
-    Surface(
-        shape = MaterialTheme.shapes.small,
-        color = container,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(19.dp), tint = MaterialTheme.colorScheme.primary)
-            Column {
-                Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

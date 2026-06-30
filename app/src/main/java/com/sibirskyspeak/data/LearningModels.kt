@@ -1,6 +1,9 @@
 package com.sibirskyspeak.data
 
 import com.sibirskyspeak.review.ReviewPrompt
+import com.sibirskyspeak.learning.Doctrine
+import com.sibirskyspeak.learning.Pace
+import com.sibirskyspeak.learning.SessionBlueprint
 
 // Public data models for the learning domain (session plans, dashboard stats,
 // gamification, reader recommendations, etc.). Extracted from LearningRepository
@@ -123,7 +126,13 @@ data class SessionPlan(
     val readingReason: String? = null,
     val problemCards: List<ProblemCardSummary> = emptyList(),
     val consolidationLemmas: Set<String> = emptySet(),
-    val readingAssignment: ReadingAssignment? = null
+    val readingAssignment: ReadingAssignment? = null,
+    val blueprint: SessionBlueprint? = null,
+    val pace: Pace? = null,
+    val confusablePairs: Set<Pair<Long, Long>> = emptySet(),
+    val skillRatings: List<SkillRating> = emptyList(),
+    val rivalState: RivalState? = null,
+    val matchHistory: List<MatchHistory> = emptyList()
 )
 
 data class ProblemCardSummary(
@@ -179,6 +188,7 @@ data class GamificationStats(
     val xpIntoLevel: Int,
     val xpForLevel: Int,
     val currentStreak: Int,
+    val inputStreak: Int = 0,
     val longestStreak: Int,
     val reviewedToday: Int,
     val dailyGoal: Int,
@@ -204,5 +214,7 @@ data class LearningConfig(
     // Cap on brand-new cards introduced per day. Throttling new material is the
     // single biggest lever against overload/burnout in spaced repetition — it
     // keeps the future review load (and the daily session) sustainable.
-    val newCardsPerDay: Int = 15
+    val newCardsPerDay: Int = 15,
+    val desiredRetention: Double = 0.90,
+    val doctrine: Doctrine = Doctrine.BALANCED
 )

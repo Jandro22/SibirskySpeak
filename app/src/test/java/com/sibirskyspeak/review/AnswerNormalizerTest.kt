@@ -115,5 +115,15 @@ class AnswerNormalizerTest {
     fun stillRejectsWrongShortEnglishWords() {
         assertFalse(isEnglishAnswerCorrect("go", "do"))
         assertFalse(isEnglishAnswerCorrect("cat", "dog"))
+        assertFalse(isEnglishAnswerCorrect("accept", "except"))
+    }
+
+    @Test
+    fun strictRussianModeRejectsNearbyInflection() {
+        val lexical = evaluateRussianAnswer("стола", "стол")
+        val inflection = evaluateRussianAnswer("стола", "стол", allowTypos = false)
+
+        assertTrue("lexical recall may treat a one-letter slip as close", lexical.accepted)
+        assertEquals(AnswerMatch.WRONG, inflection.match)
     }
 }

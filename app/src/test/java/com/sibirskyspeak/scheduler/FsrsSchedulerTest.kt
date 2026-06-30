@@ -52,6 +52,36 @@ class FsrsSchedulerTest {
     }
 
     @Test
+    fun markKnownProducesCoherentGraduatedState() {
+        // A card the learner declares known starts from the degenerate all-zero state
+        // that bulk graduation used to leave; markKnown must replace it with a valid
+        // FSRS point (positive stability, in-range difficulty) so forecasts and any
+        // later review don't operate on a non-curve.
+        val raw = Card(
+            noteId = 1,
+            cardType = CardType.RU_TO_MEANING,
+            queue = Queue.VOCAB,
+            stability = 0.0,
+            difficulty = 0.0,
+            state = CardState.NEW
+        )
+        val now = 100L * 86_400_000L
+        val known = FsrsScheduler.markKnown(raw, now, due = Long.MAX_VALUE)
+
+        assertEquals(CardState.GRADUATED, known.state)
+        assertTrue("stability must be a positive number of days", known.stability > 0.0)
+        assertTrue("difficulty must be within FSRS range", known.difficulty in 1.0..10.0)
+        assertEquals(Long.MAX_VALUE, known.due)
+        assertEquals(now, known.lastReview)
+        assertTrue("reps must be at least 1", known.reps >= 1)
+
+        // And the resulting card must survive a real review without falling back to
+        // fresh-card priors (i.e. its state is genuinely valid, not just non-null).
+        val (reviewed) = FsrsScheduler().review(known.copy(due = now), Rating.GOOD, now = now + 86_400_000L)
+        assertTrue(reviewed.stability >= known.stability * 0.5)
+    }
+
+    @Test
     fun leavesVocabAndGraduatedGrammarUncapped() {
         val scheduler = FsrsScheduler()
         val vocab = Card(

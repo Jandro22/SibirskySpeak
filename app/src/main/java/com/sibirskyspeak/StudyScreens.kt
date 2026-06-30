@@ -107,6 +107,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import com.sibirskyspeak.audio.RussianSpeechRecognizer
 import com.sibirskyspeak.audio.AnswerSoundEffects
 import com.sibirskyspeak.data.Note
+import com.sibirskyspeak.data.CardType
 import com.sibirskyspeak.data.Rating
 import com.sibirskyspeak.data.GamificationStats
 import com.sibirskyspeak.review.AnswerMode
@@ -139,7 +140,6 @@ internal fun StudySessionScreen(
     onKnowWord: () -> Unit,
     onStartSession: () -> Unit,
     onSaveEdit: (String?, String?, String?, String?) -> Unit,
-    onExtraCredit: () -> Unit = {},
     onReadNext: () -> Unit = {}
 ) {
     LaunchedEffect(Unit) { if (!state.inStudySession) onStartSession() }
@@ -147,12 +147,10 @@ internal fun StudySessionScreen(
     var retireAction by remember { mutableStateOf<ReviewRetireAction?>(null) }
     val sessionSize = state.sessionPlan?.reviewQueue?.size ?: 0
     val prompt = state.prompt
-    // Live goal setting (updates instantly), not the gamification snapshot.
-    val dailyGoal = state.dailyGoalSetting.coerceAtLeast(1)
-    val remainingCards = sessionSize
-    val sittingTotal = state.sessionCompletedCards + remainingCards
-    val goalProgress = if (sittingTotal > 0) {
-        (state.sessionCompletedCards.toFloat() / sittingTotal).coerceIn(0f, 1f)
+    // Track resolution of the session's original cards. Retry/scaffold insertions may
+    // grow the live queue, but should not make visible progress run backwards.
+    val goalProgress = if (state.sessionProgressTotal > 0) {
+        (state.sessionProgressCompleted.toFloat() / state.sessionProgressTotal).coerceIn(0f, 1f)
     } else 1f
     val animatedGoalProgress by animateFloatAsState(
         targetValue = goalProgress,
@@ -163,7 +161,7 @@ internal fun StudySessionScreen(
         prompt == null -> state.sessionPlan?.completion?.message ?: "Session complete."
         state.revealed -> "Check the answer, then rate your recall."
         prompt.answerMode == AnswerMode.AUDIO_ONLY -> "Audio started automatically. Type what you heard."
-        sessionSize > 0 -> "$sessionSize cards ready now. ${state.reviewedToday}/$dailyGoal reviews today."
+        sessionSize > 0 -> "The session adapts after every answer."
         else -> "Answer, check, then rate recall."
     }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -237,17 +235,6 @@ internal fun StudySessionScreen(
                     color = MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant
                 )
-                if (prompt != null) {
-                    val queue = state.sessionPlan?.reviewQueue.orEmpty()
-                    SessionProgressStrip(
-                        newCount = queue.count { it.card.state.name == "NEW" },
-                        learningCount = queue.count { it.card.state.name == "LEARNING" || it.card.state.name == "RELEARNING" },
-                        reviewCount = queue.count { it.card.state.name == "REVIEW" || it.card.state.name == "GRADUATED" },
-                        prompt = prompt,
-                        reviewedToday = state.reviewedToday,
-                        dailyGoal = dailyGoal
-                    )
-                }
             }
         }
         AnimatedContent(
@@ -266,7 +253,7 @@ internal fun StudySessionScreen(
                     reader = state.sessionPlan?.readingAssignment?.recommendation,
                     sessionReviewed = state.sessionReviewed,
                     sessionCorrect = state.sessionCorrect,
-                    onExtraCredit = onExtraCredit,
+                    matchReport = state.matchReport,
                     onReadNext = onReadNext
                 )
             } else {
@@ -434,44 +421,56 @@ internal fun SessionProgressStrip(
     reviewedToday: Int,
     dailyGoal: Int
 ) {
+    // Only the grammar teaching concept is worth surfacing here — the card type
+    // ("Vocab"/"Grammar") and answer mode ("English"/"Russian"…) are already shown on
+    // the card header just below, so repeating them as chips was pure duplication.
     val concept = prompt.teachingHint?.takeIf { prompt.card.queue.name == "GRAMMAR" }
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // AnkiDroid-style remaining counts: new (blue) · learning (red) · review (green).
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            QueueCount(newCount, Color(0xFF2F73D8))
-            QueueCount(learningCount, Color(0xFFD2453B))
-            QueueCount(reviewCount, Color(0xFF2E9E5B))
+        // Remaining-in-queue counts, labeled so the colored numbers aren't a riddle:
+        // new (blue) · learning (red) · review (green).
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            QueueCount(newCount, "new", Color(0xFF2F73D8))
+            QueueCount(learningCount, "learning", Color(0xFFD2453B))
+            QueueCount(reviewCount, "review", Color(0xFF2E9E5B))
         }
         Text(
             if (reviewedToday > dailyGoal) {
-                "$dailyGoal goal · +${reviewedToday - dailyGoal} extra (retries count)"
+                "Goal met · +${reviewedToday - dailyGoal} extra"
             } else {
-                "$reviewedToday/$dailyGoal today · retries count"
+                "$reviewedToday of $dailyGoal today"
             },
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        PracticeFocusChip(if (prompt.card.queue.name == "VOCAB") "Vocabulary" else "Grammar", null)
-        PracticeFocusChip(prompt.answerMode.modeLabel(), null)
-        concept?.let { PracticeFocusChip(it, null) }
+    concept?.let {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            PracticeFocusChip(it, null)
+        }
     }
 }
 
 /** A single AnkiDroid-style colored remaining-count number. */
 @Composable
-internal fun QueueCount(count: Int, color: Color) {
-    Text(
-        count.toString(),
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Bold,
-        color = if (count > 0) color else color.copy(alpha = 0.35f)
-    )
+internal fun QueueCount(count: Int, label: String, color: Color) {
+    val tint = if (count > 0) color else color.copy(alpha = 0.35f)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            count.toString(),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = tint
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
 
 @Composable
@@ -546,6 +545,7 @@ internal fun ReviewContent(
     prompt.lesson?.let { lesson ->
         LessonCard(
             lesson = lesson,
+            isVocabIntro = prompt.isNewVocabularyIntroduction(),
             onSpeak = onSpeak,
             onGotIt = { onRate(Rating.GOOD) },
             onKnowWord = onKnowWord.takeIf { prompt.isNewVocabularyIntroduction() },
@@ -593,7 +593,9 @@ internal fun ReviewContent(
                 shape = RoundedCornerShape(10.dp)
             ) {
                 Text(
-                    "Why this card: $reason",
+                    // The reason phrases ("Warm-up: a secure scheduled review") already
+                    // carry their own colon, so frame with an em dash to avoid "card: …:".
+                    "Why this card — $reason",
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSecondaryContainer
@@ -652,9 +654,12 @@ internal fun ReviewContent(
                         }
                     }
                 }
-                // First-exposure cue: a brand-new word you've never been tested on.
-                // Orients the learner to treat it as a learn-then-reveal moment (and
-                // rate honestly) rather than feeling they failed a word they never saw.
+                // First-attempt cue for a card type you haven't been drilled on yet.
+                // The genuine first-contact "new word" intro is the separate LESSON
+                // card; by design productive facets (audio/typing/cloze) are deferred
+                // until recognition is stable, so when one first appears the *word* is
+                // already familiar — only the format is new. Saying "new word" here
+                // would be false and make a fair card feel like a failure.
                 if (!state.revealed && prompt.card.queue.name == "VOCAB" &&
                     prompt.card.state.name == "NEW" && prompt.card.reps == 0
                 ) {
@@ -669,7 +674,7 @@ internal fun ReviewContent(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Text("New word — first time. Try it, then reveal to learn it.", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                            Text("New exercise for this word — try it, then reveal to learn it.", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
                         }
                     }
                     // Skip-ahead for words you already know: retires this word's vocab
@@ -738,8 +743,14 @@ internal fun ReviewContent(
                                 }
                             )
                         } else {
+                            // Only recognition (ENGLISH) cards reaching this non-tile path
+                            // actually auto-play audio; promising it on stress/other typed
+                            // cards (which deliberately don't auto-play the answer) is false.
                             Text(
-                                "Type your answer. Audio plays automatically when the card appears.",
+                                if (prompt.answerMode == AnswerMode.ENGLISH)
+                                    "Type your answer. Audio plays automatically when the card appears."
+                                else
+                                    "Type your answer.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -758,7 +769,9 @@ internal fun ReviewContent(
                                     value = typedAnswer,
                                     prompt = prompt,
                                     onChange = onAnswerChanged,
-                                    onDone = onReveal
+                                    // The keyboard's Done key should never turn an
+                                    // accidental empty submission into an FSRS lapse.
+                                    onDone = { if (typedAnswer.isNotBlank()) onReveal() }
                                 )
                             } else {
                                 LetterTileBank(
@@ -782,6 +795,15 @@ internal fun ReviewContent(
             val hasAnswer = typedAnswer.isNotBlank()
             PrimaryPracticeButton(
                 hasAnswer = hasAnswer,
+                blankMeansMiss = prompt.card.cardType in setOf(
+                    CardType.MEANING_TO_RU,
+                    CardType.CLOZE,
+                    CardType.CASE_FILL,
+                    CardType.ADJ_AGREE,
+                    CardType.VERB_FORM,
+                    CardType.DICTATION,
+                    CardType.SENTENCE_BUILD
+                ),
                 onClick = onReveal,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -916,12 +938,16 @@ internal fun LessonCard(
     onSpeak: () -> Unit,
     onGotIt: () -> Unit,
     onKnowWord: (() -> Unit)? = null,
-    ratingInProgress: Boolean
+    ratingInProgress: Boolean,
+    // The same teaching layout introduces both grammar concepts and brand-new
+    // vocabulary, so the chip must name the right thing — calling a vocab card a
+    // "Grammar lesson" is just wrong and undermines trust in the labeling.
+    isVocabIntro: Boolean = false
 ) {
     SectionCard(emphasis = true) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(Icons.Filled.School, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            StatusTag("Grammar lesson")
+            StatusTag(if (isVocabIntro) "New vocabulary" else "Grammar lesson")
         }
         Spacer(Modifier.height(10.dp))
         Text(lesson.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -1045,6 +1071,7 @@ internal fun ChoiceAnswerButton(choice: String, index: Int, onClick: () -> Unit)
 @Composable
 internal fun PrimaryPracticeButton(
     hasAnswer: Boolean,
+    blankMeansMiss: Boolean = false,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
@@ -1083,7 +1110,10 @@ internal fun PrimaryPracticeButton(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                 Icon(if (ready) Icons.Filled.CheckCircle else Icons.Filled.School, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(if (ready) "Check Answer" else "Show Answer", fontWeight = FontWeight.SemiBold)
+                Text(
+                    if (ready) "Check Answer" else if (blankMeansMiss) "I don't know — show answer" else "Show Answer",
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
     }
@@ -1277,6 +1307,26 @@ internal fun RevealPanel(
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(if (state.ratingInProgress) "Saving..." else "Next Card", fontWeight = FontWeight.SemiBold)
+                }
+            }
+            return
+        }
+        if (prompt.practiceOnly || prompt.supportOnly) {
+            StatusBanner("Quick learning check — this choice does not change the card's long-term interval.")
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { onRate(Rating.AGAIN) },
+                    enabled = !state.ratingInProgress,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Try again")
+                }
+                Button(
+                    onClick = { onRate(Rating.GOOD) },
+                    enabled = !state.ratingInProgress,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(if (state.ratingInProgress) "Saving…" else "Got it", fontWeight = FontWeight.SemiBold)
                 }
             }
             return

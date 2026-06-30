@@ -37,7 +37,12 @@ fun normalizeRussian(input: String, ignoreStress: Boolean = true): String {
 fun isRussianAnswerCorrect(expected: String, actual: String, ignoreStress: Boolean = true): Boolean =
     evaluateRussianAnswer(expected, actual, ignoreStress).accepted
 
-fun evaluateRussianAnswer(expected: String, actual: String, ignoreStress: Boolean = true): AnswerEvaluation {
+fun evaluateRussianAnswer(
+    expected: String,
+    actual: String,
+    ignoreStress: Boolean = true,
+    allowTypos: Boolean = true
+): AnswerEvaluation {
     val normalizedActual = normalizeRussian(actual, ignoreStress)
     if (normalizedActual.isBlank()) {
         return AnswerEvaluation(AnswerMatch.WRONG, expected)
@@ -63,6 +68,11 @@ fun evaluateRussianAnswer(expected: String, actual: String, ignoreStress: Boolea
         }
         return AnswerEvaluation(AnswerMatch.WRONG, expected)
     }
+
+    // Inflection drills test the ending itself. Their callers disable typo
+    // tolerance so forms such as стол/стола or делал/делала cannot be accepted as
+    // harmless spelling slips. Lexical recall keeps the more forgiving default.
+    if (!allowTypos) return AnswerEvaluation(AnswerMatch.WRONG, expected)
 
     val closest = normalizedExpected
         .map { (display, normalized) -> display to levenshteinDistance(normalized, normalizedActual) }
@@ -95,7 +105,10 @@ fun evaluateEnglishAnswer(expected: String, actual: String): AnswerEvaluation {
         .flatMap { typed -> acceptable.map { target -> typed to target } }
         .map { (typed, target) -> EnglishTypoCandidate(typed, target, levenshteinDistance(typed, target)) }
         .minByOrNull { it.distance }
-    if (closest != null && closest.distance <= allowedTypoDistance(closest.typed, closest.target)) {
+    if (closest != null && (
+            closest.distance <= allowedEnglishTypoDistance(closest.typed, closest.target) ||
+                isSingleAdjacentTransposition(closest.typed, closest.target)
+            )) {
         return AnswerEvaluation(
             match = AnswerMatch.CLOSE,
             expected = expected,
@@ -106,6 +119,31 @@ fun evaluateEnglishAnswer(expected: String, actual: String): AnswerEvaluation {
 }
 
 private data class EnglishTypoCandidate(val typed: String, val target: String, val distance: Int)
+
+private fun isSingleAdjacentTransposition(actual: String, expected: String): Boolean {
+    if (actual.length != expected.length || actual.length < 7) return false
+    val mismatches = actual.indices.filter { actual[it] != expected[it] }
+    return mismatches.size == 2 &&
+        mismatches[1] == mismatches[0] + 1 &&
+        actual[mismatches[0]] == expected[mismatches[1]] &&
+        actual[mismatches[1]] == expected[mismatches[0]]
+}
+
+private fun allowedEnglishTypoDistance(actual: String, expected: String): Int {
+    val actualWords = actual.split(' ').filter { it.isNotBlank() }
+    val expectedWords = expected.split(' ').filter { it.isNotBlank() }
+    if (actualWords.size != expectedWords.size) return 0
+    val longestWord = (actualWords + expectedWords).maxOfOrNull { it.length } ?: 0
+    // Short English words are often distinct words one edit apart (accept/except,
+    // form/from). Only treat an edit as a typo when at least one word is long enough
+    // for that interpretation to be credible, and keep phrases to one total edit.
+    return when {
+        longestWord <= 6 -> 0
+        actualWords.size > 1 -> 1
+        longestWord <= 12 -> 1
+        else -> 2
+    }
+}
 
 /**
  * Normalized acceptable variants of an English gloss so trivially-correct answers

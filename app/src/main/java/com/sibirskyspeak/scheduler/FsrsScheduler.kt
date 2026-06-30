@@ -209,6 +209,37 @@ class FsrsScheduler(
         private const val GRAMMAR_INTERVAL_CEILING_DAYS = 10
         private const val MIN_STABILITY = 0.01
 
+        // --- "Already known" graduation -------------------------------------
+        // When the learner declares a word known (reader "mark known", "I know
+        // this word" on a card, or "place after level X"), the card leaves the
+        // active queue. It must still be a *valid* FSRS card: a confident low
+        // difficulty and a long stability. The old bulk paths left stability and
+        // difficulty at 0.0, which is not a point on any forgetting curve — it
+        // corrupts forecasts, the on-device weight fit, and the card's own math
+        // the moment it is ever reviewed again. These two constants are the single
+        // source of truth for that state, referenced by [markKnown], the
+        // graduate-by-note DAO query, and the v13→v14 data-repair migration.
+        const val KNOWN_STABILITY_DAYS = 365.0
+        const val KNOWN_DIFFICULTY = 3.0
+
+        /**
+         * Coherent FSRS fields for a card the learner declares already known.
+         * Graduates it out of the active queue with a valid (low-difficulty,
+         * long-stability) state. [due] lets the caller keep the word out of
+         * practice entirely (`Long.MAX_VALUE`) or schedule a far-future refresher.
+         */
+        fun markKnown(card: Card, now: Long, due: Long): Card = card.copy(
+            state = CardState.GRADUATED,
+            stability = KNOWN_STABILITY_DAYS,
+            difficulty = KNOWN_DIFFICULTY,
+            elapsedDays = 0,
+            scheduledDays = KNOWN_STABILITY_DAYS.toInt(),
+            reps = maxOf(card.reps, 1),
+            consecutiveCorrect = maxOf(card.consecutiveCorrect, 1),
+            lastReview = now,
+            due = due
+        )
+
         val DEFAULT_WEIGHTS: DoubleArray = doubleArrayOf(
             0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194,
             0.001, 1.8722, 0.1666, 0.796, 1.4835, 0.0614, 0.2629,

@@ -2,6 +2,7 @@ package com.sibirskyspeak.data
 
 import androidx.room.Dao
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
@@ -42,6 +43,14 @@ data class ReviewFitRow(
     val stateBefore: CardState,
     val elapsedDays: Int,
     val stabilityBefore: Double
+)
+
+/** Mature-review retention broken out by card facet, so a low aggregate number can
+ *  be attributed to specific quiz types (e.g. typed-production vs. recognition). */
+data class CardTypeRetention(
+    val cardType: CardType,
+    val total: Int,
+    val retained: Int
 )
 
 @Dao
@@ -123,9 +132,26 @@ interface CardDao {
 
     /** Mark a single note's VOCAB cards known (graduated, pushed far out) — used when
      *  the learner marks the word KNOWN/IGNORED in the reader, so practice stops
-     *  quizzing a word they already know. */
-    @Query("UPDATE cards SET state = 'GRADUATED', due = :due WHERE noteId = :noteId AND queue = 'VOCAB' AND (state != 'GRADUATED' OR due != :due)")
-    suspend fun graduateVocabForNote(noteId: Long, due: Long): Int
+     *  quizzing a word they already know. Writes a coherent FSRS state (long
+     *  [stability], low [difficulty], reps≥1, [now] as lastReview) rather than
+     *  leaving the all-zero "never scheduled" state that corrupts the weight fit and
+     *  any later review; callers pass the [FsrsScheduler.KNOWN_STABILITY_DAYS] /
+     *  [FsrsScheduler.KNOWN_DIFFICULTY] constants so there is a single source of truth. */
+    @Query(
+        "UPDATE cards SET state = 'GRADUATED', due = :due, stability = :stability, " +
+            "difficulty = :difficulty, scheduledDays = :scheduledDays, elapsedDays = 0, " +
+            "reps = MAX(reps, 1), consecutiveCorrect = MAX(consecutiveCorrect, 1), lastReview = :now " +
+            "WHERE noteId = :noteId AND queue = 'VOCAB' " +
+            "AND (state != 'GRADUATED' OR stability <= 0.0 OR difficulty <= 0.0 OR due != :due)"
+    )
+    suspend fun graduateVocabForNote(
+        noteId: Long,
+        due: Long,
+        now: Long,
+        stability: Double,
+        difficulty: Double,
+        scheduledDays: Int
+    ): Int
 
     /** Re-activate a note's graduated VOCAB cards as fresh NEW — used when the learner
      *  marks a previously-known word as LEARNING again, pulling it back into practice. */
@@ -367,6 +393,18 @@ interface NoteDao {
     @Query("SELECT * FROM notes")
     suspend fun getAll(): List<Note>
 
+    /** Notes whose primary example looks like a "Русский - English" concatenation that
+     *  was never split (translation blank, a spaced dash present, Latin letters in the
+     *  sentence). Feeds the one-time example-repair pass; returns nothing once repaired. */
+    @Query("""
+        SELECT * FROM notes
+        WHERE (exampleTranslation IS NULL OR exampleTranslation = '')
+          AND exampleSentence IS NOT NULL
+          AND (exampleSentence LIKE '% - %' OR exampleSentence LIKE '% — %' OR exampleSentence LIKE '% – %')
+          AND exampleSentence GLOB '*[A-Za-z]*'
+    """)
+    suspend fun examplesNeedingSplit(): List<Note>
+
     @Query("SELECT * FROM notes WHERE cefrLevel IN (:levels)")
     suspend fun getByCefrLevels(levels: List<String>): List<Note>
 
@@ -427,6 +465,23 @@ interface ReviewLogDao {
      * rolling window as [matureReviewCount]. True-retention numerator. */
     @Query("SELECT COUNT(*) FROM review_logs WHERE reviewDatetime >= :since AND stateBefore IN ('REVIEW', 'RELEARNING') AND elapsedDays > 0 AND rating != 'AGAIN' AND source != 'READER_LOOKUP'")
     suspend fun matureRetainedCount(since: Long = 0): Int
+
+    /** Mature-review retention grouped by card type, over the same rolling window as
+     * [matureReviewCount]. Diagnoses which quiz facets drag the aggregate down. */
+    @Query("""
+        SELECT cards.cardType AS cardType,
+               COUNT(*) AS total,
+               SUM(CASE WHEN review_logs.rating != 'AGAIN' THEN 1 ELSE 0 END) AS retained
+        FROM review_logs
+        INNER JOIN cards ON cards.id = review_logs.cardId
+        WHERE review_logs.reviewDatetime >= :since
+          AND review_logs.stateBefore IN ('REVIEW', 'RELEARNING')
+          AND review_logs.elapsedDays > 0
+          AND review_logs.source != 'READER_LOOKUP'
+        GROUP BY cards.cardType
+        HAVING total > 0
+    """)
+    suspend fun matureRetentionByCardType(since: Long = 0): List<CardTypeRetention>
 
     // Lexemes introduced since [since]. Multiple facets of one note consume one
     // daily slot, so breadth is not divided by the number of card types.
@@ -699,4 +754,109 @@ interface TelemetryDao {
 
     @Query("SELECT COUNT(*) FROM telemetry_events WHERE eventType = :eventType AND timestamp >= :since")
     suspend fun countByTypeSince(eventType: String, since: Long): Int
+}
+
+@Dao
+interface MinedExampleDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(example: MinedExample): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(examples: List<MinedExample>): List<Long>
+
+    @Query("SELECT * FROM mined_examples WHERE noteId = :noteId")
+    suspend fun forNote(noteId: Long): MinedExample?
+
+    @Query("SELECT * FROM mined_examples WHERE noteId IN (:noteIds)")
+    suspend fun forNotes(noteIds: List<Long>): List<MinedExample>
+
+    @Query("SELECT * FROM mined_examples ORDER BY score DESC")
+    suspend fun getAll(): List<MinedExample>
+
+    @Query("DELETE FROM mined_examples WHERE noteId = :noteId")
+    suspend fun deleteForNote(noteId: Long): Int
+}
+
+@Dao
+interface LearningModelDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertDifficulty(value: ItemDifficulty)
+
+    @Query("SELECT * FROM item_difficulty WHERE cardId = :cardId")
+    suspend fun difficulty(cardId: Long): ItemDifficulty?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertMastery(value: ConceptMastery)
+
+    @Query("SELECT * FROM concept_mastery WHERE concept = :concept")
+    suspend fun mastery(concept: String): ConceptMastery?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertParameter(value: OptimizerParameter)
+
+    @Query("SELECT * FROM optimizer_parameters")
+    suspend fun parameters(): List<OptimizerParameter>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertSkillRating(value: SkillRating)
+
+    @Query("SELECT * FROM skill_rating")
+    suspend fun skillRatings(): List<SkillRating>
+
+    @Query("SELECT * FROM skill_rating WHERE skill = :skill")
+    suspend fun skillRating(skill: String): SkillRating?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertCapacityState(value: CapacityState)
+
+    @Query("SELECT * FROM capacity_state WHERE id = 0")
+    suspend fun capacityState(): CapacityState?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertWillingnessState(value: WillingnessState)
+
+    @Query("SELECT * FROM willingness_state WHERE id = 0")
+    suspend fun willingnessState(): WillingnessState?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertRivalState(value: RivalState)
+
+    @Query("SELECT * FROM rival_state WHERE id = 0")
+    suspend fun rivalState(): RivalState?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertGhostSnapshot(value: GhostSnapshot)
+
+    @Query("SELECT * FROM ghost_snapshot ORDER BY takenAt DESC LIMIT 1")
+    suspend fun latestGhostSnapshot(): GhostSnapshot?
+
+    @Query("SELECT * FROM ghost_snapshot WHERE takenAt <= :cutoff ORDER BY takenAt DESC LIMIT 1")
+    suspend fun ghostSnapshotAtOrBefore(cutoff: Long): GhostSnapshot?
+
+    @Insert
+    suspend fun insertMatchHistory(value: MatchHistory): Long
+
+    @Query("SELECT * FROM match_history ORDER BY at DESC LIMIT :limit")
+    suspend fun matchHistory(limit: Int = 20): List<MatchHistory>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertPaceLog(value: PaceLog)
+
+    @Query("SELECT * FROM pace_log ORDER BY at DESC LIMIT :limit")
+    suspend fun paceLogs(limit: Int = 20): List<PaceLog>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertBanditPending(value: BanditPending)
+
+    @Query("SELECT * FROM bandit_pending WHERE itemId = :itemId ORDER BY showAt ASC")
+    suspend fun pendingBanditCredits(itemId: Long): List<BanditPending>
+
+    @Query("DELETE FROM bandit_pending WHERE showAt = :showAt")
+    suspend fun deleteBanditPending(showAt: Long): Int
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertBanditArmState(value: BanditArmState)
+
+    @Query("SELECT * FROM bandit_arm_state")
+    suspend fun banditArmStates(): List<BanditArmState>
 }

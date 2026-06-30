@@ -2,6 +2,7 @@ package com.sibirskyspeak.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.sibirskyspeak.learning.Doctrine
 import com.sibirskyspeak.scheduler.FsrsScheduler
 
 /**
@@ -15,6 +16,7 @@ interface SettingsStore {
     var sessionSize: Int
     var newCardsPerDay: Int
     var desiredRetention: Double
+    var doctrine: Doctrine
     var intervalModifier: Double
     /** The active FSRS weight vector (21 params). Defaults to stock FSRS-6 until the
      * on-device fit personalizes the high-leverage subset (init stability + decay). */
@@ -80,6 +82,12 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
     override var desiredRetention: Double
         get() = prefs.getFloat(KEY_RETENTION, SettingsStore.DEFAULT_RETENTION.toFloat()).toDouble().coerceIn(SettingsStore.MIN_RETENTION, SettingsStore.MAX_RETENTION)
         set(value) = prefs.edit().putFloat(KEY_RETENTION, value.coerceIn(SettingsStore.MIN_RETENTION, SettingsStore.MAX_RETENTION).toFloat()).apply()
+
+    override var doctrine: Doctrine
+        get() = prefs.getString(KEY_DOCTRINE, Doctrine.BALANCED.name)
+            ?.let { runCatching { Doctrine.valueOf(it) }.getOrNull() }
+            ?: Doctrine.BALANCED
+        set(value) = prefs.edit().putString(KEY_DOCTRINE, value.name).apply()
 
     /**
      * Data-driven FSRS interval multiplier, learned from the user's own mature-card
@@ -183,6 +191,7 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         private const val KEY_SESSION_SIZE = "session_size"
         private const val KEY_NEW_CARDS_PER_DAY = "new_cards_per_day"
         private const val KEY_RETENTION = "desired_retention"
+        private const val KEY_DOCTRINE = "doctrine"
         private const val KEY_REMINDER_ENABLED = "reminder_enabled"
         private const val KEY_REMINDER_HOUR = "reminder_hour"
         private const val KEY_READER_FONT_SCALE = "reader_font_scale"

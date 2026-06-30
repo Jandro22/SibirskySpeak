@@ -64,10 +64,18 @@ fun buildPrompt(
     card: Card,
     note: Note,
     intervalPreview: Map<Rating, Int>,
-    aspectPartner: Note? = null
+    aspectPartner: Note? = null,
+    minedTargetPos: Int? = null
 ): ReviewPrompt {
-    val example = note.exampleFor(card)
-    val cloze = example.sentence?.clozeVocabularyAnswer(note)
+    // Corpus sentences are tokenized with spaces around punctuation ("слово , что");
+    // tidy that once here so every consumer (prompt, cloze carrier, reveal context,
+    // dictation/sentence-build answers) renders and grades clean text.
+    val example = note.exampleFor(card).tidied()
+    // Corpus positions come from build-time pymorphy tokenization. Using the exact
+    // attested surface form avoids trusting the legacy declensionJson, which contains
+    // known morphology errors. Authored examples retain their curated fallback path.
+    val cloze = if (minedTargetPos != null) example.sentence?.clozeAtRussianToken(minedTargetPos)
+        else example.sentence?.clozeVocabularyAnswer(note)
     val russianContextCloze = cloze?.takeIf { note.prefersRussianContext(card) && it.prompt.hasRussianText() }
     val caseDrill = note.declensionJson?.let { caseDrillFromJson(card, note, it, example.sentence) }
     return when (card.cardType) {
@@ -76,7 +84,18 @@ fun buildPrompt(
             if (card.state == com.sibirskyspeak.data.CardState.NEW && card.reps == 0) {
                 val content = LessonContent(
                     title = "New word: ${note.russian}",
-                    body = "Meaning here: $meaning\n\nStudy the word and its example first. Recall begins when it returns later.",
+                    body = buildString {
+                        append("Meaning here: $meaning")
+                        note.mnemonic?.takeIf { it.isNotBlank() }?.let { append("\n\nMemory hook: $it") }
+                        // Don't promise "its example" when the note has none — many
+                        // tier-0/textbook words ship without one, and a dangling
+                        // reference to an absent example reads like a missing card.
+                        val hasExample = !example.sentence.isNullOrBlank()
+                        append(
+                            if (hasExample) "\n\nStudy the word and its example first. Recall begins when it returns later."
+                            else "\n\nStudy the word first. Recall begins when it returns later."
+                        )
+                    },
                     exampleRu = example.sentence.orEmpty(),
                     exampleEn = example.translation.orEmpty()
                 )
@@ -320,7 +339,21 @@ fun buildPrompt(
 private fun teachingHintFor(card: Card): String? =
     com.sibirskyspeak.data.GrammarConcepts.forCard(card)?.hint
 
-private data class ExampleContext(val sentence: String?, val translation: String?)
+private data class ExampleContext(val sentence: String?, val translation: String?) {
+    fun tidied() = ExampleContext(sentence?.tidyPunctuationSpacing(), translation?.tidyPunctuationSpacing())
+}
+
+/**
+ * Collapse the space-before-punctuation artifact left by token-joined corpus text
+ * ("Давай поду́маем , что …" → "Давай поду́маем, что …") and any doubled spaces, and
+ * tighten spacing just inside guillemets/brackets. Leaves the word stress marks and
+ * the actual words untouched.
+ */
+internal fun String.tidyPunctuationSpacing(): String =
+    replace(Regex("\\s+([,.;:!?…)\\]»])"), "$1")
+        .replace(Regex("([(\\[«])\\s+"), "$1")
+        .replace(Regex(" {2,}"), " ")
+        .trim()
 
 private fun Note.exampleFor(card: Card): ExampleContext {
     val examples = listOf(
@@ -372,7 +405,8 @@ private fun Note.contextualMeaning(): String {
 }
 
 private fun Note.isContextBoundFunctionWord(): Boolean =
-    partOfSpeech.lowercase() in setOf("preposition", "conjunction", "particle", "pronoun", "conj.", "prep.")
+    partOfSpeech.lowercase() in setOf("preposition", "conjunction", "particle", "pronoun", "conj.", "prep.") ||
+        translation.split(Regex("""\s*[,;/]\s*""")).count { it.isNotBlank() } > 2
 
 /** Production gets one retrieval target, not a multi-sense dictionary entry. */
 private fun Note.productionCue(): String =
@@ -492,6 +526,11 @@ private fun caseTeaching(gramCase: String?): String = when (gramCase) {
 }
 
 private data class ClozeDrill(val prompt: String, val answer: String)
+
+private fun String.clozeAtRussianToken(position: Int): ClozeDrill? {
+    val match = Regex("""[А-Яа-яЁё]+(?:-[А-Яа-яЁё]+)?""").findAll(this).elementAtOrNull(position) ?: return null
+    return ClozeDrill(replaceRange(match.range, "____"), match.value)
+}
 
 private data class VerbFormDrill(val prompt: String, val answer: String, val explanation: String)
 

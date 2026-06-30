@@ -1902,6 +1902,97 @@ class LearningRepositoryTest {
         }
     }
 
+    @Test
+    fun markWordKnownGraduatesWithCoherentFsrsState() = runTest {
+        val fixture = RepoFixture()
+        val noteId = fixture.notes.insert(Note(russian = "дом", lemma = "дом", translation = "house", partOfSpeech = "noun", status = WordStatus.NEW, tags = ""))
+        // Two fresh VOCAB cards in the degenerate all-zero state bulk graduation left.
+        fixture.cards.insert(Card(noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB))
+        fixture.cards.insert(Card(noteId = noteId, cardType = CardType.MEANING_TO_RU, queue = Queue.VOCAB))
+
+        fixture.repository.markWordKnown(noteId)
+
+        val graduated = fixture.cards.cards.filter { it.noteId == noteId }
+        assertTrue("all vocab cards graduate", graduated.all { it.state == CardState.GRADUATED })
+        assertTrue("no card is left with degenerate FSRS state",
+            graduated.none { it.stability <= 0.0 || it.difficulty <= 0.0 })
+        assertTrue("difficulty stays within FSRS range", graduated.all { it.difficulty in 1.0..10.0 })
+        assertEquals(WordStatus.KNOWN, fixture.notes.getById(noteId)?.status)
+    }
+
+    @Test
+    fun placeAfterLevelGraduatesWithCoherentFsrsState() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """{"russian":"вода","lemma":"вода","pos":"noun","translation":"water","cefrLevel":"A1"}"""
+        )
+
+        val placed = fixture.repository.placeAfterLevel("A1")
+
+        assertTrue("at least one note placed", placed >= 1)
+        val cards = fixture.cards.cards.filter { it.queue == Queue.VOCAB }
+        assertTrue(cards.isNotEmpty())
+        assertTrue("placed cards graduate", cards.all { it.state == CardState.GRADUATED })
+        assertTrue("placed cards carry coherent FSRS state",
+            cards.none { it.stability <= 0.0 || it.difficulty <= 0.0 })
+    }
+
+    @Test
+    fun retentionByCardTypeSplitsMatureReviewsPerFacet() = runTest {
+        val fixture = RepoFixture()
+        val noteId = fixture.notes.insert(Note(russian = "стол", lemma = "стол", translation = "table", partOfSpeech = "noun", status = WordStatus.LEARNING, tags = ""))
+        val recognition = Card(id = fixture.cards.insert(Card(noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.REVIEW)), noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.REVIEW)
+        val production = Card(id = fixture.cards.insert(Card(noteId = noteId, cardType = CardType.MEANING_TO_RU, queue = Queue.VOCAB, state = CardState.REVIEW)), noteId = noteId, cardType = CardType.MEANING_TO_RU, queue = Queue.VOCAB, state = CardState.REVIEW)
+        // Recognition: 2 retained. Production: 1 retained, 1 lapsed → easier facet visible.
+        fixture.logs.insert(matureLog(recognition, Rating.GOOD))
+        fixture.logs.insert(matureLog(recognition, Rating.EASY))
+        fixture.logs.insert(matureLog(production, Rating.GOOD))
+        fixture.logs.insert(matureLog(production, Rating.AGAIN))
+
+        val byType = fixture.repository.retentionByCardType(now = 10L * 86_400_000L).associateBy { it.cardType }
+
+        assertEquals(2, byType[CardType.RU_TO_MEANING]?.total)
+        assertEquals(2, byType[CardType.RU_TO_MEANING]?.retained)
+        assertEquals(2, byType[CardType.MEANING_TO_RU]?.total)
+        assertEquals(1, byType[CardType.MEANING_TO_RU]?.retained)
+    }
+
+    @Test
+    fun repairConcatenatedExamplesSplitsLegacyNotesAndIsIdempotent() = runTest {
+        val fixture = RepoFixture()
+        fixture.notes.insert(Note(
+            russian = "страх", lemma = "страх", translation = "fear", partOfSpeech = "noun", tags = "general matrix",
+            exampleSentence = "Я испытываю страх - It scares me.", exampleTranslation = null
+        ))
+        // A clean note must be left untouched.
+        fixture.notes.insert(Note(
+            russian = "вода", lemma = "вода", translation = "water", partOfSpeech = "noun", tags = "",
+            exampleSentence = "Вода на столе.", exampleTranslation = "Water is on the table."
+        ))
+
+        val firstPass = fixture.repository.repairConcatenatedExamples()
+        assertEquals(1, firstPass)
+        val fixed = fixture.notes.getByLemma("страх")!!
+        assertEquals("Я испытываю страх", fixed.exampleSentence)
+        assertEquals("It scares me.", fixed.exampleTranslation)
+        // Clean note unchanged.
+        assertEquals("Вода на столе.", fixture.notes.getByLemma("вода")?.exampleSentence)
+
+        // Idempotent: a second pass finds nothing left to repair.
+        assertEquals(0, fixture.repository.repairConcatenatedExamples())
+    }
+
+    private fun matureLog(card: Card, rating: Rating): ReviewLog =
+        ReviewLog(
+            cardId = card.id,
+            reviewDatetime = 5L * 86_400_000L,
+            rating = rating,
+            stateBefore = CardState.REVIEW,
+            scheduledDays = 3,
+            elapsedDays = 3,
+            source = ReviewSource.SRS_REVIEW
+        )
+
     private fun goodLog(card: Card, time: Long): ReviewLog =
         ReviewLog(
             cardId = card.id,

@@ -3,6 +3,7 @@ package com.sibirskyspeak
 import android.app.Application
 import androidx.room.withTransaction
 import com.sibirskyspeak.data.AppDatabase
+import com.sibirskyspeak.data.ContentDatabase
 import com.sibirskyspeak.data.AssetBootstrap
 import com.sibirskyspeak.data.BackupManager
 import com.sibirskyspeak.data.LearningConfig
@@ -19,6 +20,7 @@ class SibirskySpeakApp : Application() {
 
     val repository: LearningRepository by lazy {
         val database = AppDatabase.get(this)
+        val contentDatabase = ContentDatabase.get(this)
         val assets = AssetBootstrap(this)
         LearningRepository(
             noteDao = database.noteDao(),
@@ -30,6 +32,10 @@ class SibirskySpeakApp : Application() {
             readerEncounterDao = database.readerEncounterDao(),
             readingActivityDao = database.readingActivityDao(),
             telemetryDao = database.telemetryDao(),
+            minedExampleDao = database.minedExampleDao(),
+            learningModelDao = database.learningModelDao(),
+            contentDao = contentDatabase.contentDao(),
+            corpusLemmaProvider = { assets.readTextAsset("deck_lemma.json") },
             scheduler = FsrsScheduler(
                 desiredRetentionProvider = { settings.desiredRetention },
                 intervalModifierProvider = { settings.intervalModifier },
@@ -39,7 +45,7 @@ class SibirskySpeakApp : Application() {
             bootstrapNotes = { assets.readTextAsset("bootstrap_notes.jsonl") },
             bootstrapReaderTexts = { assets.readTextAsset("bootstrap_reader_texts.jsonl") },
             transactionRunner = { block -> database.withTransaction(block) },
-            config = { LearningConfig(dailyGoal = settings.dailyGoal, sessionSize = settings.sessionSize, newCardsPerDay = settings.newCardsPerDay) },
+            config = { LearningConfig(dailyGoal = settings.dailyGoal, sessionSize = settings.sessionSize, newCardsPerDay = settings.newCardsPerDay, desiredRetention = settings.desiredRetention, doctrine = settings.doctrine) },
             restoreBackup = { withContext(Dispatchers.IO) { backup.read() } },
             writeBackup = { content -> withContext(Dispatchers.IO) { backup.write(content) } }
         )

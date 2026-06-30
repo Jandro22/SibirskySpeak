@@ -46,6 +46,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sibirskyspeak.data.SettingsStore
+import com.sibirskyspeak.learning.Doctrine
 import com.sibirskyspeak.review.ReviewUiState
 
 // ---------------------------------------------------------------------------
@@ -75,6 +76,7 @@ internal fun ImportExportPanel(
     onSessionSize: (Int) -> Unit,
     onNewCardsPerDay: (Int) -> Unit,
     onRetention: (Double) -> Unit,
+    onDoctrine: (Doctrine) -> Unit,
     onPlaceAfterLevel: (String) -> Unit,
     onReminderEnabled: (Boolean) -> Unit,
     onReminderHour: (Int) -> Unit,
@@ -120,48 +122,7 @@ internal fun ImportExportPanel(
                         SectionCard {
                             Text("Study Pace", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(12.dp))
-                            SettingSlider(
-                                label = "Daily goal",
-                                valueLabel = "${state.dailyGoalSetting} cards",
-                                value = state.dailyGoalSetting.toFloat(),
-                                range = SettingsStore.MIN_DAILY_GOAL.toFloat()..SettingsStore.MAX_DAILY_GOAL.toFloat(),
-                                onChange = { onDailyGoal(it.toInt()) }
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            SettingSlider(
-                                label = "Cards per session",
-                                valueLabel = "${state.sessionSizeSetting}",
-                                value = state.sessionSizeSetting.toFloat(),
-                                range = SettingsStore.MIN_SESSION_SIZE.toFloat()..SettingsStore.MAX_SESSION_SIZE.toFloat(),
-                                onChange = { onSessionSize(it.toInt()) }
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            SettingSlider(
-                                label = "New cards per day",
-                                valueLabel = "${state.newCardsPerDaySetting}",
-                                value = state.newCardsPerDaySetting.toFloat(),
-                                range = SettingsStore.MIN_NEW_CARDS_PER_DAY.toFloat()..SettingsStore.MAX_NEW_CARDS_PER_DAY.toFloat(),
-                                onChange = { onNewCardsPerDay(it.toInt()) }
-                            )
-                            Text(
-                                "Normal new cards are capped by your daily goal; use extra credit only when reviews feel easy.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            SettingSlider(
-                                label = "Target retention",
-                                valueLabel = "${(state.retentionSetting * 100).toInt()}%",
-                                value = state.retentionSetting.toFloat(),
-                                range = SettingsStore.MIN_RETENTION.toFloat()..SettingsStore.MAX_RETENTION.toFloat(),
-                                rangeLabel = { "${(it * 100).toInt()}%" },
-                                onChange = { onRetention(it.toDouble()) }
-                            )
-                            Text(
-                                "Higher retention means shorter intervals and more reviews.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            DoctrinePicker(selected = state.doctrineSetting, onSelect = onDoctrine)
                         }
                         SectionCard {
                             Text("Placement", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -314,6 +275,15 @@ internal fun ImportExportPanel(
                                 OutlinedTextField(value = state.exportText, onValueChange = {}, modifier = Modifier.fillMaxWidth(), minLines = 6, shape = MaterialTheme.shapes.small, label = { Text("Exported JSON Lines") })
                             }
                         }
+                        SectionCard {
+                            Text("Content credits", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Example sentences from Tatoeba (tatoeba.org), licensed under CC BY 2.0 FR. Corpus packaging may use the OPUS Tatoeba mirror. Russian audio is generated on-device by your system TTS.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
@@ -330,6 +300,20 @@ internal fun SettingsAreaPicker(selected: SettingsArea, onSelect: (SettingsArea)
                 selected = selected == area,
                 onClick = { onSelect(area) },
                 label = { Text(area.label) }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun DoctrinePicker(selected: Doctrine, onSelect: (Doctrine) -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Doctrine.entries.forEach { doctrine ->
+            FilterChip(
+                selected = selected == doctrine,
+                onClick = { onSelect(doctrine) },
+                label = { Text(doctrine.name.lowercase().replaceFirstChar { it.uppercase() }) }
             )
         }
     }

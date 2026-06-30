@@ -122,10 +122,16 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
     // lives on the READER tab; in-session scheduled reading instead rides on the
     // study session. Treat both as "in the reader" for back-handling and layout.
     val inReader = (!studyActive && activeTab == SessionStep.READER) || state.inSessionReading
-    BackHandler(enabled = studyActive) { studyActive = false }
+    BackHandler(enabled = studyActive) {
+        viewModel.recordStudyScreenExit()
+        studyActive = false
+    }
     BackHandler(enabled = showReference && !studyActive) { showReference = false }
     // Back out of the manual reader: close an open text first, else return to Practice.
-    BackHandler(enabled = !studyActive && activeTab == SessionStep.READER) {
+    // Gated on !showReference so an open grammar-reference overlay (drawn on top of the
+    // Reader tab) takes Back priority and dismisses itself instead of navigating the
+    // tab underneath it and leaving the overlay stranded.
+    BackHandler(enabled = !studyActive && !showReference && activeTab == SessionStep.READER) {
         if (state.selectedReaderTextId != null) viewModel.closeReaderText()
         else viewModel.setSessionStep(SessionStep.REVIEWS)
     }
@@ -161,9 +167,8 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
                 onKnewIt = viewModel::overrideKnewIt,
                 onSuspend = viewModel::suspendCurrentCard,
                 onKnowWord = viewModel::markCurrentWordKnown,
-                onStartSession = viewModel::startStudySession,
+                onStartSession = { viewModel.startStudySession() },
                 onSaveEdit = viewModel::editCurrentCard,
-                onExtraCredit = viewModel::grantExtraCredit,
                 onReadNext = {
                     viewModel.startStudySession()
                     studyActive = true
@@ -171,7 +176,10 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
             )
             SessionStep.REVIEWS -> PracticeScreen(
                 state = state,
-                onStart = { studyActive = true },
+                onStart = { mode ->
+                    viewModel.startStudySession(mode)
+                    studyActive = true
+                },
                 onRead = {
                     settingsArea = SettingsArea.READER
                     viewModel.setSessionStep(SessionStep.IMPORT)
@@ -225,6 +233,7 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
                 onSessionSize = viewModel::setSessionSize,
                 onNewCardsPerDay = viewModel::setNewCardsPerDay,
                 onRetention = viewModel::setRetention,
+                onDoctrine = viewModel::setDoctrine,
                 onPlaceAfterLevel = viewModel::placeAfterLevel,
                 onReminderEnabled = { enabled ->
                     viewModel.setReminderEnabled(enabled)

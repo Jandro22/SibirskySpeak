@@ -4,3 +4,4 @@ pymorphy3>=2.0.1
 pymorphy3-dicts-ru>=2.4.417150
 PyMuPDF>=1.24
 pytest>=8.0
+numpy>=2.0

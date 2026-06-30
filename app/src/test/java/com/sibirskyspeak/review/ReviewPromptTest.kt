@@ -18,6 +18,30 @@ class ReviewPromptTest {
     }
 
     @Test
+    fun tidyPunctuationSpacingFixesTokenJoinedSentences() {
+        assertEquals("Давай поду́маем, что мо́жет произойти́.",
+            "Давай поду́маем , что мо́жет произойти́ .".tidyPunctuationSpacing())
+        assertEquals("«Эхо»: да и нет!", "« Эхо » :  да и нет !".tidyPunctuationSpacing())
+        // Clean text is unchanged.
+        assertEquals("Кни́га на столе́.", "Кни́га на столе́.".tidyPunctuationSpacing())
+    }
+
+    @Test
+    fun recognitionPromptRendersTidiedExampleSentence() {
+        val note = Note(
+            id = 1, russian = "что", lemma = "что", translation = "what, that", partOfSpeech = "pronoun",
+            exampleSentence = "Поду́май , что бу́дет .", exampleTranslation = "Think about what will be."
+        )
+        // reps >= 5 embeds the example sentence into the prompt; it must be tidied.
+        val prompt = buildPrompt(
+            Card(id = 1, noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.REVIEW, reps = 5),
+            note, emptyMap()
+        )
+        assertFalse("no space-before-comma artifact", prompt.prompt.contains(" ,"))
+        assertTrue(prompt.prompt.contains("Поду́май, что бу́дет."))
+    }
+
+    @Test
     fun failedCardReturnsAfterSixInterveningCardsAndAtTheEnd() {
         val failed = simplePrompt(1, CardType.MEANING_TO_RU)
         val repair = simplePrompt(99, CardType.RU_TO_MEANING)

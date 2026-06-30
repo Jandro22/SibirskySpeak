@@ -4,12 +4,45 @@ import com.sibirskyspeak.review.ReviewPrompt
 import com.sibirskyspeak.review.AnswerMode
 import com.sibirskyspeak.review.LessonContent
 import com.sibirskyspeak.review.buildPrompt
+import com.sibirskyspeak.scheduler.FsrsScheduler
 import com.sibirskyspeak.scheduler.Scheduler
+import com.sibirskyspeak.learning.AbilitySkill
+import com.sibirskyspeak.learning.CognateDetector
+import com.sibirskyspeak.learning.Enrichment
+import com.sibirskyspeak.learning.ExampleMiner
+import com.sibirskyspeak.learning.MasteryModel
+import com.sibirskyspeak.learning.BlueprintBuilder
+import com.sibirskyspeak.learning.ContextualBandit
+import com.sibirskyspeak.learning.FatigueModel
+import com.sibirskyspeak.learning.LiveSessionState
+import com.sibirskyspeak.learning.NextCardSelector
+import com.sibirskyspeak.learning.SessionMode
+import com.sibirskyspeak.learning.NarrowReadingGenerator
+import com.sibirskyspeak.learning.CapacityBelief
+import com.sibirskyspeak.learning.PaceController
+import com.sibirskyspeak.learning.PaceInputs
+import com.sibirskyspeak.learning.Pace
+import com.sibirskyspeak.learning.ReturnContext
+import com.sibirskyspeak.learning.WillingnessBelief
+import com.sibirskyspeak.learning.WillingnessModel
+import com.sibirskyspeak.learning.WillingnessSignals
+import com.sibirskyspeak.learning.CapacityModel
+import com.sibirskyspeak.learning.BanditCredit
+import com.sibirskyspeak.learning.CausalFormatReward
+import com.sibirskyspeak.learning.Gaussian
+import com.sibirskyspeak.learning.MatchOutcome
+import com.sibirskyspeak.learning.Rival
+import com.sibirskyspeak.learning.RivalBelief
+import com.sibirskyspeak.learning.PromotionSeries
+import com.sibirskyspeak.learning.TrueSkill
+import com.sibirskyspeak.learning.WorldModel
+import com.sibirskyspeak.learning.SuccessCalibrationFitter
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import org.json.JSONArray
 import java.util.Locale
 
 /** A captured pre-review snapshot, enough to roll one review back. */
@@ -42,6 +75,14 @@ class LearningRepository(
     private val readingScheduleDao: ReadingScheduleDao? = null,
     private val readerEncounterDao: ReaderEncounterDao? = null,
     private val readingActivityDao: ReadingActivityDao? = null,
+    private val minedExampleDao: MinedExampleDao? = null,
+    private val learningModelDao: LearningModelDao? = null,
+    private val contentDao: ContentDao? = null,
+    // Normalized-surface -> base-lemma map (deck_lemma.json), built offline with the
+    // same pymorphy lemmatizer that indexed the corpus. Lets the miner resolve a note's
+    // real base lemma when note.lemma is a namespaced/inflected pseudo-lemma (e.g.
+    // "tb_нашему") that the corpus base-form index can't match. Null in tests.
+    private val corpusLemmaProvider: (suspend () -> String?)? = null,
     // Dispatcher for the repository's CPU-bound work (surface-form indexing, reader
     // tokenization). Injectable so tests can pass a deterministic test dispatcher
     // instead of the real Default pool, which would escape the test scheduler.
@@ -66,6 +107,7 @@ class LearningRepository(
     @Volatile private var lastGraduationReviewCount: Int? = null
     @Volatile private var accuracyCacheReviewCount: Int? = null
     @Volatile private var accuracyCache: List<CategoryKey>? = null
+    private val enrichmentCache = mutableMapOf<Long, Enrichment>()
 
     // Voluntary "extra credit" new cards granted for today, on top of the daily new-card
     // cap, for when the learner wants to push further. In-memory and day-scoped: it
@@ -142,10 +184,12 @@ class LearningRepository(
     suspend fun seedIfEmpty() {
         if (noteDao.count() > 0) {
             syncMissingConceptDrillCards()
+            runCatching { repairConcatenatedExamples() }
             runCatching { syncBootstrapTextbookNotes() }
             runCatching { retireRejectedBootstrapNotes() }
             runCatching { syncBootstrapReaderTexts() }
             runCatching { performDataMaintenance() }
+            runCatching { mineExampleGaps(limit = 48) }
             return
         }
         val runner = transactionRunner ?: { block -> block() }
@@ -173,6 +217,7 @@ class LearningRepository(
         if (imported > 0) {
             runCatching { runner { seedConfusablePairs() } }
             runCatching { performDataMaintenance() }
+            runCatching { mineExampleGaps(limit = 96) }
             return
         }
 
@@ -253,10 +298,13 @@ class LearningRepository(
     }
 
     suspend fun addNote(note: Note): Long {
+        // Repair "Русский - English" example concatenations on the way in so future
+        // imports (and backup restores of legacy data) never reintroduce the leak.
+        val clean = note.withSplitExamples()
         var noteId = 0L
         runInTransaction {
-            noteId = noteDao.insert(note)
-            cardDao.insertAll(cardsFor(note.copy(id = noteId)))
+            noteId = noteDao.insert(clean)
+            cardDao.insertAll(cardsFor(clean.copy(id = noteId)))
         }
         invalidateNoteStructure()
         return noteId
@@ -841,7 +889,7 @@ class LearningRepository(
             // Retire names/PDF fragments removed by the improved textbook miner.
             existing.filter { it.tags.contains("textbook") && it.lemma !in validTextbookLemmas }.forEach { stale ->
                 if (stale.status != WordStatus.IGNORED) noteDao.update(stale.copy(status = WordStatus.IGNORED))
-                cardDao.graduateVocabForNote(stale.id, Long.MAX_VALUE)
+                graduateVocabKnown(stale.id, System.currentTimeMillis())
             }
             textbookRows.forEach { json ->
                     val tags = json.optString("tags", "")
@@ -939,6 +987,137 @@ class LearningRepository(
             ))
         }
         return changedNotes
+    }
+
+    /**
+     * Repair notes whose English translation was concatenated into the Russian example
+     * (`"Русский текст - English"`, [exampleTranslation] left blank). Splits each into
+     * its sentence/translation pair via [withSplitExamples]. Idempotent: a repaired note
+     * gains a non-blank translation and no longer matches [NoteDao.examplesNeedingSplit],
+     * so this is a one-time cost that self-heals after backup restores too.
+     */
+    suspend fun repairConcatenatedExamples(): Int {
+        val candidates = noteDao.examplesNeedingSplit()
+        if (candidates.isEmpty()) return 0
+        val repaired = withContext(computeDispatcher) {
+            candidates.mapNotNull { note -> note.withSplitExamples().takeIf { it != note } }
+        }
+        if (repaired.isEmpty()) return 0
+        runInTransaction { noteDao.updateAll(repaired) }
+        invalidateNoteContent()
+        runCatching {
+            telemetryDao?.insert(
+                TelemetryEvent(
+                    eventType = "example_repair",
+                    metadataJson = JSONObject().put("notes", repaired.size).toString()
+                )
+            )
+        }
+        return repaired.size
+    }
+
+    /** Fill authored-example gaps from the immutable corpus. Cached rows are
+     * refreshed after the known vocabulary grows enough to improve i+1 quality. */
+    suspend fun mineExampleGaps(limit: Int = 64, now: Long = System.currentTimeMillis()): Int {
+        val dao = minedExampleDao ?: return 0
+        if (contentDao == null) return 0
+        val knownCount = knownNoteIds().size
+        // Skip already-cached notes BEFORE taking the batch, so each run ADVANCES to new
+        // gaps instead of re-scanning the same first-N (already-mined) every launch — the
+        // previous order capped lifetime coverage at "mineable notes among the first N".
+        // Re-mine only once the known-set has grown enough to improve i+1 quality.
+        val cached = dao.getAll().associateBy { it.noteId }
+        val notes = allNotesCached().asSequence()
+            .filter { it.exampleSentence.isNullOrBlank() && it.partOfSpeech != "lesson" }
+            .filter { note -> cached[note.id]?.let { knownCount - it.knownAtMine >= REMINE_KNOWN_DELTA } ?: true }
+            .take(limit)
+            .toList()
+        var mined = 0
+        for (note in notes) {
+            if (mineExampleFor(note, knownCount, now) != null) mined++
+        }
+        return mined
+    }
+
+    @Volatile private var corpusLemmaMapCache: Map<String, String>? = null
+
+    private suspend fun corpusLemmaMap(): Map<String, String> =
+        corpusLemmaMapCache ?: run {
+            val json = corpusLemmaProvider?.invoke()
+            val parsed = if (json.isNullOrBlank()) emptyMap() else withContext(computeDispatcher) {
+                val obj = JSONObject(json)
+                HashMap<String, String>(obj.length()).apply {
+                    obj.keys().forEach { k -> put(k, obj.getString(k)) }
+                }
+            }
+            parsed.also { corpusLemmaMapCache = it }
+        }
+
+    /** Normalized surface used as the deck_lemma.json key: lowercase, ё→е, combining
+     * stress mark removed, and any "tb_"-style namespace prefix stripped. Mirrors the
+     * build-time normalization exactly so runtime lookups hit the map. */
+    private fun normSurface(value: String): String =
+        value.replace("́", "").replace("ё", "е").replace("Ё", "е")
+            .lowercase(Locale.ROOT).trim().replace(Regex("^[a-z]+_"), "")
+
+    /** Ordered corpus-lemma lookup keys for a note: the pymorphy base lemma resolved
+     * from its surface/lemma via the map first (handles inflected/namespaced lemmas),
+     * then the raw cleaned forms as fallbacks. */
+    private suspend fun corpusLemmaKeys(note: Note): List<String> {
+        val map = corpusLemmaMap()
+        val ru = normSurface(note.russian)
+        val lem = normSurface(note.lemma)
+        return linkedSetOf(map[ru], map[lem], lem, ru).filterNotNull().filter { it.isNotBlank() }
+    }
+
+    suspend fun mineExampleFor(note: Note, knownCount: Int? = null, now: Long = System.currentTimeMillis()): MinedExample? {
+        val corpus = contentDao ?: return null
+        val cache = minedExampleDao ?: return null
+        val knownIds = knownNoteIds()
+        val knownForms = formIndex().asSequence().filter { (_, value) -> value.id in knownIds }.map { it.key }.toHashSet()
+        val candidates = corpusLemmaKeys(note).firstNotNullOfOrNull { key ->
+            corpus.candidatesForLemma(key).takeIf { it.isNotEmpty() }
+        }.orEmpty()
+        val resolvedKnownCount = knownCount ?: knownIds.size
+        val ranked = withContext(computeDispatcher) { ExampleMiner.rank(note, candidates, knownForms, resolvedKnownCount, now) }
+        val best = ranked.firstOrNull() ?: return null
+        cache.upsert(best.example)
+        telemetryDao?.insert(TelemetryEvent(
+            timestamp = now, eventType = "example_mined", noteId = note.id,
+            metadataJson = JSONObject().put("score", best.example.score).put("coverage", best.coverage)
+                .put("iPlusOne", best.isIPlusOne).put("unknownCount", best.example.unknownCount)
+                .put("source", best.example.source).toString()
+        ))
+        if (best.example.anchoredGloss != note.translation) telemetryDao?.insert(TelemetryEvent(
+            timestamp = now, eventType = "gloss_anchored", noteId = note.id,
+            metadataJson = JSONObject().put("sentenceId", best.example.sentenceId).toString()
+        ))
+        return best.example
+    }
+
+    private suspend fun promptNote(note: Note): Pair<Note, MinedExample?> {
+        if (!note.exampleSentence.isNullOrBlank()) return note to null
+        val knownCount = knownNoteIds().size
+        val cached = minedExampleDao?.forNote(note.id)
+        val mined = if (cached == null || knownCount - cached.knownAtMine >= REMINE_KNOWN_DELTA) {
+            mineExampleFor(note, knownCount) ?: cached
+        } else cached
+        return if (mined == null) note to null else note.copy(
+            translation = mined.anchoredGloss.ifBlank { note.translation },
+            exampleSentence = mined.ru,
+            exampleTranslation = mined.en
+        ) to mined
+    }
+
+    private suspend fun enrichmentFor(note: Note): Enrichment {
+        enrichmentCache[note.id]?.let { return it }
+        val dao = contentDao ?: return Enrichment(cognate = CognateDetector.isCognate(note.russian, note.translation))
+        val lemma = note.lemma.lowercase(Locale.ROOT).replace("ё", "е")
+        return Enrichment(
+            collocations = dao.chunksForLemma(lemma), family = dao.familyForLemma(lemma),
+            emoji = dao.emojiForLemma(lemma), neighbors = dao.neighborsForLemma(lemma),
+            cognate = CognateDetector.isCognate(note.russian, note.translation)
+        ).also { enrichmentCache[note.id] = it }
     }
 
     /** One-time/idempotent cleanup for upgrades: merge duplicate notes without
@@ -1056,10 +1235,166 @@ class LearningRepository(
         telemetryDao?.insert(event)
     }
 
+    suspend fun recordSuccessCalibrationSample(
+        card: Card,
+        correct: Boolean,
+        fatigue: Double,
+        at: Long = System.currentTimeMillis()
+    ) {
+        val telemetry = telemetryDao ?: return
+        val sample = successCalibrationSample(card, correct, fatigue, at) ?: return
+        telemetry.insert(TelemetryEvent(
+            timestamp = at,
+            eventType = "success_calibration_sample",
+            cardId = card.id,
+            noteId = card.noteId,
+            cardType = card.cardType.name,
+            answerMatch = if (correct) "CORRECT" else "WRONG",
+            metadataJson = JSONObject()
+                .put("abilityMinusDifficulty", sample.abilityMinusDifficulty)
+                .put("memoryProbit", sample.memoryProbit)
+                .put("masteryCentered", sample.masteryCentered)
+                .put("formatFit", sample.formatFit)
+                .put("fatigue", sample.fatigue)
+                .put("scale", sample.scale)
+                .put("correct", sample.correct)
+                .toString()
+        ))
+        maybeFitSuccessCalibration()
+    }
+
+    private suspend fun successCalibrationSample(card: Card, correct: Boolean, fatigue: Double, at: Long): WorldModel.CalibrationSample? {
+        val dao = learningModelDao ?: return null
+        val parameters = dao.parameters().associateBy { it.key }
+        val global = Gaussian(parameters["global_skill_mu"]?.value ?: TrueSkill.MU0, parameters["global_skill_sigma"]?.value ?: TrueSkill.SIGMA0)
+        val skills = dao.skillRatings().mapNotNull { row ->
+            runCatching { AbilitySkill.valueOf(row.skill.uppercase()) }.getOrNull()?.let { it to Gaussian(row.mu, row.sigma) }
+        }.toMap()
+        val state = com.sibirskyspeak.learning.LearnerWorldState(global = global, skills = skills, fatigue = fatigue)
+        val ability = WorldModel.effectiveAbility(card, state)
+        val difficulty = dao.difficulty(card.id) ?: ItemDifficulty(card.id, elo = objectiveDifficultyPrior(card))
+        val concept = card.gramConcept ?: noteDao.getById(card.noteId)?.lemma
+        val mastery = concept?.let { dao.mastery(it) }
+        val elapsed = ((at - (card.lastReview ?: at)).coerceAtLeast(0) / DAY_MILLIS.toDouble())
+        val retrievability = if (card.lastReview == null || card.stability <= 0.0) 0.5 else FsrsScheduler.retrievabilityOf(elapsed, card.stability, 0.1542)
+        val scale = kotlin.math.sqrt(2.0 * TrueSkill.BETA * TrueSkill.BETA + ability.variance + difficulty.sigma * difficulty.sigma)
+        return WorldModel.CalibrationSample(
+            correct = correct,
+            abilityMinusDifficulty = ability.mu - difficulty.elo,
+            memoryProbit = com.sibirskyspeak.learning.Normal.invCdf(retrievability.coerceIn(1e-3, 1.0 - 1e-3)),
+            masteryCentered = (mastery?.probability ?: 0.5) - 0.5,
+            formatFit = state.formatFit,
+            fatigue = fatigue.coerceIn(0.0, 1.0),
+            scale = scale
+        )
+    }
+
+    private suspend fun maybeFitSuccessCalibration() {
+        val telemetry = telemetryDao ?: return
+        val dao = learningModelDao ?: return
+        val totalSamples = telemetry.countByType("success_calibration_sample")
+        if (totalSamples < SuccessCalibrationFitter.MIN_SAMPLES) return
+        val current = successCalibration(dao.parameters())
+        if (current.observations >= totalSamples - 24) return
+        val samples = telemetry.recent(5_000).asReversed().mapNotNull { event ->
+            if (event.eventType != "success_calibration_sample") return@mapNotNull null
+            runCatching {
+                val json = JSONObject(event.metadataJson)
+                WorldModel.CalibrationSample(
+                    correct = json.getBoolean("correct"),
+                    abilityMinusDifficulty = json.getDouble("abilityMinusDifficulty"),
+                    memoryProbit = json.getDouble("memoryProbit"),
+                    masteryCentered = json.getDouble("masteryCentered"),
+                    formatFit = json.getDouble("formatFit"),
+                    fatigue = json.getDouble("fatigue"),
+                    scale = json.getDouble("scale")
+                )
+            }.getOrNull()
+        }
+        if (samples.size < SuccessCalibrationFitter.MIN_SAMPLES) return
+        val fitted = SuccessCalibrationFitter.fit(samples, current).copy(observations = totalSamples)
+        listOf(
+            OptimizerParameter("success_intercept", fitted.intercept, fitted.observations),
+            OptimizerParameter("success_s_mem", fitted.memoryScale, fitted.observations),
+            OptimizerParameter("success_k_k", fitted.masteryScale, fitted.observations),
+            OptimizerParameter("success_lambda_load", fitted.loadScale, fitted.observations)
+        ).forEach { dao.upsertParameter(it) }
+    }
+
+    private fun successCalibration(parameters: List<OptimizerParameter>): WorldModel.Calibration {
+        val values = parameters.associateBy { it.key }
+        return WorldModel.Calibration(
+            intercept = values["success_intercept"]?.value ?: 0.0,
+            memoryScale = values["success_s_mem"]?.value ?: WorldModel.S_MEM,
+            masteryScale = values["success_k_k"]?.value ?: WorldModel.K_K,
+            loadScale = values["success_lambda_load"]?.value ?: WorldModel.LAMBDA_LOAD,
+            observations = values["success_s_mem"]?.observations ?: 0
+        )
+    }
+
     suspend fun recentTelemetry(limit: Int = 1000): List<TelemetryEvent> = telemetryDao?.recent(limit).orEmpty()
+
+    suspend fun banditArmStates(): List<ContextualBandit.Snapshot> =
+        learningModelDao?.banditArmStates().orEmpty().mapNotNull { row ->
+            val reward = runCatching {
+                val json = JSONArray(row.rewardJson)
+                DoubleArray(json.length()) { json.getDouble(it) }
+            }.getOrNull() ?: return@mapNotNull null
+            val precision = runCatching {
+                val json = JSONArray(row.precisionJson)
+                DoubleArray(json.length()) { json.getDouble(it) }
+            }.getOrNull() ?: return@mapNotNull null
+            ContextualBandit.Snapshot(row.action, row.pulls, reward, precision)
+        }
+
+    suspend fun upsertBanditArmState(snapshot: ContextualBandit.Snapshot) {
+        val dao = learningModelDao ?: return
+        dao.upsertBanditArmState(
+            BanditArmState(
+                action = snapshot.action,
+                rewardJson = JSONArray(snapshot.reward.toList()).toString(),
+                precisionJson = JSONArray(snapshot.precision.toList()).toString(),
+                pulls = snapshot.pulls,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+    }
+
+    private fun estimatedSessionFatigue(events: List<TelemetryEvent>): Double {
+        val samples = events.asReversed()
+            .filter { it.eventType == "review_committed" && it.responseMs != null }
+            .take(48)
+            .mapNotNull { event ->
+                val response = event.responseMs?.takeIf { it > 0 } ?: return@mapNotNull null
+                val correct = event.answerMatch?.equals("WRONG", ignoreCase = true) == false
+                response to correct
+            }
+        return if (samples.size < 4) 0.0 else FatigueModel.estimate(samples.map { it.first }, samples.map { it.second })
+    }
+
+    private fun medianReviewMinutes(events: List<TelemetryEvent>): Double {
+        val samples = events.asReversed()
+            .filter { it.eventType == "review_committed" && it.responseMs != null }
+            .take(60)
+            .mapNotNull { it.responseMs?.takeIf { value -> value > 0 } }
+        if (samples.isEmpty()) return 0.18
+        val sorted = samples.sorted()
+        val median = if (sorted.size % 2 == 0) (sorted[sorted.size / 2 - 1] + sorted[sorted.size / 2]) / 2.0 else sorted[sorted.size / 2].toDouble()
+        return (median / 60_000.0).coerceIn(0.08, 1.2)
+    }
+
+    private fun expectedSessionsPerDay(events: List<TelemetryEvent>): Double {
+        val starts = events.count { it.eventType == "session_start" }
+        return (starts / 14.0).coerceIn(0.5, 2.5).takeIf { it.isFinite() } ?: 1.0
+    }
 
     /** Per-review rows (card-grouped, oldest first) for the on-device FSRS weight fit. */
     suspend fun reviewSamplesForFitting(): List<ReviewFitRow> = reviewLogDao.reviewFitRows()
+
+    /** Mature-review retention by card type over the rolling retention window, so the
+     *  aggregate retention figure can be attributed to specific quiz facets. */
+    suspend fun retentionByCardType(now: Long = System.currentTimeMillis()): List<CardTypeRetention> =
+        reviewLogDao.matureRetentionByCardType(now - RETENTION_WINDOW_DAYS * DAY_MILLIS)
 
     private fun wordStatusRank(status: WordStatus): Int = when (status) {
         WordStatus.NEW -> 0
@@ -1184,7 +1519,7 @@ class LearningRepository(
                 // stops being quizzed; marking it LEARNING/NEW pulls it back in cleanly.
                 when (status) {
                     WordStatus.KNOWN, WordStatus.IGNORED ->
-                        cardDao.graduateVocabForNote(match.id, Long.MAX_VALUE)
+                        graduateVocabKnown(match.id, now)
                     WordStatus.LEARNING, WordStatus.NEW ->
                         cardDao.reactivateVocabForNote(match.id)
                 }
@@ -1218,9 +1553,27 @@ class LearningRepository(
             if (note.status != WordStatus.KNOWN) {
                 noteDao.update(note.copy(status = WordStatus.KNOWN))
             }
-            cardDao.graduateVocabForNote(noteId, Long.MAX_VALUE)
+            graduateVocabKnown(noteId, now)
         }
         invalidateNoteState()
+    }
+
+    /**
+     * Graduate a note's VOCAB cards as "already known", writing a coherent FSRS state
+     * (see [FsrsScheduler.markKnown]) instead of the degenerate all-zero state. Pushed
+     * far out ([Long.MAX_VALUE] due) so a known word never resurfaces in practice. The
+     * known-state constants live in [FsrsScheduler] so this path, the bulk
+     * [placeAfterLevel] path, and the data-repair migration all agree.
+     */
+    private suspend fun graduateVocabKnown(noteId: Long, now: Long) {
+        cardDao.graduateVocabForNote(
+            noteId = noteId,
+            due = Long.MAX_VALUE,
+            now = now,
+            stability = FsrsScheduler.KNOWN_STABILITY_DAYS,
+            difficulty = FsrsScheduler.KNOWN_DIFFICULTY,
+            scheduledDays = FsrsScheduler.KNOWN_STABILITY_DAYS.toInt()
+        )
     }
 
     suspend fun dashboardStats(now: Long = System.currentTimeMillis()): DashboardStats =
@@ -1276,8 +1629,15 @@ class LearningRepository(
         )
     }
 
-    suspend fun sessionPlan(now: Long = System.currentTimeMillis()): SessionPlan {
+    // The session plan interleaves DAO reads with the app's heaviest pure-Kotlin work
+    // (per-card prompt/distractor construction, reader-coverage scans, dashboard
+    // aggregation, problem-card audit). loadSession calls this from the main-thread
+    // viewModelScope, so without this hop that CPU ran on the UI thread and dropped
+    // ~100–200 frames at startup. Room's suspend DAOs keep their own executor, so the
+    // reads still run correctly when dispatched from here.
+    suspend fun sessionPlan(now: Long = System.currentTimeMillis()): SessionPlan = withContext(computeDispatcher) {
         refreshGraduationsIfNeeded()
+        ensureDailyMicroReading(now)
         syncReadingSchedules()
         val notesById = allNotesCached().associateBy { it.id }
         val categories = accuracyCategoriesCached()
@@ -1288,8 +1648,74 @@ class LearningRepository(
         val reviewedNoteIds = reviewLogDao.getReviewedCardsSince(startOfLocalDay(now)).mapTo(HashSet()) { it.noteId }
         val consolidationReader = consolidationReader(allTexts, reviewedNoteIds)
         val mastery = unitMastery()
-        val cards = sessionCards(now, config().sessionSize, daily, mastery)
-        val prompts = cards.mapIndexedNotNull { index, card ->
+        val modelDao = learningModelDao
+        val capacityState = modelDao?.capacityState()
+        val willingnessState = modelDao?.willingnessState()
+        val gamification = gamificationStats(now)
+        val recentTelemetry = recentTelemetry(200)
+        val estimatedFatigue = estimatedSessionFatigue(recentTelemetry)
+        val recentPace = modelDao?.paceLogs(2).orEmpty()
+        val lastPace = recentPace.firstOrNull()
+        val priorPace = recentPace.getOrNull(1)
+        val sessionsPerDayExpected = expectedSessionsPerDay(recentTelemetry)
+        val medianReviewMinutes = medianReviewMinutes(recentTelemetry)
+        val parameters = modelDao?.parameters().orEmpty()
+        val parametersByKey = parameters.associateBy { it.key }
+        val skillRatings = modelDao?.skillRatings().orEmpty()
+        val rivalState = modelDao?.rivalState()
+        val matchHistory = modelDao?.matchHistory(8).orEmpty()
+        val productionSigma = skillRatings.firstOrNull { it.skill == AbilitySkill.PRODUCTION.name.lowercase() }?.sigma ?: TrueSkill.SIGMA0
+        val activeCards = cardDao.getAll()
+        val recentAccuracy = categories.mapNotNull { it.accuracy }.average().takeIf { !it.isNaN() } ?: 0.85
+        val hasAdaptiveSignal = capacityState != null || willingnessState != null || recentTelemetry.any { it.eventType == "review_committed" || it.eventType == "session_complete" }
+        val willingnessBelief = willingnessState?.let { WillingnessBelief(it.habit, parseWillingnessCoefficients(it.coeffsJson)) } ?: WillingnessBelief()
+        val returnContext = ReturnContext(
+            hoursSinceLastZ = lastPace?.let { ((now - it.at) / 3_600_000.0 - 36.0) / 24.0 }?.coerceIn(-3.0, 3.0) ?: 0.0,
+            streakZ = ((gamification.currentStreak - 3.0) / 4.0).coerceIn(-3.0, 3.0),
+            lastSessionFatigue = estimatedFatigue,
+            lastDebtRatio = lastPace?.debtRatio ?: priorPace?.debtRatio ?: (daily.dueVocab.toDouble() / 100.0)
+        )
+        val capacityBelief = capacityState?.let { CapacityBelief(it.mu, it.sigma) } ?: CapacityBelief()
+        val calibration = successCalibration(parameters)
+        val worldState = com.sibirskyspeak.learning.LearnerWorldState(
+            global = Gaussian(parametersByKey["global_skill_mu"]?.value ?: TrueSkill.MU0, parametersByKey["global_skill_sigma"]?.value ?: TrueSkill.SIGMA0),
+            skills = skillRatings.mapNotNull { row ->
+                runCatching { AbilitySkill.valueOf(row.skill.uppercase()) }.getOrNull()?.let { skill -> skill to Gaussian(row.mu, row.sigma) }
+            }.toMap(),
+            fatigue = estimatedFatigue
+        )
+        val itemDifficultyMap = mutableMapOf<Long, ItemDifficulty>()
+        for (card in activeCards) {
+            itemDifficultyMap[card.id] = modelDao?.difficulty(card.id) ?: ItemDifficulty(card.id)
+        }
+        val pace = PaceController.generatePace(
+            PaceInputs(
+                capacity = capacityBelief,
+                willingness = willingnessBelief,
+                returnContext = returnContext,
+                activeCards = activeCards,
+                totalKnown = activeCards.count { it.state == CardState.GRADUATED || it.reps >= 2 },
+                recentAccuracy = recentAccuracy,
+                fatigue = estimatedFatigue,
+                productionSigma = productionSigma,
+                medianReviewMinutes = medianReviewMinutes,
+                sessionsPerDayExpected = sessionsPerDayExpected
+            ),
+            config().doctrine,
+            now
+        )
+        val generatedCapacity = if (hasAdaptiveSignal) (pace.reviewBudget + pace.newItemBudget).coerceAtLeast(1) else config().sessionSize
+        val generatedNewBudget = if (hasAdaptiveSignal) pace.newItemBudget else config().newCardsPerDay
+        val generatedRetention = if (hasAdaptiveSignal) pace.targetRetention else config().desiredRetention
+        val sessionMode = if (hasAdaptiveSignal) {
+            when (pace.stretchStopPolicy) {
+                com.sibirskyspeak.learning.StopPolicy.EARLY_STOP -> SessionMode.QUICK
+                com.sibirskyspeak.learning.StopPolicy.STRETCH_ARMED -> SessionMode.STRETCH
+                com.sibirskyspeak.learning.StopPolicy.CLEAN_STOP -> SessionMode.FULL
+            }
+        } else SessionMode.FULL
+        val cards = sessionCards(now, generatedCapacity, daily, mastery, generatedNewBudget)
+        val rawPrompts = cards.mapIndexedNotNull { index, card ->
             val reason = queueReason(card, index, cards, now, notesById)
             promptFor(card, now, notesById)?.let { prompt ->
                 prompt.copy(
@@ -1300,15 +1726,41 @@ class LearningRepository(
                 )
             }
         }
-        val readingAssignment = dueReadingAssignment(allTexts, consolidationReader, prompts.size, now)
+        val blueprint = BlueprintBuilder.build(
+            cards = cards,
+            now = now,
+            desiredRetention = generatedRetention,
+            dailyNewCap = generatedNewBudget,
+            capacity = generatedCapacity,
+            backlog = daily.triageMode || daily.overdueBacklog,
+            recentAccuracy = recentAccuracy,
+            mode = sessionMode,
+            successProbability = { card ->
+                val difficulty = itemDifficultyMap[card.id] ?: ItemDifficulty(card.id)
+                WorldModel.successProbability(card, difficulty, null, worldState, now, calibration = calibration)
+            }
+        )
+        val confusablePairs = confusablePairDao.getAll().mapTo(linkedSetOf()) { it.firstNoteId to it.secondNoteId }
+        val prompts = orderPrompts(
+            rawPrompts,
+            blueprint,
+            now,
+            confusablePairs,
+            pace = pace,
+            successProbability = { prompt ->
+                val difficulty = itemDifficultyMap[prompt.card.id] ?: ItemDifficulty(prompt.card.id)
+                WorldModel.successProbability(prompt.card, difficulty, null, worldState, now, calibration = calibration)
+            }
+        )
+        val readingAssignment = dueReadingAssignment(allTexts, consolidationReader, prompts.size, now, pace.readingInserts.firstOrNull())
         val introducedToday = reviewLogDao.countNewIntroducedSince(startOfLocalDay(now))
         val completion = when {
             daily.triageMode || daily.overdueBacklog -> DailyCompletion(DailyLearningStatus.BACKLOG_REMAINING, "Overdue review backlog remaining — new material is paused.", allTexts.isNotEmpty())
             prompts.isNotEmpty() || readingAssignment != null -> DailyCompletion(DailyLearningStatus.WORK_REMAINING, "Scheduled cards and connected reading are still available.", readingAssignment != null)
-            introducedToday >= config().newCardsPerDay || cardDao.getNewCardsOrdered(1).isNotEmpty() -> DailyCompletion(DailyLearningStatus.NEW_LIMIT_REACHED, "Scheduled work complete; today's new-word allowance is exhausted or remaining siblings are buried.", allTexts.isNotEmpty())
+            introducedToday >= generatedNewBudget || cardDao.getNewCardsOrdered(1).isNotEmpty() -> DailyCompletion(DailyLearningStatus.NEW_LIMIT_REACHED, "Scheduled work complete; today's generated new-word budget is exhausted or remaining siblings are buried.", allTexts.isNotEmpty())
             else -> DailyCompletion(DailyLearningStatus.SCHEDULED_COMPLETE, "Scheduled work complete for today.", allTexts.isNotEmpty())
         }
-        return SessionPlan(
+        SessionPlan(
             ruleSummary = ruleSummaryFor(daily.openBlockedWith),
             reviewQueue = prompts,
             blockedGrammar = blocked,
@@ -1316,8 +1768,11 @@ class LearningRepository(
             readerRecommendation = consolidationReader
                 ?: allTexts.minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTarget(it.coverage) }.thenByDescending { it.coverage }),
             dashboardStats = dashboardStatsFrom(now, allTexts),
+            skillRatings = skillRatings,
+            rivalState = rivalState,
+            matchHistory = matchHistory,
             dailyPlan = daily,
-            gamification = gamificationStats(now),
+            gamification = gamification,
             completion = completion,
             unitMastery = mastery,
             readingReason = if (reviewedNoteIds.isNotEmpty() && allTexts.isNotEmpty()) {
@@ -1325,15 +1780,72 @@ class LearningRepository(
             } else null,
             problemCards = problemCardAudit(notesById),
             consolidationLemmas = notesById.values.filter { it.id in reviewedNoteIds }.mapTo(linkedSetOf()) { it.lemma },
-            readingAssignment = readingAssignment
+            readingAssignment = readingAssignment,
+            blueprint = blueprint,
+            pace = pace,
+            confusablePairs = confusablePairs
         )
+    }
+
+    private suspend fun ensureDailyMicroReading(now: Long) {
+        val cache = minedExampleDao ?: return
+        val offset = java.util.TimeZone.getDefault().getOffset(now).toLong()
+        val day = (now + offset) / DAY_MILLIS
+        val source = "generated:micro:$day"
+        if (readerTextDao.getAll().any { it.source == source }) return
+        if (cache.getAll().size < 3) mineExampleGaps(limit = 96, now = now)
+        val candidates = cache.getAll().filter { it.unknownCount <= 1 }.take(80)
+        val chain = NarrowReadingGenerator.chain(candidates, 5)
+        if (chain.size < 3) return
+        val text = ReaderText(
+            title = "Two-minute i+1 read",
+            body = chain.joinToString("\n") { it.ru },
+            source = source,
+            createdAt = now
+        )
+        val id = readerTextDao.insert(text)
+        readingScheduleDao?.insert(ReadingSchedule(readerTextId = id, due = now))
+        telemetryDao?.insert(TelemetryEvent(
+            timestamp = now, eventType = "narrow_read",
+            metadataJson = JSONObject().put("readerTextId", id).put("sentences", chain.size).toString()
+        ))
+    }
+
+    private fun orderPrompts(
+        prompts: List<ReviewPrompt>,
+        blueprint: com.sibirskyspeak.learning.SessionBlueprint,
+        now: Long,
+        confusablePairs: Set<Pair<Long, Long>>,
+        pace: Pace,
+        successProbability: (ReviewPrompt) -> Double
+    ): List<ReviewPrompt> {
+        val pool = prompts.toMutableList()
+        val ordered = mutableListOf<ReviewPrompt>()
+        var live = LiveSessionState(introducedConcepts = prompts.mapNotNull { it.card.gramConcept }.toSet())
+        while (pool.isNotEmpty()) {
+            val next = NextCardSelector.select(
+                pool,
+                blueprint,
+                live,
+                now,
+                confusablePairs,
+                targetDifficulty = pace.targetDifficulty,
+                productionRatio = pace.productionRatio,
+                successProbability = successProbability
+            ) ?: pool.first()
+            pool.remove(next)
+            ordered += next
+            live = live.copy(shown = live.shown + 1, recentNoteIds = (live.recentNoteIds + next.note.id).takeLast(4))
+        }
+        return ordered
     }
 
     private suspend fun dueReadingAssignment(
         texts: List<ReaderRecommendation>,
         consolidation: ReaderRecommendation?,
         cardCount: Int,
-        now: Long
+        now: Long,
+        forcedInsertion: Int? = null
     ): ReadingAssignment? {
         val dao = readingScheduleDao ?: return null
         val due = dao.getAll().filter { it.due <= now }.associateBy { it.readerTextId }
@@ -1342,11 +1854,12 @@ class LearningRepository(
         val recommendation = consolidation?.takeIf { it.text.id in due && it.coverage >= MIN_READER_COVERAGE }
             ?: readable.minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTarget(it.coverage) }.thenBy { due[it.text.id]?.reps ?: 0 })
             ?: return null
-        val insertion = when {
-            cardCount <= 1 -> 0
-            cardCount <= 4 -> 1
-            else -> (cardCount / 3).coerceIn(3, cardCount - 1)
-        }
+        val insertion = forcedInsertion?.coerceIn(0, cardCount.coerceAtLeast(0))
+            ?: when {
+                cardCount <= 1 -> 0
+                cardCount <= 4 -> 1
+                else -> (cardCount / 3).coerceIn(3, cardCount - 1)
+            }
         return ReadingAssignment(recommendation, due.getValue(recommendation.text.id), insertion)
     }
 
@@ -1393,6 +1906,11 @@ class LearningRepository(
                         .put("mistakes", mistakes)
                         .put("intervalDays", interval)
                         .toString()
+                ))
+                val source = readerTextDao.getById(readerTextId)?.source.orEmpty()
+                if (source.startsWith("generated:micro:")) telemetryDao?.insert(TelemetryEvent(
+                    timestamp = now, eventType = "reading_microsession",
+                    metadataJson = JSONObject().put("readerTextId", readerTextId).put("mistakes", mistakes).toString()
                 ))
             }
         }
@@ -1464,6 +1982,7 @@ class LearningRepository(
         val tzOffset = java.util.TimeZone.getDefault().getOffset(now).toLong()
         val days = (reviewLogDao.reviewDayBuckets(tzOffset, DAY_MILLIS) +
             readingActivityDao?.dayBuckets(tzOffset, DAY_MILLIS).orEmpty()).distinct()
+        val inputDays = readingActivityDao?.dayBuckets(tzOffset, DAY_MILLIS).orEmpty().toHashSet()
         val daySet = days.toHashSet()
         val todayBucket = (now + tzOffset) / DAY_MILLIS
 
@@ -1485,6 +2004,11 @@ class LearningRepository(
             run = if (previousDay != null && day == previousDay + 1) run + 1 else 1
             if (run > longestStreak) longestStreak = run
             previous = day
+        }
+        var inputStreak = 0
+        if (todayBucket in inputDays || (todayBucket - 1) in inputDays) {
+            var inputDay = if (todayBucket in inputDays) todayBucket else todayBucket - 1
+            while (inputDay in inputDays) { inputStreak++; inputDay-- }
         }
 
         val totalReviews = reviewLogDao.countAll()
@@ -1599,6 +2123,7 @@ class LearningRepository(
             xpIntoLevel = remaining,
             xpForLevel = level * XP_PER_LEVEL_STEP,
             currentStreak = currentStreak,
+            inputStreak = inputStreak,
             longestStreak = longestStreak,
             reviewedToday = reviewedToday,
             dailyGoal = dailyGoal,
@@ -1671,7 +2196,8 @@ class LearningRepository(
 
     suspend fun scaffoldPromptFor(card: Card, supportLevel: Int, now: Long = System.currentTimeMillis()): ReviewPrompt? {
         val live = cardDao.getCardsForNote(card.noteId).firstOrNull { it.id == card.id } ?: card
-        val note = noteDao.getById(live.noteId) ?: return null
+        val rawNote = noteDao.getById(live.noteId) ?: return null
+        val (note, _) = promptNote(rawNote)
         val meaning = buildPrompt(live.copy(cardType = CardType.RU_TO_MEANING), note, emptyMap()).expectedAnswer
         val exampleRu = note.exampleSentence.orEmpty()
         val exampleEn = note.exampleTranslation.orEmpty()
@@ -1681,7 +2207,13 @@ class LearningRepository(
             body = buildString {
                 append("Meaning here: $meaning")
                 if (mnemonic != null) append("\n\nMemory hook: $mnemonic")
-                append("\n\nRead the example, then retrieve it again after a short gap.")
+                append("\n\n")
+                when (supportLevel) {
+                    2 -> append("First-letter cue: ${note.russian.firstOrNull() ?: '—'}…")
+                    3 -> append("Word skeleton: ${note.russian.map { if (it in "аеёиоуыэюяАЕЁИОУЫЭЮЯ") it else '·' }.joinToString("")}")
+                    else -> append("Full form: ${note.russian}")
+                }
+                append("\nRead the example, then retrieve it again after a short gap.")
             },
             exampleRu = exampleRu,
             exampleEn = exampleEn
@@ -1693,7 +2225,7 @@ class LearningRepository(
             expectedAnswer = "Continue",
             answerMode = AnswerMode.LESSON,
             intervalPreview = scheduler.preview(live, now),
-            teachingHint = if (mnemonic == null && live.lapses >= 2) "Add a memory hook with the pencil if this keeps failing" else "Contextual reset",
+            teachingHint = if (mnemonic == null && live.lapses >= 2) "Hint $supportLevel · add a memory hook if this keeps failing" else "Graduated hint $supportLevel",
             lesson = content,
             queueReason = "Adaptive scaffold after repeated misses",
             supportOnly = true,
@@ -1710,7 +2242,12 @@ class LearningRepository(
      * Apply a rating to a card. Returns true if this review just turned the card into
      * a leech (auto-parked after [LEECH_LAPSES] lapses) so the UI can tell the learner.
      */
-    suspend fun review(card: Card, rating: Rating, now: Long = System.currentTimeMillis()): Boolean {
+    suspend fun review(
+        card: Card,
+        rating: Rating,
+        now: Long = System.currentTimeMillis(),
+        objectiveCorrect: Boolean? = null
+    ): Boolean {
         var becameLeech = false
         var undoSnapshot: UndoSnapshot? = null
         runInTransaction {
@@ -1744,7 +2281,15 @@ class LearningRepository(
                 )
             )
         } else {
-        val (updatedCard, log) = scheduler.review(live, rating, now)
+        val (scheduledCard, rawLog) = scheduler.review(live, rating, now)
+        val updatedCard = if (
+            note != null && live.queue == Queue.VOCAB && rating != Rating.AGAIN &&
+            CognateDetector.isCognate(note.russian, note.translation) && scheduledCard.scheduledDays > 0
+        ) {
+            val days = maxOf(scheduledCard.scheduledDays + 1, (scheduledCard.scheduledDays * 1.35).toInt())
+            scheduledCard.copy(scheduledDays = days, due = now + days * DAY_MILLIS)
+        } else scheduledCard
+        val log = rawLog.copy(scheduledDays = updatedCard.scheduledDays)
         // Leech guard: if this card has lapsed too many times it's burning the
         // learner's time, so park it (suspend) rather than let it recur forever.
         becameLeech = !updatedCard.suspended &&
@@ -1757,7 +2302,305 @@ class LearningRepository(
         }
         lastUndo = undoSnapshot
         invalidateNoteState()
+        if (objectiveCorrect != null && card.cardType != CardType.LESSON) {
+            updateLearnerModels(card, objectiveCorrect, now)
+        }
         return becameLeech
+    }
+
+    private suspend fun updateLearnerModels(card: Card, success: Boolean, now: Long) {
+        val dao = learningModelDao ?: return
+        val parameters = dao.parameters().associateBy { it.key }
+        val globalMu = parameters["global_skill_mu"] ?: OptimizerParameter("global_skill_mu", TrueSkill.MU0)
+        val globalSigma = parameters["global_skill_sigma"] ?: OptimizerParameter("global_skill_sigma", TrueSkill.SIGMA0)
+        val persisted = dao.skillRatings().mapNotNull { row ->
+            runCatching { AbilitySkill.valueOf(row.skill.uppercase()) }.getOrNull()?.let { skill -> skill to row }
+        }.toMap()
+        val weights = WorldModel.skillWeights(card)
+        val effectiveOffset = weights.entries.sumOf { (skill, weight) -> weight * (persisted[skill]?.mu ?: 0.0) }
+        val effectiveSigma2 = globalSigma.value * globalSigma.value + weights.entries.sumOf { (skill, weight) ->
+            val sigma = persisted[skill]?.sigma ?: TrueSkill.SIGMA0
+            weight * weight * sigma * sigma
+        }
+        val itemPrior = objectiveDifficultyPrior(card)
+        val item = dao.difficulty(card.id) ?: ItemDifficulty(card.id, elo = itemPrior)
+        val result = TrueSkill.update(
+            Gaussian(globalMu.value + effectiveOffset, kotlin.math.sqrt(effectiveSigma2)),
+            Gaussian(item.elo, item.sigma),
+            if (success) MatchOutcome.WIN else MatchOutcome.LOSS
+        )
+        val delta = result.a.mu - (globalMu.value + effectiveOffset)
+        dao.upsertParameter(globalMu.copy(value = globalMu.value + 0.6 * delta, observations = globalMu.observations + 1, updatedAt = now))
+        val effectiveSigma = kotlin.math.sqrt(effectiveSigma2)
+        val sigmaRatio = (result.a.sigma / effectiveSigma).coerceIn(0.1, 1.0)
+        dao.upsertParameter(globalSigma.copy(
+            value = (globalSigma.value * (0.4 + 0.6 * sigmaRatio)).coerceAtLeast(0.01 * TrueSkill.SIGMA0),
+            observations = globalSigma.observations + 1,
+            updatedAt = now
+        ))
+        WorldModel.applyAbilityDelta(persisted, card, delta, now).forEach { updated -> dao.upsertSkillRating(updated.copy(sigma = (updated.sigma * sigmaRatio).coerceAtLeast(0.01 * TrueSkill.SIGMA0))) }
+        dao.upsertDifficulty(item.copy(
+            elo = 0.95 * result.b.mu + 0.05 * itemPrior,
+            sigma = result.b.sigma,
+            observations = item.observations + 1,
+            updatedAt = now
+        ))
+        val note = noteDao.getById(card.noteId)
+        val concept = card.gramConcept ?: note?.lemma ?: return
+        val roots = note?.let { value -> contentDao?.familyForLemma(value.lemma)?.map { it.root } }.orEmpty()
+        WorldModel.masteryKeys(concept, roots).forEach { key ->
+            val mastery = dao.mastery(key) ?: ConceptMastery(key)
+            dao.upsertMastery(mastery.copy(
+                probability = MasteryModel.update(mastery.probability, success),
+                observations = mastery.observations + 1,
+                updatedAt = now
+            ))
+        }
+    }
+
+    private fun objectiveDifficultyPrior(card: Card): Double {
+        val typeBias = when (card.cardType) {
+            CardType.MEANING_TO_RU, CardType.DICTATION, CardType.SPEAK -> 2.0
+            CardType.RU_TO_MEANING -> -1.0
+            CardType.ASPECT_SELECT, CardType.GENDER_ID -> -1.0
+            else -> 0.0
+        }
+        return TrueSkill.MU0 + typeBias
+    }
+
+    suspend fun recordPace(pace: Pace, mode: SessionMode, now: Long = System.currentTimeMillis()) {
+        learningModelDao?.upsertPaceLog(PaceLog(
+            at = now,
+            T = pace.targetMinutes,
+            N = pace.newItemBudget,
+            rho = pace.targetRetention,
+            debtRatio = pace.debtRatio,
+            pReturn = pace.pReturn,
+            doctrine = pace.doctrine.name,
+            modeChosen = mode.name
+        ))
+    }
+
+    suspend fun expectedRivalPerformance(cardIds: List<Long>): Double {
+        val dao = learningModelDao ?: return 0.5
+        val cards = cardDao.getByIds(cardIds.distinct()).filter { it.cardType != CardType.LESSON }
+        if (cards.isEmpty()) return 0.5
+        val parameters = dao.parameters().associateBy { it.key }
+        val globalMu = parameters["global_skill_mu"]?.value ?: TrueSkill.MU0
+        val skills = dao.skillRatings().associateBy { it.skill }
+        val rivalState = dao.rivalState() ?: RivalState()
+        val rival = Rival.rubberBand(
+            RivalBelief(Gaussian(rivalState.mu, rivalState.sigma), rivalState.handicap, rivalState.winStreak, rivalState.persona),
+            Gaussian(globalMu, parameters["global_skill_sigma"]?.value ?: TrueSkill.SIGMA0)
+        )
+        var weighted = 0.0
+        var totalWeight = 0.0
+        cards.forEach { card ->
+            val difficulty = dao.difficulty(card.id) ?: ItemDifficulty(card.id, elo = objectiveDifficultyPrior(card))
+            val dominant = WorldModel.skillWeights(card).maxByOrNull { it.value }?.key ?: AbilitySkill.VOCAB
+            val learnerSkill = Gaussian(globalMu + (skills[dominant.name.lowercase()]?.mu ?: 0.0), skills[dominant.name.lowercase()]?.sigma ?: TrueSkill.SIGMA0)
+            val probability = Rival.expectedCorrect(rival.rating, card, difficulty, learnerSkill)
+            val weight = (1.0 + (difficulty.elo - TrueSkill.MU0) / TrueSkill.SIGMA0).coerceIn(0.5, 2.0)
+            weighted += weight * probability
+            totalWeight += weight
+        }
+        return (weighted / totalWeight.coerceAtLeast(1e-9)).coerceIn(0.0, 1.0)
+    }
+
+    suspend fun observeReturn(now: Long = System.currentTimeMillis()) {
+        val dao = learningModelDao ?: return
+        val previous = dao.willingnessState() ?: return
+        if (previous.updatedAt <= 0L || previous.updatedAt >= now) return
+        val hours = (now - previous.updatedAt) / 3_600_000.0
+        val coefficients = parseWillingnessCoefficients(previous.coeffsJson)
+        val telemetry = recentTelemetry(80)
+        val fatigue = estimatedSessionFatigue(telemetry)
+        val streak = ((gamificationStats(now).currentStreak - 3.0) / 4.0).coerceIn(-3.0, 3.0)
+        val context = ReturnContext(
+            hoursSinceLastZ = ((hours - 36.0) / 24.0).coerceIn(-3.0, 3.0),
+            streakZ = streak,
+            lastSessionFatigue = fatigue,
+            lastDebtRatio = dao.paceLogs(1).firstOrNull()?.debtRatio ?: 0.0
+        )
+        val learned = WillingnessModel.updateReturn(WillingnessBelief(previous.habit, coefficients), context, returned = hours <= 36.0)
+        dao.upsertWillingnessState(previous.copy(coeffsJson = JSONArray(learned.coeffs.toList()).toString()))
+    }
+
+    suspend fun recordBanditExposure(
+        card: Card,
+        action: String,
+        context: DoubleArray,
+        showAt: Long,
+        fatigue: Double
+    ) {
+        val dao = learningModelDao ?: return
+        val parameters = dao.parameters().associateBy { it.key }
+        val global = Gaussian(
+            parameters["global_skill_mu"]?.value ?: TrueSkill.MU0,
+            parameters["global_skill_sigma"]?.value ?: TrueSkill.SIGMA0
+        )
+        val skills = dao.skillRatings().mapNotNull { row ->
+            runCatching { AbilitySkill.valueOf(row.skill.uppercase()) }.getOrNull()?.let { skill -> skill to Gaussian(row.mu, row.sigma) }
+        }.toMap()
+        val item = dao.difficulty(card.id) ?: ItemDifficulty(card.id, elo = objectiveDifficultyPrior(card))
+        val concept = card.gramConcept ?: noteDao.getById(card.noteId)?.lemma
+        val mastery = concept?.let { dao.mastery(it) }
+        val p0 = WorldModel.successProbability(
+            card,
+            item,
+            mastery,
+            com.sibirskyspeak.learning.LearnerWorldState(global = global, skills = skills, fatigue = fatigue),
+            showAt,
+            calibration = successCalibration(parameters.values.toList())
+        )
+        dao.upsertBanditPending(BanditPending(showAt, card.id, action, JSONArray(context.toList()).toString(), p0))
+    }
+
+    suspend fun resolveBanditCredits(
+        itemId: Long,
+        recalled: Boolean,
+        responseMs: Long,
+        fatigueDelta: Double,
+        currentShowAt: Long
+    ): List<BanditCredit> {
+        val dao = learningModelDao ?: return emptyList()
+        return dao.pendingBanditCredits(itemId)
+            .filter { it.showAt < currentShowAt }
+            .mapNotNull { pending ->
+                val context = runCatching {
+                    val json = JSONArray(pending.contextJson)
+                    DoubleArray(json.length()) { json.getDouble(it) }
+                }.getOrNull()
+                dao.deleteBanditPending(pending.showAt)
+                context?.let {
+                    BanditCredit(
+                        pending.action,
+                        it,
+                        CausalFormatReward.reward(recalled, pending.p0, responseMs / 60_000.0, fatigueDelta)
+                    )
+                }
+            }
+    }
+
+    private fun parseWillingnessCoefficients(raw: String): DoubleArray = runCatching {
+        val json = JSONArray(raw)
+        require(json.length() == WillingnessModel.priorMeans.size)
+        DoubleArray(json.length()) { json.getDouble(it) }
+    }.getOrElse { WillingnessModel.priorMeans.copyOf() }
+
+    suspend fun finishAdaptiveSession(
+        goodMinutes: Double,
+        fatigue: Double,
+        debtRatio: Double,
+        completed: Boolean,
+        cleanFinish: Boolean,
+        perfYou: Double,
+        perfRival: Double,
+        rankedMatch: Boolean = true,
+        now: Long = System.currentTimeMillis()
+    ): com.sibirskyspeak.learning.MatchReport? {
+        val dao = learningModelDao ?: return null
+        val oldCapacity = dao.capacityState() ?: CapacityState()
+        val capacity = CapacityModel.update(CapacityBelief(oldCapacity.mu, oldCapacity.sigma), goodMinutes)
+        dao.upsertCapacityState(oldCapacity.copy(mu = capacity.mu, sigma = capacity.sigma, updatedAt = now))
+
+        val oldWillingness = dao.willingnessState() ?: WillingnessState()
+        val coefficients = parseWillingnessCoefficients(oldWillingness.coeffsJson)
+        val transitioned = WillingnessModel.transition(oldWillingness.habit, WillingnessSignals(
+            completed = completed,
+            flow = perfYou >= 0.8 && fatigue < 0.5,
+            cleanFinish = cleanFinish,
+            quit = !completed,
+            overload = fatigue >= 0.7,
+            reviewDebtHigh = debtRatio >= 0.5
+        ))
+        val learned = WillingnessBelief(transitioned, coefficients)
+        dao.upsertWillingnessState(oldWillingness.copy(
+            habit = learned.habit,
+            coeffsJson = JSONArray(learned.coeffs.toList()).toString(),
+            updatedAt = now
+        ))
+
+        if (!rankedMatch) return null
+
+        val parameters = dao.parameters().associateBy { it.key }
+        val userMu = parameters["global_skill_mu"]?.value ?: TrueSkill.MU0
+        var userSigma = parameters["global_skill_sigma"]?.value ?: TrueSkill.SIGMA0
+        val seasonStarted = parameters["season_started_at"]?.value?.toLong() ?: now.also {
+            dao.upsertParameter(OptimizerParameter("season_started_at", now.toDouble(), updatedAt = now))
+        }
+        if (now - seasonStarted >= 60L * DAY_MILLIS) {
+            userSigma = Rival.seasonSigma(userSigma, (now - seasonStarted) / DAY_MILLIS.toDouble())
+            dao.upsertParameter(OptimizerParameter("season_started_at", now.toDouble(), updatedAt = now))
+        }
+        val latestSnapshot = dao.latestGhostSnapshot()
+        if (latestSnapshot == null || now - latestSnapshot.takenAt >= DAY_MILLIS) {
+            dao.insertGhostSnapshot(GhostSnapshot(now, userMu, userSigma))
+        }
+        val ghost = dao.ghostSnapshotAtOrBefore(now - 21L * DAY_MILLIS)
+        val oldRival = dao.rivalState() ?: RivalState()
+        val banded = Rival.rubberBand(RivalBelief(Gaussian(oldRival.mu, oldRival.sigma), oldRival.handicap, oldRival.winStreak, oldRival.persona), Gaussian(userMu, userSigma))
+        val baseReport = Rival.resolve(Gaussian(userMu, userSigma), banded, perfYou, perfRival)
+        val ghostPerformance = ghost?.let { Rival.ghostPerformance(perfRival, it.muGlobal, banded.rating.mu) }
+        val ghostOutcome = ghostPerformance?.let { TrueSkill.outcomeFromPerformance(perfYou, it) }
+        val promotion = Rival.updatePromotion(
+            PromotionSeries(
+                lockedTier = parameters["promotion_locked_tier"]?.value?.toInt() ?: 0,
+                targetTier = parameters["promotion_target_tier"]?.value?.toInt() ?: 0,
+                games = parameters["promotion_games"]?.value?.toInt() ?: 0,
+                wins = parameters["promotion_wins"]?.value?.toInt() ?: 0
+            ),
+            baseReport.after.conservativeRating,
+            baseReport.outcome
+        )
+        val promotionText = when {
+            promotion.locked -> "Promotion locked"
+            promotion.failed -> "Promotion series reset"
+            promotion.series.targetTier > promotion.series.lockedTier -> "Promotion ${promotion.series.wins}/2 wins · ${promotion.series.games}/3 matches"
+            else -> null
+        }
+        val report = baseReport.copy(
+            ghostOutcome = ghostOutcome,
+            tier = Rival.tier(baseReport.after.conservativeRating),
+            promotionProgress = promotionText
+        )
+        val nextHandicap = Rival.nextHandicap(oldRival.handicap, report.outcome)
+        dao.upsertRivalState(oldRival.copy(
+            mu = report.opponentAfter.mu,
+            sigma = report.opponentAfter.sigma,
+            handicap = nextHandicap,
+            winStreak = if (report.outcome == MatchOutcome.WIN) oldRival.winStreak + 1 else 0,
+            updatedAt = now
+        ))
+        dao.upsertParameter((parameters["global_skill_mu"] ?: OptimizerParameter("global_skill_mu", userMu)).copy(value = report.after.mu, updatedAt = now))
+        dao.upsertParameter((parameters["global_skill_sigma"] ?: OptimizerParameter("global_skill_sigma", userSigma)).copy(value = report.after.sigma, updatedAt = now))
+        listOf(
+            OptimizerParameter("promotion_locked_tier", promotion.series.lockedTier.toDouble(), updatedAt = now),
+            OptimizerParameter("promotion_target_tier", promotion.series.targetTier.toDouble(), updatedAt = now),
+            OptimizerParameter("promotion_games", promotion.series.games.toDouble(), updatedAt = now),
+            OptimizerParameter("promotion_wins", promotion.series.wins.toDouble(), updatedAt = now)
+        ).forEach { dao.upsertParameter(it) }
+        dao.insertMatchHistory(MatchHistory(
+            at = now,
+            opponent = report.opponent,
+            perfYou = perfYou,
+            perfOpp = perfRival,
+            outcome = report.outcome.name,
+            ratingBefore = report.before.conservativeRating,
+            ratingAfter = report.after.conservativeRating
+        ))
+        if (ghost != null && ghostPerformance != null && ghostOutcome != null) {
+            dao.insertMatchHistory(MatchHistory(
+                at = now,
+                opponent = "ghost:${ghost.takenAt}",
+                perfYou = perfYou,
+                perfOpp = ghostPerformance,
+                outcome = ghostOutcome.name,
+                ratingBefore = report.before.conservativeRating,
+                ratingAfter = report.after.conservativeRating
+            ))
+        }
+        return report
     }
 
     /** True if there is a review that can be rolled back this session. */
@@ -1888,16 +2731,11 @@ class LearningRepository(
         if (notes.isEmpty()) return 0
         val noteIds = notes.map { it.id }
         val cards = cardDao.getCardsForNotes(noteIds)
-        cardDao.updateAll(cards.map { card ->
-            card.copy(
-                state = CardState.GRADUATED,
-                due = now + 365L * DAY_MILLIS,
-                scheduledDays = maxOf(card.scheduledDays, 365),
-                reps = maxOf(card.reps, 1),
-                consecutiveCorrect = maxOf(card.consecutiveCorrect, 1),
-                lastReview = now
-            )
-        })
+        // Graduate every card for the placed levels into a coherent "known" FSRS state
+        // (long stability, low difficulty) rather than the all-zero state that left
+        // ~1k cards un-schedulable. A far-future due keeps them as a yearly refresher.
+        val knownDue = now + 365L * DAY_MILLIS
+        cardDao.updateAll(cards.map { card -> FsrsScheduler.markKnown(card, now, knownDue) })
         noteDao.updateAll(notes.map { note ->
             note.copy(
                 status = WordStatus.KNOWN,
@@ -1999,7 +2837,7 @@ class LearningRepository(
         return true
     }
 
-    private suspend fun sessionCards(now: Long, limit: Int, plan: DailyPlan, mastery: List<UnitMastery>): List<Card> {
+    private suspend fun sessionCards(now: Long, limit: Int, plan: DailyPlan, mastery: List<UnitMastery>, generatedNewBudget: Int? = null): List<Card> {
         // Pull extra headroom so sibling-burying (one card per note per session) can
         // drop duplicates and still fill the session to [limit].
         val pull = (limit * 3).coerceAtLeast(limit)
@@ -2028,7 +2866,7 @@ class LearningRepository(
         // material is still capped independently by the daily lexeme budget, so this
         // never increases load beyond `newCardsPerDay` fresh words.
         if (dueSession.size >= limit) return finishWithConsolidation(warmStart(dueSession)).take(limit)
-        val fresh = newCardSession(now, limit - dueSession.size, reviewedNotes, mastery)
+        val fresh = newCardSession(now, limit - dueSession.size, reviewedNotes, mastery, generatedNewBudget)
         val mixed = interleaveDailyCards(dueSession, fresh, reviewedToday)
         return finishWithConsolidation(ensureGrammarShare(mixed, now, limit)).take(limit)
     }
@@ -2191,10 +3029,10 @@ class LearningRepository(
      *  - **One vocab card per note per session**: you no longer re-type the same
      *    word back-to-back; its other facets surface on later days.
      */
-    private suspend fun newCardSession(now: Long, limit: Int, dayReviewedNotes: Set<Long> = emptySet(), mastery: List<UnitMastery>): List<Card> {
+    private suspend fun newCardSession(now: Long, limit: Int, dayReviewedNotes: Set<Long> = emptySet(), mastery: List<UnitMastery>, generatedNewBudget: Int? = null): List<Card> {
         val introducedToday = reviewLogDao.countNewIntroducedSince(startOfLocalDay(now))
         val pacing = config()
-        val normalNewBudget = pacing.newCardsPerDay.coerceAtLeast(0)
+        val normalNewBudget = (generatedNewBudget ?: pacing.newCardsPerDay).coerceAtLeast(0)
         var remainingLexemeBudget = (normalNewBudget + extraCreditToday(now) - introducedToday).coerceAtLeast(0)
         if (limit <= 0) return emptyList()
         val previouslyReviewedNotes = reviewLogDao.getReviewedNoteIds().toHashSet()
@@ -2229,6 +3067,11 @@ class LearningRepository(
         // comprehension-first (lesson → recognition → production → grammar).
         val grouped = LinkedHashMap<Long, MutableList<Card>>()
         for (card in pool) grouped.getOrPut(card.noteId) { mutableListOf() }.add(card)
+        val goalPriorities = goalDirectedPriorities()
+        val prioritizedGroups = grouped.entries.sortedWith(
+            compareByDescending<Map.Entry<Long, MutableList<Card>>> { goalPriorities[it.key] ?: 0 }
+                .thenBy { grouped.keys.indexOf(it.key) }
+        )
         val firstLockedUnit = mastery.firstOrNull { !it.unlocked }?.unit
         val frontierUnits = grouped.keys.mapNotNull { notesById[it]?.takeIf { n -> n.tier == 0 }?.unit }
             .distinct().sorted().take(2)
@@ -2237,7 +3080,7 @@ class LearningRepository(
         var previewUsed = 0
         val previewLimit = maxOf(1, limit / 5)
         val byNote = LinkedHashMap<Long, ArrayDeque<Card>>()
-        for ((noteId, cards) in grouped) {
+        for ((noteId, cards) in prioritizedGroups) {
             byNote[noteId] = ArrayDeque(
                 cards.sortedWith(compareBy<Card> { introductionTier(it) }.thenBy { introductionTier2(it) }.thenBy { it.id })
             )
@@ -2279,6 +3122,25 @@ class LearningRepository(
             if (!madeProgress) break
         }
         return session
+    }
+
+    /** Unknown words are ranked by how many token occurrences they unlock in texts
+     * the learner imported or explicitly marked as a target. */
+    private suspend fun goalDirectedPriorities(): Map<Long, Int> {
+        val targets = readerTextDao.getAll().filter {
+            it.source.startsWith("target:", ignoreCase = true) || it.source.equals("local", ignoreCase = true)
+        }
+        if (targets.isEmpty()) return emptyMap()
+        val index = formIndex()
+        val known = knownNoteIds()
+        val score = mutableMapOf<Long, Int>()
+        targets.forEach { text ->
+            readerWordOccurrences(text.body).forEach { token ->
+                val note = index[normalizeToken(token.surface)]
+                if (note != null && note.id !in known) score[note.id] = (score[note.id] ?: 0) + 1
+            }
+        }
+        return score
     }
 
     private fun queueReason(card: Card, index: Int, queue: List<Card>, now: Long, notesById: Map<Long, Note>): String {
@@ -2373,9 +3235,31 @@ class LearningRepository(
         ).joinToString(":") { it ?: "" }
 
     private suspend fun promptFor(card: Card, now: Long, notesById: Map<Long, Note>? = null): ReviewPrompt? {
-        val note = notesById?.get(card.noteId) ?: noteDao.getById(card.noteId) ?: return null
-        val partner = note.aspectPartner?.let { notesById?.get(it) ?: noteDao.getById(it) }
-        return buildPrompt(card, note, scheduler.preview(card, now), partner)
+        val rawNote = notesById?.get(card.noteId) ?: noteDao.getById(card.noteId) ?: return null
+        val (note, mined) = promptNote(rawNote)
+        val partner = rawNote.aspectPartner?.let { notesById?.get(it) ?: noteDao.getById(it) }
+        var prompt = buildPrompt(card, note, scheduler.preview(card, now), partner, mined?.targetPos?.takeIf { it >= 0 })
+        if (card.state == CardState.NEW && card.reps == 0 && prompt.lesson != null) {
+            val enrichment = enrichmentFor(rawNote)
+            val additions = buildList {
+                enrichment.emoji?.let { add("Picture cue: $it") }
+                if (enrichment.cognate) add("Cognate fast-track: this international word is already partly familiar.")
+                enrichment.family.takeIf { it.size > 1 }?.let { family ->
+                    add("Word family: " + family.take(6).joinToString(", ") { it.lemma })
+                }
+                enrichment.collocations.take(3).takeIf { it.isNotEmpty() }?.let { chunks ->
+                    add("Useful chunks: " + chunks.joinToString(" · ") { it.chunk })
+                }
+            }
+            val lesson = prompt.lesson
+            if (additions.isNotEmpty() && lesson != null) prompt = prompt.copy(lesson = lesson.copy(
+                body = lesson.body + "\n\n" + additions.joinToString("\n")
+            ))
+        }
+        if (mined != null) prompt = prompt.copy(
+            teachingHint = listOfNotNull(prompt.teachingHint, if (mined.unknownCount == 1) "i+1 context" else "Context with one extra gloss").joinToString(" · ")
+        )
+        return prompt
     }
 
     private suspend fun blockedGrammarPrompts(plan: DailyPlan, now: Long, notesById: Map<Long, Note>): List<ReviewPrompt> {
@@ -2809,6 +3693,7 @@ class LearningRepository(
         private const val EXTRA_CREDIT_DAILY_LIMIT = EXTRA_CREDIT_BATCH
         private const val TRIAGE_THRESHOLD = 80
         private const val MIN_ACCURACY_SAMPLE = 30
+        private const val REMINE_KNOWN_DELTA = 25
         private const val GRADUATION_ACCURACY = 0.90
         private const val VOCAB_GRADUATION_ENCOUNTERS = 15
         private const val READER_KNOWN_ENCOUNTERS = 3
@@ -2831,7 +3716,9 @@ class LearningRepository(
         // maximizes new-word breadth per day and keeps the lexeme budget exact.
         private val ADVANCED_FACETS = setOf(
             CardType.MEANING_TO_RU, CardType.CLOZE, CardType.SPEAK, CardType.AUDIO_TO_RU,
-            CardType.DICTATION, CardType.SENTENCE_BUILD, CardType.STRESS_MARK
+            CardType.DICTATION, CardType.SENTENCE_BUILD
+            // STRESS_MARK retired: no longer generated and the legacy cards are purged
+            // by MIGRATION_14_15, so it must not resurface as a deferred facet.
         )
         private val CASES = setOf("NOM", "ACC", "GEN", "DAT", "INS", "PREP")
         private val NUMBERS = setOf("SG", "PL")

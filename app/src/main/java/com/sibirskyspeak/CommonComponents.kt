@@ -84,6 +84,8 @@ import com.sibirskyspeak.data.ReaderStatus
 import com.sibirskyspeak.review.AnswerMode
 import com.sibirskyspeak.review.ReviewPrompt
 import com.sibirskyspeak.review.SessionStep
+import com.sibirskyspeak.learning.MatchOutcome
+import com.sibirskyspeak.learning.MatchReport
 
 // ---------------------------------------------------------------------------
 
@@ -94,7 +96,7 @@ internal fun SessionCompleteCard(
     reader: ReaderRecommendation? = null,
     sessionReviewed: Int = 0,
     sessionCorrect: Int = 0,
-    onExtraCredit: () -> Unit = {},
+    matchReport: MatchReport? = null,
     onReadNext: () -> Unit = {}
 ) {
     val sessionAccuracy = if (sessionReviewed > 0) sessionCorrect.toDouble() / sessionReviewed else null
@@ -123,9 +125,9 @@ internal fun SessionCompleteCard(
             )
             Text(
                 if (sessionReviewed > 0)
-                    "This sitting: $sessionReviewed ${if (sessionReviewed == 1) "card" else "cards"}, ${(sessionCorrect * 100) / sessionReviewed}% right · ${game.reviewedToday} today."
+                    "This sitting: ${(sessionCorrect * 100) / sessionReviewed}% accurate."
                 else
-                    "You reviewed ${game.reviewedToday} ${if (game.reviewedToday == 1) "card" else "cards"} today.",
+                    "Scheduled practice is complete.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
             )
@@ -134,6 +136,29 @@ internal fun SessionCompleteCard(
                 if (sessionReviewed > 0) HeroPill("${(sessionCorrect * 100) / sessionReviewed}%", "this sitting")
                 HeroPill("${game.currentStreak}", "day streak")
                 HeroPill("Lvl ${game.level}", "level")
+            }
+            matchReport?.let { report ->
+                val result = when (report.outcome) {
+                    MatchOutcome.WIN -> "Rival defeated"
+                    MatchOutcome.DRAW -> "Rival draw"
+                    MatchOutcome.LOSS -> "Rival wins"
+                }
+                Text(
+                    "$result · rating ${"%.1f".format(report.before.conservativeRating)} → ${"%.1f".format(report.after.conservativeRating)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontWeight = FontWeight.SemiBold
+                )
+                report.ghostOutcome?.let { ghost ->
+                    Text(
+                        "21-day Ghost: ${ghost.name.lowercase().replaceFirstChar { it.uppercase() }} · ${report.tier}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.86f)
+                    )
+                }
+                report.promotionProgress?.let { progress ->
+                    Text(progress, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimary)
+                }
             }
             Spacer(Modifier.height(8.dp))
             if (prioritizeReading) {
@@ -174,35 +199,20 @@ internal fun SessionCompleteCard(
                         Text("Back to Practice")
                     }
                 }
-                TextButton(onClick = onExtraCredit, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary)) {
-                    Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Extra credit")
-                }
                 Text(
                     if (lowAccuracy && reader != null) {
-                        "Add more cards only if the misses were slips; otherwise stop here or read and let reviews settle."
+                        "Stop here or read next; let the difficult retrievals settle."
                     } else if (lowAccuracy) {
-                        "Add more cards only if the misses were slips; otherwise stop here and let reviews settle."
+                        "Stop here and let the difficult retrievals settle."
                     } else if (reader != null) {
-                        "Add more cards only if this session felt easy; otherwise read and let the reviews settle."
+                        "Reading next reinforces today's work without adding review debt."
                     } else {
-                        "Daily goal is done. Add more cards only if this session felt easy."
+                        "A clean finish protects tomorrow's return."
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f),
                     textAlign = TextAlign.Center
                 )
-            } else {
-                OutlinedButton(
-                    onClick = onExtraCredit,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f))
-                ) {
-                    Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Extra credit (+10 cards)", fontWeight = FontWeight.SemiBold)
-                }
             }
         }
     }
@@ -619,19 +629,23 @@ internal fun reviewTaskTitle(prompt: ReviewPrompt): String =
 
 internal fun reviewTaskHelp(prompt: ReviewPrompt): String =
     when (prompt.card.cardType) {
-        CardType.RU_TO_MEANING -> "Type the English meaning. The Russian word is the thing being tested."
+        CardType.RU_TO_MEANING -> "Type the English meaning."
         CardType.MEANING_TO_RU -> "Type the Russian word for this English meaning."
         CardType.CLOZE -> "Use the sentence context and type the missing Russian word."
         CardType.AUDIO_TO_RU -> "Audio plays automatically. Type what you hear."
         CardType.SPEAK -> "Use the mic to say the Russian word or phrase aloud."
-        CardType.CASE_FILL -> "Use the sentence and case label to type the inflected form."
+        CardType.CASE_FILL -> if (prompt.card.reps >= 2) {
+            "Read the sentence cues, choose the required case, and type the inflected form."
+        } else {
+            "Use the sentence and case label to type the inflected form."
+        }
         CardType.VERB_FORM -> "Use the grammar label to type the conjugated verb form."
         CardType.ADJ_AGREE -> "Use the noun context to type the matching adjective form."
         CardType.GENDER_ID -> "Choose the gender that fits this noun."
         CardType.ASPECT_SELECT -> "Choose the form that matches whether the action is bounded or ongoing."
         CardType.CONCEPT_DRILL -> "Use the rule from the lesson to answer this authored grammar prompt."
         CardType.DICTATION -> "Listen to the Russian sentence and type what you hear."
-        CardType.SENTENCE_BUILD -> "Translate the English sentence by writing the Russian sentence."
+        CardType.SENTENCE_BUILD -> "Build the Russian sentence from the meaning or word-bank cue."
         CardType.STRESS_MARK -> "Choose the spelling with the stressed vowel marked."
         CardType.LESSON -> "Read the explanation, then continue when it feels familiar."
     }
@@ -675,7 +689,13 @@ internal fun reviewContext(prompt: ReviewPrompt): String? =
         // the prompt side — seeing the word in a real sentence aids recognition, but we
         // must NOT show the English translation here or it gives the answer away and
         // destroys retrieval practice. The translation is shown on reveal instead.
-        CardType.RU_TO_MEANING -> prompt.exampleSentence?.let { "Example: $it" }
+        // The recognition prompt already embeds the sentence for context-bound function
+        // words and higher-rep cards ("…\n\nWhat does X mean here?" / "In context: …").
+        // Only add the standalone "Example:" line when it isn't already on screen, so the
+        // same sentence isn't printed two (and, with the reveal block, three) times.
+        CardType.RU_TO_MEANING -> prompt.exampleSentence
+            ?.takeUnless { prompt.prompt.contains(it) }
+            ?.let { "Example: $it" }
         CardType.MEANING_TO_RU -> null
         // CLOZE blanks the target word IN its example, so the English translation would
         // hand over the very word you must produce — withhold it (the Russian carrier is

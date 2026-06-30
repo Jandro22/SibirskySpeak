@@ -67,6 +67,12 @@ internal class FakeNoteDao : NoteDao {
     override suspend fun count(): Int = notes.size
     override fun observeAll(): Flow<List<Note>> = flowOf(notes)
     override suspend fun getAll(): List<Note> = notes.toList()
+    override suspend fun examplesNeedingSplit(): List<Note> = notes.filter { n ->
+        val es = n.exampleSentence
+        n.exampleTranslation.isNullOrBlank() && es != null &&
+            (es.contains(" - ") || es.contains(" — ") || es.contains(" – ")) &&
+            es.any { it in 'a'..'z' || it in 'A'..'Z' }
+    }
     override suspend fun getByCefrLevels(levels: List<String>): List<Note> = notes.filter { it.cefrLevel in levels }
     override suspend fun search(query: String, limit: Int): List<Note> =
         notes.filter {
@@ -163,12 +169,31 @@ internal class FakeCardDao(
     }
     override suspend fun getNewCardsOrderedPage(limit: Int, offset: Int): List<Card> =
         getNewCardsOrdered(Int.MAX_VALUE).drop(offset).take(limit)
-    override suspend fun graduateVocabForNote(noteId: Long, due: Long): Int {
+    override suspend fun graduateVocabForNote(
+        noteId: Long,
+        due: Long,
+        now: Long,
+        stability: Double,
+        difficulty: Double,
+        scheduledDays: Int
+    ): Int {
         var changed = 0
         cards.replaceAll { card ->
-            if (card.noteId == noteId && card.queue == Queue.VOCAB && (card.state != CardState.GRADUATED || card.due != due)) {
+            if (card.noteId == noteId && card.queue == Queue.VOCAB &&
+                (card.state != CardState.GRADUATED || card.stability <= 0.0 || card.difficulty <= 0.0 || card.due != due)
+            ) {
                 changed += 1
-                card.copy(state = CardState.GRADUATED, due = due)
+                card.copy(
+                    state = CardState.GRADUATED,
+                    due = due,
+                    stability = stability,
+                    difficulty = difficulty,
+                    scheduledDays = scheduledDays,
+                    elapsedDays = 0,
+                    reps = maxOf(card.reps, 1),
+                    consecutiveCorrect = maxOf(card.consecutiveCorrect, 1),
+                    lastReview = now
+                )
             } else card
         }
         return changed
@@ -356,6 +381,12 @@ internal class FakeReviewLogDao(
         recallLogs().count { it.reviewDatetime >= since && (it.stateBefore == CardState.REVIEW || it.stateBefore == CardState.RELEARNING) && it.elapsedDays > 0 }
     override suspend fun matureRetainedCount(since: Long): Int =
         recallLogs().count { it.reviewDatetime >= since && (it.stateBefore == CardState.REVIEW || it.stateBefore == CardState.RELEARNING) && it.elapsedDays > 0 && it.rating != Rating.AGAIN }
+    override suspend fun matureRetentionByCardType(since: Long): List<CardTypeRetention> =
+        recallLogs()
+            .filter { it.reviewDatetime >= since && (it.stateBefore == CardState.REVIEW || it.stateBefore == CardState.RELEARNING) && it.elapsedDays > 0 }
+            .mapNotNull { log -> cards.cards.firstOrNull { it.id == log.cardId }?.cardType?.let { it to log } }
+            .groupBy({ it.first }, { it.second })
+            .map { (type, ls) -> CardTypeRetention(type, ls.size, ls.count { it.rating != Rating.AGAIN }) }
     override suspend fun reviewFitRows(since: Long): List<ReviewFitRow> =
         recallLogs().filter { it.reviewDatetime >= since }
             .sortedWith(compareBy<ReviewLog> { it.cardId }.thenBy { it.reviewDatetime }.thenBy { it.id })

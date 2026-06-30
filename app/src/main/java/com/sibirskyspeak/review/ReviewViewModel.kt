@@ -3,8 +3,10 @@ package com.sibirskyspeak.review
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sibirskyspeak.data.Achievement
+import com.sibirskyspeak.data.CardType
 import com.sibirskyspeak.data.DashboardStats
 import com.sibirskyspeak.data.DailyPlan
+import com.sibirskyspeak.data.MatchHistory
 import com.sibirskyspeak.data.LearningRepository
 import com.sibirskyspeak.data.Note
 import com.sibirskyspeak.data.Rating
@@ -12,10 +14,26 @@ import com.sibirskyspeak.data.ReaderRecommendation
 import com.sibirskyspeak.data.ReaderToken
 import com.sibirskyspeak.data.SessionPlan
 import com.sibirskyspeak.data.SettingsStore
+import com.sibirskyspeak.data.SkillRating
+import com.sibirskyspeak.data.RivalState
 import com.sibirskyspeak.data.TelemetryEvent
 import com.sibirskyspeak.data.WordStatus
 import com.sibirskyspeak.scheduler.FsrsScheduler
 import com.sibirskyspeak.scheduler.FsrsWeightFitter
+import com.sibirskyspeak.learning.LiveSessionState
+import com.sibirskyspeak.learning.NextCardSelector
+import com.sibirskyspeak.learning.isHardProduction
+import com.sibirskyspeak.learning.ReviewControl
+import com.sibirskyspeak.learning.ContextualBandit
+import com.sibirskyspeak.learning.Doctrine
+import com.sibirskyspeak.learning.FatigueModel
+import com.sibirskyspeak.learning.MatchReport
+import com.sibirskyspeak.learning.ObjectiveAttempt
+import com.sibirskyspeak.learning.PerformanceModel
+import com.sibirskyspeak.learning.MpcAction
+import com.sibirskyspeak.learning.MpcInputs
+import com.sibirskyspeak.learning.SessionMpcController
+import com.sibirskyspeak.learning.SessionMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +51,20 @@ private const val BACKUP_INTERVAL_MS = 20L * 60 * 60 * 1000
 
 /** Mature-review sample needed before the FSRS interval modifier starts adapting. */
 private const val MIN_OPTIMIZE_SAMPLE = 100
+
+/** A full (non-reused) session rebuild slower than this emits a `slow_load` telemetry
+ *  event, so main-thread regressions are observable without a USB profiler. ~18 frames. */
+private const val SLOW_LOAD_MS = 300L
+
+/** Competitive ratings need a block, not a coin flip disguised as a match. */
+private const val MIN_RANKED_MATCH_CARDS = 5
+
+private val STRICT_FORM_CARD_TYPES = setOf(
+    CardType.CASE_FILL,
+    CardType.ADJ_AGREE,
+    CardType.VERB_FORM,
+    CardType.CONCEPT_DRILL
+)
 
 enum class SessionStep {
     REVIEWS,
@@ -83,12 +115,17 @@ data class ReviewUiState(
     val inSessionReading: Boolean = false,
     val readerCheckpointMistakes: Int = 0,
     val inStudySession: Boolean = false,
+    val matchReport: MatchReport? = null,
+    val skillRatings: List<SkillRating> = emptyList(),
+    val rivalState: RivalState? = null,
+    val matchHistory: List<MatchHistory> = emptyList(),
     val canUndo: Boolean = false,
     // Settings mirror (persisted in SettingsStore; surfaced for the Settings UI).
     val dailyGoalSetting: Int = SettingsStore.DEFAULT_DAILY_GOAL,
     val sessionSizeSetting: Int = SettingsStore.DEFAULT_SESSION_SIZE,
     val newCardsPerDaySetting: Int = SettingsStore.DEFAULT_NEW_CARDS_PER_DAY,
     val retentionSetting: Double = SettingsStore.DEFAULT_RETENTION,
+    val doctrineSetting: Doctrine = Doctrine.BALANCED,
     val reminderEnabled: Boolean = true,
     val reminderHour: Int = SettingsStore.DEFAULT_REMINDER_HOUR,
     val readerFontScale: Float = 1.0f,
@@ -109,6 +146,8 @@ data class ReviewUiState(
     val sessionReviewed: Int = 0,
     val sessionCorrect: Int = 0,
     val sessionCompletedCards: Int = 0,
+    val sessionProgressCompleted: Int = 0,
+    val sessionProgressTotal: Int = 0,
     // Parked leeches available to fix or release, for the Leeches management view.
     val leeches: List<LeechItem> = emptyList()
 )
@@ -151,6 +190,7 @@ class ReviewViewModel(
     val typedAnswer: StateFlow<String> = mutableTypedAnswer.asStateFlow()
     private val sessionCounterDeltas = ArrayDeque<SessionCounterDelta>()
     private val activeStudyQueue = mutableListOf<ReviewPrompt>()
+    private val sessionOriginCardIds = linkedSetOf<Long>()
     private var studySessionActive = false
     private var telemetrySessionId: String? = null
     private var promptShownAt: Long = System.currentTimeMillis()
@@ -158,16 +198,24 @@ class ReviewViewModel(
     private val failureCounts = mutableMapOf<Long, Int>()
     private val acquisitionSuccesses = mutableMapOf<Long, Int>()
     private val responseSamples = mutableListOf<Pair<Long, Boolean>>()
+    private val objectiveAttempts = mutableListOf<ObjectiveAttempt>()
+    private var sessionStartedAt: Long = 0L
     private var fatigueAdjusted = false
     private var scheduledReadingPresented = false
     private var readingCommitInProgress = false
     private var queueBeforeLastReview: List<ReviewPrompt>? = null
+    private val sessionShownNotes = mutableListOf<Long>()
+    private val sessionShownHard = mutableListOf<Boolean>()
+    private val lapsedShownAt = mutableMapOf<Long, Int>()
+    private var flowOffered = false
+    private val nextCardBandit = ContextualBandit(dimensions = 6)
 
     init {
         viewModelScope.launch {
             // Never let a startup error (bad import, transient DB issue) leave the
             // app stuck on a blank screen with no feedback.
             runCatching {
+                repository.banditArmStates().let(nextCardBandit::restore)
                 repository.seedIfEmpty()
                 repository.syncBootstrapReaderTexts()
                 loadSession()
@@ -212,6 +260,12 @@ class ReviewViewModel(
     fun setRetention(value: Double) {
         settings.desiredRetention = value
         mutableState.value = mutableState.value.copy(retentionSetting = settings.desiredRetention)
+    }
+
+    fun setDoctrine(value: Doctrine) {
+        settings.doctrine = value
+        mutableState.value = mutableState.value.copy(doctrineSetting = settings.doctrine)
+        viewModelScope.launch { loadSession() }
     }
 
     fun setReminderEnabled(value: Boolean) {
@@ -278,11 +332,7 @@ class ReviewViewModel(
         val state = mutableState.value
         val prompt = state.prompt ?: return
         if (!state.correctionRequired || state.correctionAccepted) return
-        val evaluation = when (prompt.answerMode) {
-            AnswerMode.ENGLISH -> evaluateEnglishAnswer(prompt.expectedAnswer, state.correctionAnswer)
-            AnswerMode.RUSSIAN_STRESS_TYPED -> evaluateRussianAnswer(prompt.expectedAnswer, state.correctionAnswer, ignoreStress = false)
-            else -> evaluateRussianAnswer(prompt.expectedAnswer, state.correctionAnswer)
-        }
+        val evaluation = evaluatePromptAnswer(prompt, state.correctionAnswer)
         mutableState.value = state.copy(
             correctionAccepted = evaluation.accepted,
             answerFeedback = if (evaluation.accepted) "Corrected. Retrieve it again when it returns." else "Not yet — rebuild the expected answer.",
@@ -304,26 +354,14 @@ class ReviewViewModel(
     }
 
     fun reveal() {
-        val prompt = mutableState.value.prompt ?: return
+        val state = mutableState.value
+        // Close double-tap and IME/button races synchronously. A committed production
+        // miss writes to FSRS, so processing one physical attempt twice is data loss.
+        if (state.revealed || state.ratingInProgress || state.autoRatedAgain) return
+        val prompt = state.prompt ?: return
         answerRevealedAt = System.currentTimeMillis()
         val typed = mutableTypedAnswer.value
-        val evaluation = when (prompt.answerMode) {
-            AnswerMode.ENGLISH -> {
-                evaluateEnglishAnswer(prompt.expectedAnswer, typed)
-            }
-            AnswerMode.RUSSIAN_TYPED, AnswerMode.AUDIO_ONLY, AnswerMode.SPEAK -> evaluateRussianAnswer(prompt.expectedAnswer, typed)
-            AnswerMode.RUSSIAN_STRESS_TYPED -> evaluateRussianAnswer(prompt.expectedAnswer, typed, ignoreStress = false)
-            AnswerMode.CHOICE -> {
-                if (prompt.card.cardType == com.sibirskyspeak.data.CardType.STRESS_MARK) {
-                    evaluateRussianAnswer(prompt.expectedAnswer, typed, ignoreStress = false)
-                } else {
-                    val correct = typed.trim().equals(prompt.expectedAnswer.trim(), ignoreCase = true)
-                    AnswerEvaluation(if (correct) AnswerMatch.EXACT else AnswerMatch.WRONG, prompt.expectedAnswer)
-                }
-            }
-            // A lesson has nothing to grade; "Got it" rates it directly via rate().
-            AnswerMode.LESSON -> AnswerEvaluation(AnswerMatch.EXACT, prompt.expectedAnswer)
-        }
+        val evaluation = evaluatePromptAnswer(prompt, typed)
         mutableState.value = mutableState.value.copy(
             revealed = true,
             isAnswerCorrect = evaluation.accepted,
@@ -354,8 +392,7 @@ class ReviewViewModel(
                 com.sibirskyspeak.data.CardType.CASE_FILL,
                 com.sibirskyspeak.data.CardType.VERB_FORM,
                 com.sibirskyspeak.data.CardType.DICTATION,
-                com.sibirskyspeak.data.CardType.SENTENCE_BUILD,
-                com.sibirskyspeak.data.CardType.SPEAK
+                com.sibirskyspeak.data.CardType.SENTENCE_BUILD
             )
         if (!evaluation.accepted && committedMiss) {
             if (prompt.practiceOnly) {
@@ -366,7 +403,7 @@ class ReviewViewModel(
             viewModelScope.launch {
                 runCatching {
                     queueBeforeLastReview = activeStudyQueue.toList()
-                    repository.review(prompt.card, Rating.AGAIN)
+                    repository.review(prompt.card, Rating.AGAIN, objectiveCorrect = false)
                 }.onSuccess { becameLeech ->
                     sessionCounterDeltas.addLast(SessionCounterDelta(reviewed = 1, correct = 0))
                     mutableState.value = mutableState.value.copy(
@@ -382,7 +419,7 @@ class ReviewViewModel(
                         mutableState.value = mutableState.value.copy(autoRatedAgain = false, correctionRequired = false)
                         loadSession(preserveStudyQueue = true)
                     } else {
-                        handleFailure(prompt)
+                        handleFailure(prompt, recordSample = true)
                         mutableState.value = mutableState.value.copy(
                             correctionRequired = true,
                             correctionAnswer = "",
@@ -401,7 +438,9 @@ class ReviewViewModel(
 
     private fun commitPracticeMiss(prompt: ReviewPrompt) {
         repository.clearUndo()
-        queueBeforeLastReview = null
+        // Practice misses do not touch FSRS, but override still needs to restore the
+        // queue before the miss inserted a scaffold.
+        queueBeforeLastReview = activeStudyQueue.toList()
         mutableState.value = mutableState.value.copy(ratingInProgress = true)
         viewModelScope.launch {
             val remaining = activeStudyQueue.toMutableList()
@@ -426,6 +465,7 @@ class ReviewViewModel(
                 sessionCompletedCards = mutableState.value.sessionCompletedCards + 1,
                 canUndo = false
             )
+            sessionCounterDeltas.addLast(SessionCounterDelta(reviewed = 0, correct = 0))
         }
     }
 
@@ -450,7 +490,7 @@ class ReviewViewModel(
         viewModelScope.launch {
             runCatching {
                 queueBeforeLastReview = activeStudyQueue.toList()
-                repository.review(prompt.card, rating)
+                repository.review(prompt.card, rating, objectiveCorrect = if (countable) wasCorrect else null)
             }.onSuccess { becameLeech ->
                 sessionCounterDeltas.addLast(delta)
                 mutableState.value = mutableState.value.copy(
@@ -467,7 +507,7 @@ class ReviewViewModel(
                         mutableState.value = mutableState.value.copy(ratingInProgress = false, autoRatedAgain = false, correctionRequired = false)
                         loadSession(preserveStudyQueue = true)
                     } else {
-                        handleFailure(prompt)
+                        handleFailure(prompt, recordSample = false)
                         mutableState.value = mutableState.value.copy(
                             ratingInProgress = false,
                             autoRatedAgain = true,
@@ -496,21 +536,24 @@ class ReviewViewModel(
         viewModelScope.launch { loadSession(preserveStudyQueue = true) }
     }
 
-    private suspend fun handleFailure(prompt: ReviewPrompt) {
+    private suspend fun handleFailure(prompt: ReviewPrompt, recordSample: Boolean) {
         val failures = (failureCounts[prompt.card.id] ?: 0) + 1
         failureCounts[prompt.card.id] = failures
         val repair = if (failures >= 2) repository.scaffoldPromptFor(prompt.card, failures) else repository.repairPromptFor(prompt.card)
         advanceFrozenQueue(prompt, Rating.AGAIN, repair)
-        recordResponseSample(prompt, Rating.AGAIN)
+        if (recordSample) recordResponseSample(prompt, Rating.AGAIN)
         if (failures >= 2) repository.recordTelemetry(telemetryForPrompt("scaffold_inserted", prompt).copy(
             metadataJson = JSONObject().put("supportLevel", failures).toString()
+        ))
+        if (failures >= 2) repository.recordTelemetry(telemetryForPrompt("hint_used", prompt).copy(
+            metadataJson = JSONObject().put("level", failures).toString()
         ))
     }
 
     private fun rateUnscheduledPrompt(prompt: ReviewPrompt, rating: Rating) {
         if (mutableState.value.ratingInProgress) return
         repository.clearUndo()
-        queueBeforeLastReview = null
+        queueBeforeLastReview = if (rating == Rating.AGAIN) activeStudyQueue.toList() else null
         mutableState.value = mutableState.value.copy(ratingInProgress = true)
         viewModelScope.launch {
             val remaining = activeStudyQueue.toMutableList().also { list ->
@@ -551,6 +594,7 @@ class ReviewViewModel(
                 correctionAccepted = false,
                 canUndo = false
             )
+            if (!success) sessionCounterDeltas.addLast(SessionCounterDelta(reviewed = 0, correct = 0))
             if (success) loadSession(preserveStudyQueue = true)
         }
     }
@@ -574,12 +618,44 @@ class ReviewViewModel(
     private fun recordResponseSample(prompt: ReviewPrompt, rating: Rating) {
         if (prompt.answerMode == AnswerMode.LESSON) return
         val elapsed = ((if (answerRevealedAt > 0) answerRevealedAt else System.currentTimeMillis()) - promptShownAt).coerceAtLeast(0)
-        responseSamples += elapsed to (rating != Rating.AGAIN)
-        if (!fatigueAdjusted && responseSamples.size >= 8) {
-            val baseline = responseSamples.take(3).map { it.first }.average().coerceAtLeast(1.0)
-            val recent = responseSamples.takeLast(3).map { it.first }.average()
-            val recentMisses = responseSamples.takeLast(4).count { !it.second }
-            if (recent > baseline * 1.8 || recentMisses >= 2) {
+        val engineJudgedCorrect = mutableState.value.isAnswerCorrect
+        val sampledCorrect = engineJudgedCorrect ?: (rating != Rating.AGAIN)
+        responseSamples += elapsed to sampledCorrect
+        if (engineJudgedCorrect != null) {
+            objectiveAttempts += ObjectiveAttempt(
+                itemId = prompt.card.id,
+                correct = engineJudgedCorrect,
+                responseMs = elapsed,
+                answerMode = prompt.answerMode,
+                itemDifficulty = 25.0 + when (prompt.card.cardType) {
+                    CardType.MEANING_TO_RU, CardType.DICTATION, CardType.SPEAK -> 2.0
+                    CardType.RU_TO_MEANING, CardType.ASPECT_SELECT, CardType.GENDER_ID -> -1.0
+                    else -> 0.0
+                }
+            )
+        }
+        val priorFatigue = FatigueModel.estimate(responseSamples.dropLast(1).map { it.first }, responseSamples.dropLast(1).map { it.second })
+        val currentFatigue = FatigueModel.estimate(responseSamples.map { it.first }, responseSamples.map { it.second })
+        if (engineJudgedCorrect != null) {
+            viewModelScope.launch {
+                repository.resolveBanditCredits(
+                    itemId = prompt.card.id,
+                    recalled = engineJudgedCorrect,
+                    responseMs = elapsed,
+                    fatigueDelta = (currentFatigue - priorFatigue).coerceAtLeast(0.0),
+                    currentShowAt = promptShownAt
+                ).forEach { credit ->
+                    nextCardBandit.update(credit.action, credit.context, credit.reward)
+                    repository.upsertBanditArmState(nextCardBandit.snapshot().first { it.action == credit.action })
+                }
+            }
+        }
+        sessionShownNotes += prompt.note.id
+        sessionShownHard += prompt.answerMode.isHardProduction()
+        if (rating == Rating.AGAIN) lapsedShownAt[prompt.card.id] = mutableState.value.sessionCompletedCards
+        if (!fatigueAdjusted && responseSamples.size >= 4) {
+            val fatigue = FatigueModel.estimate(responseSamples.map { it.first }, responseSamples.map { it.second })
+            if (fatigue >= 0.65) {
                 val before = activeStudyQueue.size
                 val removableNew = activeStudyQueue.count { it.card.state == com.sibirskyspeak.data.CardState.NEW && it.card.reps == 0 }
                 // Backlog mode already suppresses new material. Avoid a warning and
@@ -590,11 +666,22 @@ class ReviewViewModel(
                 fatigueAdjusted = true
                 mutableState.value = mutableState.value.copy(
                     fatigueAdjusted = true,
-                    statusMessage = if (removed > 0) "Pace protected: $removed optional new ${if (removed == 1) "card" else "cards"} moved to tomorrow." else "Pace protected: no more new material this sitting."
+                    statusMessage = if (removed > 0) "Good place to stop: optional new material moved to tomorrow. Finish on the next easy win." else "Good place to stop: no more new material this sitting."
                 )
                 viewModelScope.launch { repository.recordTelemetry(TelemetryEvent(
                     eventType = "fatigue_adjustment", sessionId = telemetrySessionId,
                     metadataJson = JSONObject().put("removedNew", removed).put("variant", settings.learningExperimentVariant).toString()
+                )) }
+            }
+        }
+        if (!flowOffered && responseSamples.size >= 6) {
+            val live = LiveSessionState(recent = responseSamples.takeLast(4))
+            if (live.flow == com.sibirskyspeak.learning.FlowState.FLOW) {
+                flowOffered = true
+                mutableState.value = mutableState.value.copy(statusMessage = "You're in flow. Finish this set, then Stretch is available if you want it.")
+                viewModelScope.launch { repository.recordTelemetry(TelemetryEvent(
+                    eventType = "flow_stretch_offered", sessionId = telemetrySessionId,
+                    metadataJson = JSONObject().put("rollingAccuracy", 1.0).toString()
                 )) }
             }
         }
@@ -608,14 +695,94 @@ class ReviewViewModel(
             else -> 10_000L
         }
         if (evaluation.match == AnswerMatch.CLOSE || elapsedMs > slowAt) return Rating.HARD
+        // Multiple-choice speed is weak evidence: a fast correct tap can be a guess.
+        if (prompt.answerMode == AnswerMode.CHOICE) return Rating.GOOD
         return if (prompt.card.reps > 0 && elapsedMs <= slowAt / 3) Rating.EASY else Rating.GOOD
     }
 
+    private fun evaluatePromptAnswer(prompt: ReviewPrompt, actual: String): AnswerEvaluation =
+        when (prompt.answerMode) {
+            AnswerMode.ENGLISH -> evaluateEnglishAnswer(prompt.expectedAnswer, actual)
+            AnswerMode.RUSSIAN_TYPED, AnswerMode.AUDIO_ONLY, AnswerMode.SPEAK -> evaluateRussianAnswer(
+                expected = prompt.expectedAnswer,
+                actual = actual,
+                allowTypos = prompt.card.cardType !in STRICT_FORM_CARD_TYPES
+            )
+            AnswerMode.RUSSIAN_STRESS_TYPED -> evaluateRussianAnswer(prompt.expectedAnswer, actual, ignoreStress = false)
+            AnswerMode.CHOICE -> {
+                if (prompt.card.cardType == CardType.STRESS_MARK) {
+                    evaluateRussianAnswer(prompt.expectedAnswer, actual, ignoreStress = false)
+                } else {
+                    val correct = actual.trim().equals(prompt.expectedAnswer.trim(), ignoreCase = true)
+                    AnswerEvaluation(if (correct) AnswerMatch.EXACT else AnswerMatch.WRONG, prompt.expectedAnswer)
+                }
+            }
+            AnswerMode.LESSON -> AnswerEvaluation(AnswerMatch.EXACT, prompt.expectedAnswer)
+        }
+
     private fun advanceFrozenQueue(prompt: ReviewPrompt, rating: Rating, repairPrompt: ReviewPrompt? = null) {
         if (!studySessionActive) return
-        val updated = recoveryQueueAfter(activeStudyQueue, prompt, rating, repairPrompt)
+        val updated = recoveryQueueAfter(activeStudyQueue, prompt, rating, repairPrompt).toMutableList()
+        val blueprint = mutableState.value.sessionPlan?.blueprint
+        if (blueprint != null && updated.isNotEmpty()) {
+            val live = LiveSessionState(
+                shown = mutableState.value.sessionCompletedCards + 1,
+                recent = responseSamples.takeLast(4),
+                recentNoteIds = sessionShownNotes.takeLast(4),
+                recentHard = sessionShownHard.takeLast(4),
+                lapsedShownAt = lapsedShownAt,
+                // Repository gating already removed locked drills; treating every
+                // remaining concept as introduced preserves that hard constraint.
+                introducedConcepts = updated.mapNotNull { it.card.gramConcept }.toSet()
+            )
+            val context = banditContext()
+            val next = NextCardSelector.select(
+                updated, blueprint, live, System.currentTimeMillis(),
+                mutableState.value.sessionPlan?.confusablePairs.orEmpty(),
+                policyBias = { candidate ->
+                nextCardBandit.score(candidate.answerMode.name, context) * 0.25
+            })
+            val pace = mutableState.value.sessionPlan?.pace
+            val fatigue = FatigueModel.estimate(responseSamples.map { it.first }, responseSamples.map { it.second })
+            when (SessionMpcController.decide(
+                hasCard = next != null,
+                live = live,
+                inputs = MpcInputs(
+                    fatigue = fatigue,
+                    debtRatio = pace?.debtRatio ?: 0.0,
+                    debtLimit = 0.35,
+                    pReturn = pace?.pReturn ?: 0.8,
+                    stretchAlreadyOffered = flowOffered
+                )
+            )) {
+                MpcAction.STOP -> {
+                    updated.clear()
+                    mutableState.value = mutableState.value.copy(statusMessage = "Clean finish: today's marginal gain is lower than protecting tomorrow.")
+                }
+                MpcAction.STRETCH -> {
+                    val existing = updated.mapTo(HashSet()) { it.card.id }
+                    val additions = (mutableState.value.sessionPlan?.blockedGrammar.orEmpty() + mutableState.value.sessionPlan?.interleavedGrammar.orEmpty())
+                        .filter { it.card.id !in existing }
+                        .distinctBy { it.card.id }
+                        .take(3)
+                    updated += additions
+                    flowOffered = true
+                    mutableState.value = mutableState.value.copy(statusMessage = "Stretch earned: a short transfer block was added while accuracy and energy are high.")
+                    next?.let { updated.remove(it); updated.add(0, it) }
+                }
+                MpcAction.CARD -> next?.let { updated.remove(it); updated.add(0, it) }
+            }
+        }
         activeStudyQueue.clear()
         activeStudyQueue += updated
+    }
+
+    private fun banditContext(): DoubleArray {
+        val recent = responseSamples.takeLast(4)
+        val accuracy = if (recent.isEmpty()) 0.85 else recent.count { it.second }.toDouble() / recent.size
+        val latency = if (recent.isEmpty()) 0.5 else (recent.map { it.first }.average() / 15_000.0).coerceIn(0.0, 2.0)
+        val progress = mutableState.value.let { state -> state.sessionProgressCompleted.toDouble() / state.sessionProgressTotal.coerceAtLeast(1) }
+        return doubleArrayOf(1.0, accuracy, latency, progress, if (fatigueAdjusted) 1.0 else 0.0, if (flowOffered) 1.0 else 0.0)
     }
 
     private fun telemetryForPrompt(eventType: String, prompt: ReviewPrompt): TelemetryEvent = TelemetryEvent(
@@ -664,6 +831,28 @@ class ReviewViewModel(
                 .put("ratingDecisionMs", if (answerRevealedAt > 0) (System.currentTimeMillis() - answerRevealedAt).coerceAtLeast(0) else JSONObject.NULL)
                 .toString()
         ))
+        val actualRecall = mutableState.value.answerMatch?.let { it != AnswerMatch.WRONG }
+        if (actualRecall != null) {
+            repository.recordSuccessCalibrationSample(
+                card = prompt.card,
+                correct = actualRecall,
+                fatigue = FatigueModel.estimate(responseSamples.map { it.first }, responseSamples.map { it.second }),
+                at = committedAt
+            )
+        }
+        if (actualRecall != null && !autoRated) {
+            val predictedRecall = rating != Rating.AGAIN
+            repository.recordTelemetry(telemetryForPrompt("calibration_sample", prompt).copy(
+                rating = rating.name,
+                answerMatch = mutableState.value.answerMatch?.name,
+                responseMs = responseMs,
+                metadataJson = JSONObject()
+                    .put("predictedRecall", predictedRecall)
+                    .put("actualRecall", actualRecall)
+                    .put("calibrated", predictedRecall == actualRecall)
+                    .toString()
+            ))
+        }
     }
 
     /**
@@ -953,7 +1142,10 @@ class ReviewViewModel(
                     readerCheckpointQuestions = emptyList(),
                     readerCheckpointIndex = 0,
                     sessionCompletedCards = mutableState.value.sessionCompletedCards + 1,
-                    statusMessage = "Reading consolidated. Back to your review queue."
+                    statusMessage = "Reading consolidated. Back to your review queue.",
+                    // The frozen plan otherwise keeps offering the assignment that
+                    // was just completed on the session-complete screen.
+                    sessionPlan = mutableState.value.sessionPlan?.copy(readingAssignment = null)
                 )
                 loadSession(preserveStudyQueue = true)
             } catch (error: Throwable) {
@@ -1010,7 +1202,11 @@ class ReviewViewModel(
             viewModelScope.launch {
                 try {
                     repository.completeScheduledReading(id, mutableState.value.readerCheckpointMistakes, abandoned = true)
-                    mutableState.value = mutableState.value.copy(inSessionReading = false, selectedReaderTextId = null)
+                    mutableState.value = mutableState.value.copy(
+                        inSessionReading = false,
+                        selectedReaderTextId = null,
+                        sessionPlan = mutableState.value.sessionPlan?.copy(readingAssignment = null)
+                    )
                     loadSession(preserveStudyQueue = true, status = "Reading postponed until tomorrow.")
                 } catch (error: Throwable) {
                     if (error is CancellationException) throw error
@@ -1087,6 +1283,7 @@ class ReviewViewModel(
         status: String? = mutableState.value.statusMessage,
         preserveStudyQueue: Boolean = false
     ) {
+        val loadStartedAt = System.currentTimeMillis()
         val current = mutableState.value
         val canReusePlan = preserveStudyQueue && studySessionActive && activeStudyQueue.isNotEmpty() && current.sessionPlan != null
         val freshPlan = if (canReusePlan) current.sessionPlan!! else repository.sessionPlan()
@@ -1096,6 +1293,7 @@ class ReviewViewModel(
         if (studySessionActive && !preserveStudyQueue) {
             activeStudyQueue.clear()
             activeStudyQueue += freshPlan.reviewQueue
+            if (sessionOriginCardIds.isEmpty()) sessionOriginCardIds += activeStudyQueue.map { it.card.id }
         }
         if (canReusePlan) {
             val scheduled = activeStudyQueue.filterNot { it.supportOnly || it.practiceOnly }
@@ -1160,6 +1358,7 @@ class ReviewViewModel(
             sessionSizeSetting = settings.sessionSize,
             newCardsPerDaySetting = settings.newCardsPerDay,
             retentionSetting = settings.desiredRetention,
+            doctrineSetting = settings.doctrine,
             reminderEnabled = settings.reminderEnabled,
             reminderHour = settings.reminderHour,
             readerFontScale = settings.readerFontScale,
@@ -1172,6 +1371,9 @@ class ReviewViewModel(
             readerCheckpointIndex = current.readerCheckpointIndex,
             readerCheckpointFeedback = current.readerCheckpointFeedback,
             fatigueAdjusted = fatigueAdjusted,
+            skillRatings = plan.skillRatings,
+            rivalState = plan.rivalState,
+            matchHistory = plan.matchHistory,
             newlyUnlocked = if (freshAchievements.isNotEmpty()) {
                 freshAchievements
             } else {
@@ -1182,6 +1384,10 @@ class ReviewViewModel(
             sessionReviewed = current.sessionReviewed,
             sessionCorrect = current.sessionCorrect,
             sessionCompletedCards = current.sessionCompletedCards,
+            sessionProgressCompleted = if (studySessionActive) {
+                sessionOriginCardIds.count { id -> activeStudyQueue.none { it.card.id == id } }
+            } else current.sessionProgressCompleted,
+            sessionProgressTotal = if (studySessionActive) sessionOriginCardIds.size else current.sessionProgressTotal,
             inSessionReading = current.inSessionReading,
             readerCheckpointMistakes = current.readerCheckpointMistakes,
             inStudySession = current.inStudySession,
@@ -1201,8 +1407,38 @@ class ReviewViewModel(
                     .put("lapses", nextPrompt.card.lapses)
                     .toString()
             ))
+            viewModelScope.launch {
+                repository.recordBanditExposure(
+                    card = nextPrompt.card,
+                    action = nextPrompt.answerMode.name,
+                    context = banditContext(),
+                    showAt = promptShownAt,
+                    fatigue = FatigueModel.estimate(responseSamples.map { it.first }, responseSamples.map { it.second })
+                )
+            }
+            if (!nextPrompt.exampleSentence.isNullOrBlank()) {
+                repository.recordTelemetry(telemetryForPrompt("context_card_shown", nextPrompt))
+            }
+            val lessonBody = nextPrompt.lesson?.body.orEmpty()
+            if (lessonBody.contains("Cognate fast-track:")) {
+                repository.recordTelemetry(telemetryForPrompt("cognate_fasttrack", nextPrompt))
+            }
+            if (lessonBody.contains("Useful chunks:")) {
+                repository.recordTelemetry(telemetryForPrompt("chunk_card", nextPrompt))
+            }
         }
         if (preserveStudyQueue && studySessionActive && activeStudyQueue.isEmpty()) {
+            // Per-facet retention at session end, so a weak aggregate (e.g. 78%) can be
+            // traced to the quiz types actually dragging it down rather than guessed at.
+            val retentionByType = JSONObject()
+            runCatching {
+                repository.retentionByCardType().forEach { row ->
+                    retentionByType.put(
+                        row.cardType.name,
+                        JSONObject().put("n", row.total).put("retained", row.retained)
+                    )
+                }
+            }
             repository.recordTelemetry(TelemetryEvent(
                 eventType = "session_complete",
                 sessionId = telemetrySessionId,
@@ -1211,12 +1447,43 @@ class ReviewViewModel(
                     .put("reviewed", mutableState.value.sessionReviewed)
                     .put("correct", mutableState.value.sessionCorrect)
                     .put("actions", mutableState.value.sessionCompletedCards)
+                    .put("retentionByCardType", retentionByType)
                     .toString()
             ))
+            val fatigue = FatigueModel.estimate(responseSamples.map { it.first }, responseSamples.map { it.second })
+            val performance = PerformanceModel.score(objectiveAttempts)
+            val effectiveMinutes = PerformanceModel.effectiveMinutes(objectiveAttempts)
+            val accuracy = if (responseSamples.isEmpty()) 0.0 else responseSamples.count { it.second }.toDouble() / responseSamples.size
+            val rivalPerformance = repository.expectedRivalPerformance(objectiveAttempts.map { it.itemId })
+            val report = repository.finishAdaptiveSession(
+                goodMinutes = if (accuracy >= 0.8) effectiveMinutes else effectiveMinutes * accuracy,
+                fatigue = fatigue,
+                debtRatio = mutableState.value.sessionPlan?.pace?.debtRatio ?: 0.0,
+                completed = true,
+                cleanFinish = !fatigueAdjusted,
+                perfYou = performance,
+                perfRival = rivalPerformance,
+                rankedMatch = objectiveAttempts.size >= MIN_RANKED_MATCH_CARDS
+            )
             studySessionActive = false
-            mutableState.value = mutableState.value.copy(inStudySession = false)
+            mutableState.value = mutableState.value.copy(inStudySession = false, matchReport = report)
         } else if (preserveStudyQueue && studySessionActive) {
             maybeStartScheduledReading()
+        }
+        // Flag main-thread-relevant slowness on full rebuilds (the cold-start path),
+        // now that the heavy work is dispatched off the UI thread by sessionPlan().
+        if (!canReusePlan) {
+            val loadMs = System.currentTimeMillis() - loadStartedAt
+            if (loadMs >= SLOW_LOAD_MS) {
+                repository.recordTelemetry(TelemetryEvent(
+                    eventType = "slow_load",
+                    sessionId = telemetrySessionId,
+                    metadataJson = JSONObject()
+                        .put("loadMs", loadMs)
+                        .put("step", keepStep.name)
+                        .toString()
+                ))
+            }
         }
     }
 
@@ -1230,7 +1497,9 @@ class ReviewViewModel(
         val observed = stats.matureRetention ?: return
         if (stats.matureReviewSample < MIN_OPTIMIZE_SAMPLE) return
         val clampedObserved = observed.coerceIn(0.70, 0.995)
-        val target = settings.desiredRetention.coerceIn(0.80, 0.97)
+        val workloadPerItem = settings.dailyGoal.toDouble() / stats.noteCount.coerceAtLeast(1)
+        val frontier = ReviewControl.optimalRetention(workloadPerItem)
+        val target = minOf(settings.desiredRetention.coerceIn(0.85, 0.90), frontier)
         // Exact interval multiplier under FSRS's own forgetting curve
         // R = (1 + factor·t/S)^(-decay): scaling the interval by
         //   m = (target^(-1/decay) - 1) / (observed^(-1/decay) - 1)
@@ -1301,42 +1570,88 @@ class ReviewViewModel(
     fun grantExtraCredit() {
         viewModelScope.launch {
             val granted = repository.grantExtraCredit()
-            val status = if (granted > 0) {
-                "Extra credit: $granted more new cards added for today."
-            } else {
-                "Extra credit already added for today. Reading is the better next step now."
+            loadSession(status = null)
+            val ready = mutableState.value.sessionPlan?.reviewQueue?.size ?: 0
+            val status = when {
+                ready > 0 -> "Extra credit: $ready more ${if (ready == 1) "card is" else "cards are"} ready."
+                granted == 0 -> "Extra credit is already used for today. Reading is the better next step now."
+                else -> "No more eligible cards are ready. Reading is the better next step now."
             }
-            loadSession(status = status)
+            mutableState.value = mutableState.value.copy(statusMessage = status)
+            // The completion screen belongs to an ended sitting. Freeze the newly
+            // granted plan into a fresh session instead of showing live cards under
+            // the old counters and telemetry id.
+            if (ready > 0 && !studySessionActive) startStudySession()
         }
     }
 
     /** Reset the per-sitting counters when the learner (re)opens the study screen. */
-    fun startStudySession() {
+    fun startStudySession(mode: SessionMode = SessionMode.FULL) {
         if (studySessionActive) return
         sessionCounterDeltas.clear()
         failureCounts.clear()
         acquisitionSuccesses.clear()
         responseSamples.clear()
+        objectiveAttempts.clear()
+        sessionShownNotes.clear()
+        sessionShownHard.clear()
+        lapsedShownAt.clear()
         fatigueAdjusted = false
+        flowOffered = false
         scheduledReadingPresented = false
         studySessionActive = true
+        sessionStartedAt = System.currentTimeMillis()
         telemetrySessionId = UUID.randomUUID().toString()
         promptShownAt = System.currentTimeMillis()
         answerRevealedAt = 0L
+        val plan = mutableState.value.sessionPlan
+        val base = plan?.reviewQueue.orEmpty()
+        val plannedQueue = when (mode) {
+            SessionMode.QUICK -> {
+                val atRisk = plan?.blueprint?.atRiskCardIds.orEmpty()
+                base.filter { it.card.id in atRisk }.ifEmpty { base.filter { it.card.state != com.sibirskyspeak.data.CardState.NEW } }
+            }
+            SessionMode.FULL -> base
+            SessionMode.STRETCH -> {
+                val ids = base.mapTo(HashSet()) { it.card.id }
+                base + (plan?.blockedGrammar.orEmpty() + plan?.interleavedGrammar.orEmpty())
+                    .filter { it.card.id !in ids }.distinctBy { it.card.id }.take(5)
+            }
+        }
         activeStudyQueue.clear()
-        activeStudyQueue += mutableState.value.sessionPlan?.reviewQueue.orEmpty()
+        activeStudyQueue += plannedQueue
+        sessionOriginCardIds.clear()
+        sessionOriginCardIds += activeStudyQueue.map { it.card.id }
         mutableState.value = mutableState.value.copy(
+            sessionPlan = plan?.copy(
+                reviewQueue = plannedQueue,
+                blueprint = plan.blueprint?.copy(mode = mode)
+            ),
             prompt = activeStudyQueue.firstOrNull(),
             sessionReviewed = 0,
             sessionCorrect = 0,
             sessionCompletedCards = 0,
+            sessionProgressCompleted = 0,
+            sessionProgressTotal = sessionOriginCardIds.size,
             correctionRequired = false,
             correctionAnswer = "",
             correctionAccepted = false,
             fatigueAdjusted = false,
+            matchReport = null,
             inStudySession = true
         )
         viewModelScope.launch {
+            repository.observeReturn(sessionStartedAt)
+            plan?.pace?.let { repository.recordPace(it, mode, sessionStartedAt) }
+            activeStudyQueue.firstOrNull()?.let { first ->
+                repository.recordBanditExposure(
+                    card = first.card,
+                    action = first.answerMode.name,
+                    context = banditContext(),
+                    showAt = promptShownAt,
+                    fatigue = 0.0
+                )
+            }
             repository.recordTelemetry(TelemetryEvent(
                 eventType = "session_start",
                 sessionId = telemetrySessionId,
@@ -1349,6 +1664,7 @@ class ReviewViewModel(
                     .put("overdueBacklog", mutableState.value.dailyPlan?.overdueBacklog == true)
                     .put("experimentVariant", settings.learningExperimentVariant)
                     .put("acquisitionTarget", acquisitionTarget())
+                    .put("mode", mode.name)
                     .toString()
             ))
             maybeStartScheduledReading()
@@ -1447,7 +1763,16 @@ class ReviewViewModel(
             runCatching {
                 repository.updateNoteContent(prompt.card.noteId, translation, exampleSentence, exampleTranslation, mnemonic)
             }.onSuccess {
-                val refreshed = repository.promptForCard(prompt.card)
+                val refreshed = when {
+                    prompt.supportOnly -> repository.scaffoldPromptFor(prompt.card, prompt.supportLevel)
+                    prompt.practiceOnly -> repository.practicePromptFor(prompt.card, round = 1)
+                    else -> repository.promptForCard(prompt.card)
+                }?.copy(
+                    queueReason = prompt.queueReason,
+                    supportOnly = prompt.supportOnly,
+                    practiceOnly = prompt.practiceOnly,
+                    supportLevel = prompt.supportLevel
+                )
                 mutableState.value = mutableState.value.copy(prompt = refreshed ?: prompt, statusMessage = "Card updated")
             }.onFailure { mutableState.value = mutableState.value.copy(statusMessage = it.message ?: "Could not update card") }
         }

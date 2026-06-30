@@ -208,6 +208,93 @@ class ReviewViewModelTest {
     }
 
     @Test
+    fun duplicateRevealCommitsAProductionMissOnlyOnce() = runTest(dispatcher) {
+        val (fixture, caseFillCard) = caseFillOnlyFixture(lemma = "войска-double", freqRank = 13)
+        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore(), Dispatchers.Unconfined)
+        advanceUntilIdle()
+        viewModel.startStudySession()
+        advanceUntilIdle()
+
+        viewModel.setTypedAnswer("wrong")
+        viewModel.reveal()
+        viewModel.reveal()
+        advanceUntilIdle()
+
+        val saved = fixture.cards.cards.first { it.id == caseFillCard.id }
+        assertEquals("one physical attempt must produce one lapse", 1, saved.lapses)
+        assertEquals(1, viewModel.state.value.sessionReviewed)
+        assertEquals(1, viewModel.state.value.sessionCompletedCards)
+    }
+
+    @Test
+    fun nearbyWrongCaseEndingIsNotAcceptedAsATypo() = runTest(dispatcher) {
+        val (fixture, caseFillCard) = caseFillOnlyFixture(lemma = "войска-ending", freqRank = 14)
+        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore(), Dispatchers.Unconfined)
+        advanceUntilIdle()
+        viewModel.startStudySession()
+        advanceUntilIdle()
+
+        val expected = viewModel.state.value.prompt!!.expectedAnswer
+        assertEquals("войск", expected)
+        viewModel.setTypedAnswer("войска")
+        viewModel.reveal()
+        advanceUntilIdle()
+
+        assertEquals(AnswerMatch.WRONG, viewModel.state.value.answerMatch)
+        assertEquals(1, fixture.cards.cards.first { it.id == caseFillCard.id }.lapses)
+    }
+
+    @Test
+    fun extraCreditDoesNotClaimCardsOrStartAnEmptySession() = runTest(dispatcher) {
+        val fixture = RepoFixture()
+        fixture.repository.seedIfEmpty()
+        fixture.cards.cards.toList().forEach { fixture.cards.update(it.copy(suspended = true)) }
+        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore(), Dispatchers.Unconfined)
+        advanceUntilIdle()
+
+        viewModel.grantExtraCredit()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.inStudySession)
+        assertTrue(viewModel.state.value.statusMessage.orEmpty().startsWith("No more eligible cards"))
+    }
+
+    @Test
+    fun overridingPracticeMissRemovesItsFalseScaffold() = runTest(dispatcher) {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """{"russian":"дом","lemma":"дом-practice","pos":"noun","translation":"house","tier":0,"unit":1}"""
+        )
+        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore(), Dispatchers.Unconfined)
+        advanceUntilIdle()
+        viewModel.startStudySession()
+        advanceUntilIdle()
+
+        // Introduction -> first scheduled recall -> unscheduled acquisition recall.
+        viewModel.rate(Rating.GOOD)
+        advanceUntilIdle()
+        val recall = viewModel.state.value.prompt!!
+        viewModel.setTypedAnswer(recall.expectedAnswer)
+        viewModel.reveal()
+        viewModel.rate(Rating.GOOD)
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.prompt?.practiceOnly == true)
+
+        viewModel.setTypedAnswer("wrong")
+        viewModel.reveal()
+        viewModel.rate(Rating.AGAIN)
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.autoRatedAgain)
+        viewModel.overrideKnewIt()
+        advanceUntilIdle()
+        viewModel.rate(Rating.GOOD)
+        advanceUntilIdle()
+
+        assertFalse("override must not leave the miss scaffold queued", viewModel.state.value.prompt?.supportOnly == true)
+        assertEquals(1, viewModel.state.value.sessionReviewed)
+    }
+
+    @Test
     fun studyOpenedBeforeStartupLoadAdoptsTheFinishedPlan() = runTest {
         val standard = StandardTestDispatcher(testScheduler)
         Dispatchers.setMain(standard)
