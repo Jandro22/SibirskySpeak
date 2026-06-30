@@ -6,8 +6,8 @@ import com.sibirskyspeak.scheduler.FsrsScheduler
 import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.max
-import kotlin.math.roundToInt
 import kotlin.math.pow
+import kotlin.math.roundToInt
 
 enum class Doctrine(val weights: DoubleArray, val doctrineNewCap: Int) {
     BALANCED(doubleArrayOf(1.0, 0.5, 0.5, 0.6, 0.4, 0.5, 0.5, 0.3), 15),
@@ -33,6 +33,13 @@ data class Pace(
     val doctrine: Doctrine
 )
 
+data class AdoptedPacePlan(
+    val capacity: Int,
+    val newBudget: Int,
+    val retention: Double,
+    val mode: SessionMode
+)
+
 data class PaceInputs(
     val capacity: CapacityBelief = CapacityBelief(),
     val willingness: WillingnessBelief = WillingnessBelief(),
@@ -51,6 +58,27 @@ object PaceController {
     private const val HORIZON_DAYS = 14
     private const val GROWTH = 2.5
     private const val TAU_RETURN = 0.80
+
+    fun adoptForSessionSettings(
+        pace: Pace,
+        configuredSessionSize: Int,
+        configuredNewCardsPerDay: Int,
+        configuredRetention: Double,
+        hasAdaptiveSignal: Boolean
+    ): AdoptedPacePlan {
+        val trust = if (hasAdaptiveSignal) 1.0 else 0.35
+        val paceCapacity = (pace.reviewBudget + pace.newItemBudget).coerceAtLeast(1)
+        val capacity = blendCount(configuredSessionSize.coerceAtLeast(1), paceCapacity, trust)
+        val newBudget = blendCount(configuredNewCardsPerDay.coerceAtLeast(0), pace.newItemBudget.coerceAtLeast(0), trust)
+            .coerceAtMost(capacity)
+        val retention = blendDouble(configuredRetention.coerceIn(0.80, 0.95), pace.targetRetention, trust).coerceIn(0.85, 0.90)
+        val mode = when {
+            pace.stretchStopPolicy == StopPolicy.EARLY_STOP -> SessionMode.QUICK
+            hasAdaptiveSignal && pace.stretchStopPolicy == StopPolicy.STRETCH_ARMED -> SessionMode.STRETCH
+            else -> SessionMode.FULL
+        }
+        return AdoptedPacePlan(capacity, newBudget, retention, mode)
+    }
 
     fun generatePace(inputs: PaceInputs, doctrine: Doctrine = Doctrine.BALANCED, now: Long = System.currentTimeMillis()): Pace {
         val sustainable = inputs.capacity.sustainableMinutes.coerceAtLeast(5.0)
@@ -164,5 +192,13 @@ object PaceController {
             counts[dueDay - 1] += 1
         }
         return counts.toList()
+    }
+
+    private fun blendCount(configured: Int, generated: Int, trust: Double): Int =
+        blendDouble(configured.toDouble(), generated.toDouble(), trust).roundToInt().coerceAtLeast(0)
+
+    private fun blendDouble(configured: Double, generated: Double, trust: Double): Double {
+        val boundedTrust = trust.coerceIn(0.0, 1.0)
+        return configured * (1.0 - boundedTrust) + generated * boundedTrust
     }
 }

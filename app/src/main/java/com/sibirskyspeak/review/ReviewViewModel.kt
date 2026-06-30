@@ -646,8 +646,8 @@ class ReviewViewModel(
                     currentShowAt = promptShownAt
                 ).forEach { credit ->
                     nextCardBandit.update(credit.action, credit.context, credit.reward)
-                    repository.upsertBanditArmState(nextCardBandit.snapshot().first { it.action == credit.action })
                 }
+                repository.upsertBanditArmStates(nextCardBandit.snapshot())
             }
         }
         sessionShownNotes += prompt.note.id
