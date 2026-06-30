@@ -91,13 +91,16 @@ object WorldModel {
         ratings: Map<AbilitySkill, SkillRating>,
         card: Card,
         delta: Double,
-        now: Long = System.currentTimeMillis()
+        now: Long = System.currentTimeMillis(),
+        sigmaRatio: Double = 1.0
     ): List<SkillRating> {
         val weights = skillWeights(card)
+        val boundedSigmaRatio = sigmaRatio.coerceIn(0.01, 1.0)
         return weights.map { (skill, weight) ->
             val current = ratings[skill] ?: SkillRating(skill.name.lowercase())
             current.copy(
                 mu = current.mu + 0.4 * delta * weight,
+                sigma = (current.sigma * boundedSigmaRatio).coerceAtLeast(0.01 * TrueSkill.SIGMA0),
                 observations = current.observations + 1,
                 updatedAt = now
             )

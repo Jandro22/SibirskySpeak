@@ -5,6 +5,7 @@ import com.sibirskyspeak.data.CardState
 import com.sibirskyspeak.data.CardType
 import com.sibirskyspeak.data.ItemDifficulty
 import com.sibirskyspeak.data.Queue
+import com.sibirskyspeak.data.SkillRating
 import com.sibirskyspeak.review.AnswerMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -51,6 +52,21 @@ class GenerativePaceWorldModelTest {
 
     @Test fun `mastery fans out to concept and distinct root families`() {
         assertEquals(listOf("ACC", "root:ход", "root:вод"), WorldModel.masteryKeys("ACC", listOf("ход", "ход", "", "вод")))
+    }
+
+    @Test fun `ability delta updates weighted skills and uncertainty together`() {
+        val card = Card(id = 1, noteId = 1, cardType = CardType.MEANING_TO_RU, queue = Queue.VOCAB)
+        val ratings = mapOf(
+            AbilitySkill.PRODUCTION to SkillRating(skill = "production", mu = 1.0, sigma = 5.0),
+            AbilitySkill.VOCAB to SkillRating(skill = "vocab", mu = 2.0, sigma = 5.0)
+        )
+
+        val updated = WorldModel.applyAbilityDelta(ratings, card, delta = 2.0, now = 123L, sigmaRatio = 0.5).associateBy { it.skill }
+
+        assertEquals(1.56, updated.getValue("production").mu, 0.0001)
+        assertEquals(2.24, updated.getValue("vocab").mu, 0.0001)
+        assertEquals(2.5, updated.getValue("production").sigma, 0.0001)
+        assertEquals(123L, updated.getValue("vocab").updatedAt)
     }
 
     @Test fun `live MPC stops tired sessions and stretches only strong safe flow`() {
@@ -249,6 +265,43 @@ class GenerativePaceWorldModelTest {
         assertTrue(strong.productionRatio > tired.productionRatio)
         assertEquals(StopPolicy.STRETCH_ARMED, strong.stretchStopPolicy)
         assertTrue(strong.pReturn >= 0.80)
+    }
+
+    @Test fun `cold start pace adoption blends settings instead of hard capping them`() {
+        val pace = Pace(
+            targetMinutes = 8.0,
+            newItemBudget = 0,
+            reviewBudget = 1,
+            targetRetention = 0.85,
+            targetDifficulty = 0.8,
+            productionRatio = 0.25,
+            readingInserts = emptyList(),
+            stretchStopPolicy = StopPolicy.STRETCH_ARMED,
+            debtRatio = 0.1,
+            pReturn = 0.9,
+            doctrine = Doctrine.BALANCED
+        )
+
+        val cold = PaceController.adoptForSessionSettings(
+            pace = pace,
+            configuredSessionSize = 20,
+            configuredNewCardsPerDay = 10,
+            configuredRetention = 0.90,
+            hasAdaptiveSignal = false
+        )
+        assertTrue("cold start should not collapse to a one-card session", cold.capacity > 1)
+        assertTrue("cold start should still respond to generated pace", cold.capacity < 20)
+        assertEquals("stretch needs learner evidence", SessionMode.FULL, cold.mode)
+
+        val learned = PaceController.adoptForSessionSettings(
+            pace = pace,
+            configuredSessionSize = 20,
+            configuredNewCardsPerDay = 10,
+            configuredRetention = 0.90,
+            hasAdaptiveSignal = true
+        )
+        assertEquals(1, learned.capacity)
+        assertEquals(SessionMode.STRETCH, learned.mode)
     }
 
     @Test fun `rival rubber bands and weakness boost raises weakest skill odds`() {

@@ -1347,17 +1347,20 @@ class LearningRepository(
             ContextualBandit.Snapshot(row.action, row.pulls, reward, precision)
         }
 
-    suspend fun upsertBanditArmState(snapshot: ContextualBandit.Snapshot) {
+    suspend fun upsertBanditArmStates(snapshots: Collection<ContextualBandit.Snapshot>) {
         val dao = learningModelDao ?: return
-        dao.upsertBanditArmState(
-            BanditArmState(
-                action = snapshot.action,
-                rewardJson = JSONArray(snapshot.reward.toList()).toString(),
-                precisionJson = JSONArray(snapshot.precision.toList()).toString(),
-                pulls = snapshot.pulls,
-                updatedAt = System.currentTimeMillis()
+        val updatedAt = System.currentTimeMillis()
+        snapshots.forEach { snapshot ->
+            dao.upsertBanditArmState(
+                BanditArmState(
+                    action = snapshot.action,
+                    rewardJson = JSONArray(snapshot.reward.toList()).toString(),
+                    precisionJson = JSONArray(snapshot.precision.toList()).toString(),
+                    pulls = snapshot.pulls,
+                    updatedAt = updatedAt
+                )
             )
-        )
+        }
     }
 
     private fun estimatedSessionFatigue(events: List<TelemetryEvent>): Double {
@@ -1704,16 +1707,17 @@ class LearningRepository(
             config().doctrine,
             now
         )
-        val generatedCapacity = if (hasAdaptiveSignal) (pace.reviewBudget + pace.newItemBudget).coerceAtLeast(1) else config().sessionSize
-        val generatedNewBudget = if (hasAdaptiveSignal) pace.newItemBudget else config().newCardsPerDay
-        val generatedRetention = if (hasAdaptiveSignal) pace.targetRetention else config().desiredRetention
-        val sessionMode = if (hasAdaptiveSignal) {
-            when (pace.stretchStopPolicy) {
-                com.sibirskyspeak.learning.StopPolicy.EARLY_STOP -> SessionMode.QUICK
-                com.sibirskyspeak.learning.StopPolicy.STRETCH_ARMED -> SessionMode.STRETCH
-                com.sibirskyspeak.learning.StopPolicy.CLEAN_STOP -> SessionMode.FULL
-            }
-        } else SessionMode.FULL
+        val adoptedPace = PaceController.adoptForSessionSettings(
+            pace = pace,
+            configuredSessionSize = config().sessionSize,
+            configuredNewCardsPerDay = config().newCardsPerDay,
+            configuredRetention = config().desiredRetention,
+            hasAdaptiveSignal = hasAdaptiveSignal
+        )
+        val generatedCapacity = adoptedPace.capacity
+        val generatedNewBudget = adoptedPace.newBudget
+        val generatedRetention = adoptedPace.retention
+        val sessionMode = adoptedPace.mode
         val cards = sessionCards(now, generatedCapacity, daily, mastery, generatedNewBudget)
         val rawPrompts = cards.mapIndexedNotNull { index, card ->
             val reason = queueReason(card, index, cards, now, notesById)
@@ -2338,7 +2342,7 @@ class LearningRepository(
             observations = globalSigma.observations + 1,
             updatedAt = now
         ))
-        WorldModel.applyAbilityDelta(persisted, card, delta, now).forEach { updated -> dao.upsertSkillRating(updated.copy(sigma = (updated.sigma * sigmaRatio).coerceAtLeast(0.01 * TrueSkill.SIGMA0))) }
+        WorldModel.applyAbilityDelta(persisted, card, delta, now, sigmaRatio).forEach { updated -> dao.upsertSkillRating(updated) }
         dao.upsertDifficulty(item.copy(
             elo = 0.95 * result.b.mu + 0.05 * itemPrior,
             sigma = result.b.sigma,
