@@ -96,6 +96,8 @@ internal fun SessionCompleteCard(
     reader: ReaderRecommendation? = null,
     sessionReviewed: Int = 0,
     sessionCorrect: Int = 0,
+    stoppedEarly: Boolean = false,
+    deferredPrompts: Int = 0,
     matchReport: MatchReport? = null,
     onReadNext: () -> Unit = {}
 ) {
@@ -118,13 +120,19 @@ internal fun SessionCompleteCard(
         ) {
             Icon(Icons.Filled.EmojiEvents, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(52.dp))
             Text(
-                if (game.goalReached) "Daily goal complete" else "Session complete",
+                when {
+                    stoppedEarly -> "Protected stop"
+                    game.goalReached -> "Daily goal complete"
+                    else -> "Session complete"
+                },
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onPrimary
             )
             Text(
-                if (sessionReviewed > 0)
+                if (stoppedEarly)
+                    "$deferredPrompts prompts deferred; scheduled work may still remain."
+                else if (sessionReviewed > 0)
                     "This sitting: ${(sessionCorrect * 100) / sessionReviewed}% accurate."
                 else
                     "Scheduled practice is complete.",
@@ -636,11 +644,22 @@ internal fun reviewTaskHelp(prompt: ReviewPrompt): String =
         CardType.SPEAK -> "Use the mic to say the Russian word or phrase aloud."
         CardType.CASE_FILL -> if (prompt.card.reps >= 2) {
             "Read the sentence cues, choose the required case, and type the inflected form."
+        } else if (prompt.answerMode == AnswerMode.CHOICE) {
+            "Use the case cue and choose the ending that completes the form."
         } else {
             "Use the sentence and case label to type the inflected form."
         }
-        CardType.VERB_FORM -> "Use the grammar label to type the conjugated verb form."
-        CardType.ADJ_AGREE -> "Use the noun context to type the matching adjective form."
+        CardType.VERB_FORM -> if (prompt.answerMode == AnswerMode.CHOICE) {
+            "Use the person and tense label to choose the conjugation ending."
+        } else {
+            "Use the grammar label to type the conjugated verb form."
+        }
+        CardType.ADJ_AGREE -> if (prompt.answerMode == AnswerMode.CHOICE) {
+            if (prompt.card.reps == 0) "Use the labeled endings as a reference and match the noun's gender or number."
+            else "Recall the agreement category and choose its ending."
+        } else {
+            "Use the noun context to type the matching adjective form."
+        }
         CardType.GENDER_ID -> "Choose the gender that fits this noun."
         CardType.ASPECT_SELECT -> "Choose the form that matches whether the action is bounded or ongoing."
         CardType.CONCEPT_DRILL -> "Use the rule from the lesson to answer this authored grammar prompt."
@@ -701,11 +720,15 @@ internal fun reviewContext(prompt: ReviewPrompt): String? =
         // hand over the very word you must produce — withhold it (the Russian carrier is
         // already comprehensible context) and show the meaning only on reveal.
         CardType.CLOZE -> null
-        // Case/verb/agreement drills show the Russian carrier in the prompt; the meaning
+        // Case/verb drills show the Russian carrier in the prompt; the meaning
         // helps comprehension without revealing the answer (an inflected FORM, not the
         // dictionary word the gloss names), so keep it.
-        CardType.CASE_FILL, CardType.VERB_FORM, CardType.ADJ_AGREE, CardType.ASPECT_SELECT, CardType.CONCEPT_DRILL, CardType.STRESS_MARK ->
+        CardType.VERB_FORM, CardType.ASPECT_SELECT, CardType.CONCEPT_DRILL, CardType.STRESS_MARK ->
             if (prompt.hasSentenceGloss()) "Meaning: ${prompt.exampleTranslation}" else null
+        // Agreement drills use an intentionally simple carrier noun that usually differs
+        // from the note's corpus example. Showing that example's English translation here
+        // falsely implies that it translates the drill phrase (for example, "___ дома").
+        CardType.CASE_FILL, CardType.ADJ_AGREE -> null
         CardType.GENDER_ID -> null
         CardType.AUDIO_TO_RU -> null
         CardType.SPEAK -> prompt.exampleTranslation?.takeIf { it.isNotBlank() }?.let { "Meaning: $it" }
@@ -722,7 +745,7 @@ internal fun reviewContext(prompt: ReviewPrompt): String? =
  */
 internal fun reviewRevealContext(prompt: ReviewPrompt): Pair<String, String?>? =
     when (prompt.card.cardType) {
-        CardType.RU_TO_MEANING, CardType.MEANING_TO_RU, CardType.CLOZE ->
+        CardType.RU_TO_MEANING, CardType.MEANING_TO_RU, CardType.CLOZE, CardType.AUDIO_TO_RU ->
             prompt.exampleSentence?.let { ru ->
                 ru to prompt.exampleTranslation?.takeIf { prompt.hasSentenceGloss() }
             }

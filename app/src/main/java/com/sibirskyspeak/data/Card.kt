@@ -15,7 +15,13 @@ import androidx.room.PrimaryKey
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("noteId"), Index("due"), Index("queue")]
+    indices = [
+        Index("noteId"),
+        Index("due"),
+        Index("queue"),
+        Index(value = ["state", "suspended", "due"]),
+        Index(value = ["queue", "state", "suspended", "due"])
+    ]
 )
 data class Card(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

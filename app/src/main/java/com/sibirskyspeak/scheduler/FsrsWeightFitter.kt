@@ -61,12 +61,20 @@ object FsrsWeightFitter {
     private data class Obs(val elapsedDays: Double, val stability: Double, val recalled: Boolean)
 
     fun fit(rows: List<ReviewFitRow>, currentWeights: DoubleArray): Result {
-        val weights = currentWeights.copyOf()
-        val decay = FsrsScheduler.decayOf(currentWeights)
+        // Optimizer parameters are persisted independently and may come from an
+        // interrupted/older write. Repair shape and non-finite values before fitting.
+        val weights = FsrsScheduler.DEFAULT_WEIGHTS.copyOf()
+        for (i in weights.indices) {
+            currentWeights.getOrNull(i)?.takeIf(Double::isFinite)?.let { weights[i] = it }
+        }
+        val decay = FsrsScheduler.decayOf(weights)
+        // Do not rely on a DAO ordering detail: each card history must be contiguous
+        // and chronological for first-review probes to be valid.
+        val orderedRows = rows.sortedWith(compareBy<ReviewFitRow> { it.cardId }.thenBy { it.reviewDatetime })
 
         // --- Initial stability: first-review rating -> next spaced recall outcome ---
         val initByRating = HashMap<Int, MutableList<Obs>>()
-        forEachCard(rows) { cardRows ->
+        forEachCard(orderedRows) { cardRows ->
             val introIndex = cardRows.indexOfFirst { it.stateBefore == CardState.NEW }
             if (introIndex < 0) return@forEachCard
             val ratingValue = cardRows[introIndex].rating.value
@@ -93,7 +101,7 @@ object FsrsWeightFitter {
 
         // --- Decay: forgetting-curve shape over all mature reviews ---
         val decayObs = ArrayList<Obs>()
-        for (row in rows) {
+        for (row in orderedRows) {
             if (row.stateBefore != CardState.REVIEW && row.stateBefore != CardState.RELEARNING) continue
             if (row.elapsedDays <= 0 || row.stabilityBefore <= 0.0 || !row.stabilityBefore.isFinite()) continue
             decayObs.add(Obs(row.elapsedDays.toDouble(), row.stabilityBefore, row.rating != Rating.AGAIN))

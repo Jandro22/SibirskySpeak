@@ -11,6 +11,7 @@ from a2_starter import a2_rows, a2_reader_texts
 from b1_starter import b1_rows, b1_reader_texts
 from b2_starter import b2_rows, b2_reader_texts
 from c1_starter import c1_rows, c1_reader_texts
+from c2_starter import c2_rows, c2_reader_texts
 
 STRESS = "́"
 VOWELS = set("аеёиоуыэюяАЕЁИОУЫЭЮЯ")
@@ -22,12 +23,12 @@ GRAMMAR_CONCEPTS_KT = (
 
 
 def all_rows():
-    return a1_rows() + a2_rows() + b1_rows() + b2_rows() + c1_rows()
+    return a1_rows() + a2_rows() + b1_rows() + b2_rows() + c1_rows() + c2_rows()
 
 
 def all_readers():
     return (a1_reader_texts() + a2_reader_texts() + b1_reader_texts()
-            + b2_reader_texts() + c1_reader_texts())
+            + b2_reader_texts() + c1_reader_texts() + c2_reader_texts())
 
 
 def _vowel_count(word):
@@ -138,6 +139,22 @@ def test_translations_present_and_nontrivial():
         if note["pos"] == "lesson":
             continue
         assert note.get("exampleTranslation", "").strip()
+
+
+def test_authored_lemmas_are_unique_across_levels():
+    """A later level must deepen an existing word through examples/drills instead
+    of reintroducing it as a new note and wasting the learner's review budget."""
+    seen = {}
+    duplicates = []
+    for note in all_rows():
+        if note["pos"] == "lesson":
+            continue
+        key = note["lemma"].lower().replace("ё", "е")
+        if key in seen:
+            duplicates.append((key, seen[key], (note["cefrLevel"], note["unit"])))
+        else:
+            seen[key] = (note["cefrLevel"], note["unit"])
+    assert not duplicates, f"reintroduced lemmas waste review budget: {duplicates}"
 
 
 # Hand-verified plural forms the rule engine gets wrong (irregular plurals and

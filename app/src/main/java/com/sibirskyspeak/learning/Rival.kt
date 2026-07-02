@@ -1,6 +1,5 @@
 package com.sibirskyspeak.learning
 
-import com.sibirskyspeak.data.Card
 import com.sibirskyspeak.data.ItemDifficulty
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -35,19 +34,36 @@ object Rival {
     fun tierIndex(displayRating: Double): Int = tierBoundaries.indexOfLast { displayRating >= it }.coerceAtLeast(0)
 
     fun seasonSigma(sigma: Double, elapsedDays: Double): Double =
-        if (elapsedDays >= 60.0) (sigma * 1.3).coerceAtMost(TrueSkill.SIGMA0) else sigma
+        (sigma.takeIf { it.isFinite() && it >= 0.0 } ?: TrueSkill.SIGMA0).let { safe ->
+            if ((elapsedDays.takeIf(Double::isFinite) ?: 0.0) >= 60.0) (safe * 1.3).coerceAtMost(TrueSkill.SIGMA0) else safe
+        }
 
-    fun ghostPerformance(rivalPerformance: Double, ghostMu: Double, rivalMu: Double): Double =
-        (rivalPerformance + (ghostMu - rivalMu) / TrueSkill.MU0).coerceIn(0.0, 1.0)
+    /** [ghostSigma] is the snapshot's own rating uncertainty at the time it was taken
+     * (older/newer-account snapshots start wide and narrow with evidence, like any
+     * TrueSkill rating). A wide (uncertain) snapshot's mu-gap is trusted less, so a
+     * shaky old data point doesn't swing the ghost's apparent performance as hard as
+     * a confidently-measured one would. */
+    fun ghostPerformance(rivalPerformance: Double, ghostMu: Double, rivalMu: Double, ghostSigma: Double = TrueSkill.SIGMA0): Double {
+        val performance = rivalPerformance.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.5
+        val safeGhostMu = ghostMu.takeIf(Double::isFinite) ?: TrueSkill.MU0
+        val safeRivalMu = rivalMu.takeIf(Double::isFinite) ?: TrueSkill.MU0
+        val safeSigma = ghostSigma.takeIf { it.isFinite() && it > 0.0 } ?: TrueSkill.SIGMA0
+        val confidence = (TrueSkill.SIGMA0 / safeSigma).coerceIn(0.3, 1.0)
+        return (performance + confidence * (safeGhostMu - safeRivalMu) / TrueSkill.MU0).coerceIn(0.0, 1.0)
+    }
 
     fun rubberBand(rival: RivalBelief, userGlobal: Gaussian): RivalBelief {
-        val target = userGlobal.mu - 0.5 * userGlobal.sigma + rival.handicap
-        return rival.copy(rating = rival.rating.copy(mu = rival.rating.mu * 0.7 + target * 0.3))
+        val userMu = userGlobal.mu.takeIf(Double::isFinite) ?: TrueSkill.MU0
+        val userSigma = userGlobal.sigma.takeIf { it.isFinite() && it >= 0.0 } ?: TrueSkill.SIGMA0
+        val handicap = rival.handicap.takeIf(Double::isFinite)?.coerceIn(-2.0, 6.0) ?: 0.0
+        val rivalMu = rival.rating.mu.takeIf(Double::isFinite) ?: TrueSkill.MU0
+        val rivalSigma = rival.rating.sigma.takeIf { it.isFinite() && it >= 0.0 } ?: TrueSkill.SIGMA0
+        val target = userMu - 0.5 * userSigma + handicap
+        return rival.copy(rating = Gaussian(rivalMu * 0.7 + target * 0.3, rivalSigma), handicap = handicap)
     }
 
     fun expectedCorrect(
         rival: Gaussian,
-        card: Card,
         difficulty: ItemDifficulty,
         learnerSkill: Gaussian,
         cohortMeanSkill: Double = TrueSkill.MU0,
@@ -65,9 +81,9 @@ object Rival {
     }
 
     fun nextHandicap(handicap: Double, outcome: MatchOutcome): Double = when (outcome) {
-        MatchOutcome.WIN -> (handicap + 0.5).coerceAtMost(6.0)
-        MatchOutcome.LOSS -> (handicap - 0.5).coerceAtLeast(-2.0)
-        MatchOutcome.DRAW -> handicap
+        MatchOutcome.WIN -> ((handicap.takeIf(Double::isFinite) ?: 0.0) + 0.5).coerceAtMost(6.0)
+        MatchOutcome.LOSS -> ((handicap.takeIf(Double::isFinite) ?: 0.0) - 0.5).coerceAtLeast(-2.0)
+        MatchOutcome.DRAW -> (handicap.takeIf(Double::isFinite) ?: 0.0).coerceIn(-2.0, 6.0)
     }
 
     fun tier(displayRating: Double): String = when {
@@ -78,9 +94,6 @@ object Rival {
         displayRating < 32.0 -> "B2"
         else -> "Гроссмейстер C1"
     }
-
-    fun promotionLocked(results: List<MatchOutcome>): Boolean =
-        results.take(3).count { it == MatchOutcome.WIN } >= 2
 
     fun updatePromotion(series: PromotionSeries, displayRating: Double, outcome: MatchOutcome): PromotionUpdate {
         val crossed = tierIndex(displayRating)

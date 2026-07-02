@@ -17,6 +17,7 @@ android {
         // default to 1.
         versionCode = (System.getenv("VERSION_CODE")?.toIntOrNull()) ?: 1
         versionName = System.getenv("VERSION_NAME") ?: "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     // A real release keystore is supplied via environment (e.g. CI secrets). When
@@ -75,6 +76,8 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
 }
 
 // Export the Room schema to version-controlled JSON so future schema changes can
@@ -110,6 +113,7 @@ dependencies {
     testImplementation("org.json:json:20240303")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.room:room-testing:$roomVersion")
 
     debugImplementation("androidx.compose.ui:ui-tooling")

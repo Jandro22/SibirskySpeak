@@ -17,6 +17,8 @@ data class ReviewPrompt(
     val answerMode: AnswerMode,
     val intervalPreview: Map<Rating, Int>,
     val choices: List<String> = emptyList(),
+    /** Optional compact labels (for example "-ие") keyed by the full answer value. */
+    val choiceLabels: Map<String, String> = emptyMap(),
     val explanation: String? = null,
     // A short rule reminder shown on the *prompt* side (before answering), so grammar
     // is taught while the learner works, not only revealed afterward. Null for plain
@@ -151,17 +153,24 @@ fun buildPrompt(
             prompt = "",
             expectedAnswer = note.russian,
             answerMode = AnswerMode.AUDIO_ONLY,
-            intervalPreview = intervalPreview
+            intervalPreview = intervalPreview,
+            teachingHint = "Word dictation — decode the sound, then reconnect it to meaning",
+            // Keep the prompt genuinely auditory, then reconnect the decoded sound
+            // to meaning after commitment. Previously listening cards ended at
+            // orthography and never displayed the English gloss.
+            explanation = "Meaning: ${note.translation}",
+            exampleSentence = example.sentence,
+            exampleTranslation = example.translation
         )
         CardType.SPEAK -> ReviewPrompt(
             card = card,
             note = note,
             // Show the word/phrase to read aloud; speech recognition scores what's said.
-            prompt = note.russian,
+            prompt = if (card.reps < 2) note.russian else "Say in Russian: ${note.productionCue()}",
             expectedAnswer = note.russian,
             answerMode = AnswerMode.SPEAK,
             intervalPreview = intervalPreview,
-            teachingHint = "Say it aloud",
+            teachingHint = if (card.reps < 2) "Read it aloud clearly" else "Recall it, then say it aloud",
             explanation = note.translation
         )
         CardType.DICTATION -> {
@@ -180,7 +189,7 @@ fun buildPrompt(
             val sentence = example.sentence ?: note.russian
             val russianOnlyPrompt = sentence
                 .takeIf { note.prefersRussianContext(card) && it.hasMultipleRussianWords() }
-                ?.let { "Соберите русское предложение.\n${it.reversedWordBank()}" }
+                ?.let { "Соберите русское предложение.\n${it.stableWordBank(card.id)}" }
             ReviewPrompt(
                 card = card,
                 note = note,
@@ -223,8 +232,10 @@ fun buildPrompt(
             note = note,
             prompt = caseDrill?.prompt ?: example.sentence ?: note.translation,
             expectedAnswer = caseDrill?.answer ?: note.russian,
-            answerMode = AnswerMode.RUSSIAN_TYPED,
+            answerMode = if (caseDrill?.choices?.isNotEmpty() == true) AnswerMode.CHOICE else AnswerMode.RUSSIAN_TYPED,
             intervalPreview = intervalPreview,
+            choices = caseDrill?.choices.orEmpty(),
+            choiceLabels = caseDrill?.choiceLabels.orEmpty(),
             explanation = caseTeaching(card.gramCase)
         )
         CardType.ADJ_AGREE -> {
@@ -234,8 +245,10 @@ fun buildPrompt(
                 note = note,
                 prompt = drill.prompt,
                 expectedAnswer = drill.answer,
-                answerMode = AnswerMode.RUSSIAN_TYPED,
+                answerMode = if (drill.choices.isNotEmpty()) AnswerMode.CHOICE else AnswerMode.RUSSIAN_TYPED,
                 intervalPreview = intervalPreview,
+                choices = drill.choices,
+                choiceLabels = drill.choiceLabels,
                 explanation = drill.explanation
             )
         }
@@ -259,8 +272,10 @@ fun buildPrompt(
                 note = note,
                 prompt = drill.prompt,
                 expectedAnswer = drill.answer,
-                answerMode = AnswerMode.RUSSIAN_TYPED,
+                answerMode = if (drill.choices.isNotEmpty()) AnswerMode.CHOICE else AnswerMode.RUSSIAN_TYPED,
                 intervalPreview = intervalPreview,
+                choices = drill.choices,
+                choiceLabels = drill.choiceLabels,
                 explanation = drill.explanation
             )
         }
@@ -370,7 +385,7 @@ private fun Int.floorMod(modulus: Int): Int =
     ((this % modulus) + modulus) % modulus
 
 private fun Note.prefersRussianContext(card: Card): Boolean =
-    card.reps >= 2 || cefrLevel in setOf("B1", "B2", "C1") || tier >= 1
+    card.reps >= 2 || cefrLevel in setOf("B1", "B2", "C1", "C2") || tier >= 1
 
 /** Keep recognition answers learnable and aligned with the supplied sentence.
  * Full multi-sense dictionary entries remain visible as explanation, not as a
@@ -445,21 +460,85 @@ private fun String.hasMultipleRussianWords(): Boolean =
 private fun String.hasRussianText(): Boolean =
     Regex("""\p{IsCyrillic}+""").containsMatchIn(this)
 
-private fun String.reversedWordBank(): String {
+private fun String.stableWordBank(seed: Long): String {
     val words = Regex("""[\p{L}\p{N}-]+""").findAll(this).map { it.value }.toList()
-    return words.asReversed().joinToString(" / ")
+    return words.shuffled(kotlin.random.Random(seed)).joinToString(" / ")
 }
 
 // --- Adjective agreement ---------------------------------------------------
 
-private data class AdjAgreeDrill(val prompt: String, val answer: String, val explanation: String)
+private const val GUIDED_GRAMMAR_REPS = 2
+
+private data class GrammarChoices(
+    val values: List<String> = emptyList(),
+    val labels: Map<String, String> = emptyMap(),
+    val sharedStem: String? = null
+)
+
+private fun commonPrefix(values: List<String>): String {
+    if (values.isEmpty()) return ""
+    var prefix = values.first()
+    values.drop(1).forEach { value ->
+        while (prefix.isNotEmpty() && !value.startsWith(prefix, ignoreCase = true)) prefix = prefix.dropLast(1)
+    }
+    return prefix
+}
+
+private fun guidedGrammarChoices(card: Card, answer: String, forms: List<String>): GrammarChoices {
+    if (card.reps >= GUIDED_GRAMMAR_REPS) return GrammarChoices()
+    val distinct = forms.filter { it.isNotBlank() }.distinctBy(::normalizeRussian)
+    if (distinct.size < 2 || distinct.none { normalizeRussian(it) == normalizeRussian(answer) }) return GrammarChoices()
+    val random = kotlin.random.Random(card.id xor card.noteId)
+    val distractors = distinct
+        .filterNot { normalizeRussian(it) == normalizeRussian(answer) }
+        .shuffled(random)
+        .take(3)
+    val selected = (distractors + answer).shuffled(random)
+    val stem = commonPrefix(selected).takeIf { it.length >= 2 }
+    val labels = if (stem != null && selected.all { it.length - stem.length in 0..5 }) {
+        selected.associateWith {
+            it.drop(stem.length).takeIf(String::isNotEmpty)?.let { ending -> "-$ending" } ?: "∅"
+        }
+    } else {
+        selected.associateWith { it }
+    }
+    return GrammarChoices(selected, labels, stem)
+}
+
+private data class AdjAgreeDrill(
+    val prompt: String,
+    val answer: String,
+    val explanation: String,
+    val choices: List<String> = emptyList(),
+    val choiceLabels: Map<String, String> = emptyMap()
+)
+
+private val POSSESSIVE_IY_ADJECTIVES = setOf(
+    "божий", "собачий", "птичий", "охотничий", "казачий",
+    "девичий", "бабий", "медвежий", "рыбий", "волчий"
+)
+
+/** Correct legacy generated forms such as собачая -> собачья at presentation time. */
+private fun possessiveIyForm(masculine: String, key: String): String? {
+    val plain = masculine.withoutStressMarks().lowercase()
+    if (plain !in POSSESSIVE_IY_ADJECTIVES) return null
+    val stem = plain.dropLast(2)
+    val ending = when (key) {
+        "FEM_NOM" -> "ья"
+        "NEUT_NOM" -> "ье"
+        "PL_NOM" -> "ьи"
+        else -> return null
+    }
+    return stem + ending
+}
 
 private fun adjAgreeDrill(card: Card, note: Note): AdjAgreeDrill {
     val cue = card.gramContextCue ?: "FEM"
     val table = note.declensionJson?.let { runCatching { JSONObject(it) }.getOrNull() }
     val source = table?.let { if (it.has("cases")) it.getJSONObject("cases") else it }
     val masc = source?.optString("NOM_SG")?.takeIf { it.isNotBlank() } ?: note.russian
-    fun form(key: String) = source?.optString(key)?.takeIf { it.isNotBlank() }
+    fun form(key: String) = possessiveIyForm(masc, key)
+        ?: source?.optString(key)?.takeIf { it.isNotBlank() }
     val answer = form(cueKey(cue)) ?: note.russian
     val target = when (cue) {
         "FEM" -> "feminine singular"
@@ -467,22 +546,44 @@ private fun adjAgreeDrill(card: Card, note: Note): AdjAgreeDrill {
         "PL" -> "plural"
         else -> cue.lowercase()
     }
+    val carrierNoun = when (cue) {
+        "FEM" -> "книга"
+        "NEUT" -> "окно"
+        "PL" -> "дома"
+        else -> "дом"
+    }
     // Teach the full nominative agreement set so the learner sees the pattern.
     val paradigm = listOfNotNull(
-        form("NOM_SG")?.let { "м. $it" },
-        form("FEM_NOM")?.let { "ж. $it" },
-        form("NEUT_NOM")?.let { "ср. $it" },
-        form("PL_NOM")?.let { "мн. $it" }
+        form("NOM_SG")?.let { "masculine: $it" },
+        form("FEM_NOM")?.let { "feminine: $it" },
+        form("NEUT_NOM")?.let { "neuter: $it" },
+        form("PL_NOM")?.let { "plural: $it" }
     ).joinToString(" · ")
+    val categorizedForms = listOfNotNull(
+        form("NOM_SG")?.let { it to "masculine" },
+        form("FEM_NOM")?.let { it to "feminine" },
+        form("NEUT_NOM")?.let { it to "neuter" },
+        form("PL_NOM")?.let { it to "plural" }
+    )
+    val allForms = categorizedForms.map { it.first }
+    val guided = guidedGrammarChoices(card, answer, allForms)
+    val categoryByForm = categorizedForms.associate { (value, category) -> normalizeRussian(value) to category }
+    val guidedLabels = guided.labels.mapValues { (value, ending) ->
+        if (card.reps == 0) "$ending · ${categoryByForm[normalizeRussian(value)]}" else ending
+    }
+    val answerSlot = guided.sharedStem?.let { "${it}___" } ?: "___"
     return AdjAgreeDrill(
-        prompt = "Russian adjectives agree with their noun's gender and number.\n" +
-            "Make \"${masc.withoutStressMarks()}\" agree with a $target noun.",
+        prompt = "In the nominative, Russian adjectives agree with their noun's gender and number.\n" +
+            "Complete the $target phrase: $answerSlot $carrierNoun\n" +
+            "Dictionary form: ${masc.withoutStressMarks()}",
         answer = answer,
         explanation = buildString {
             append("Agreement endings — $paradigm. ")
             append("The adjective copies the gender and number of the noun it describes; ")
             append("the dictionary (masculine) form changes its ending to match.")
-        }
+        },
+        choices = guided.values,
+        choiceLabels = guidedLabels
     )
 }
 
@@ -532,22 +633,37 @@ private fun String.clozeAtRussianToken(position: Int): ClozeDrill? {
     return ClozeDrill(replaceRange(match.range, "____"), match.value)
 }
 
-private data class VerbFormDrill(val prompt: String, val answer: String, val explanation: String)
+private data class VerbFormDrill(
+    val prompt: String,
+    val answer: String,
+    val explanation: String,
+    val choices: List<String> = emptyList(),
+    val choiceLabels: Map<String, String> = emptyMap()
+)
 
 private fun verbFormDrill(card: Card, note: Note, exampleSentence: String?): VerbFormDrill {
     val key = card.gramContextCue ?: "PAST_M"
     val answer = RussianForms.verbForm(note, key) ?: RussianForms.pastMasculine(note.lemma) ?: note.russian
     val blanked = exampleSentence?.blankAny(listOf(answer, note.russian, note.lemma))
+    val paradigmPrefix = key.substringBefore('_') + "_"
+    val guided = guidedGrammarChoices(
+        card,
+        answer,
+        RussianForms.verbForms(note).filterKeys { it.startsWith(paradigmPrefix) }.values.toList()
+    )
     return VerbFormDrill(
         prompt = buildString {
             append("Make \"${note.lemma.withoutStressMarks()}\" ${key.verbFormLabel(note)}.")
+            guided.sharedStem?.let { append("\nComplete the form: ${it}___") }
             if (blanked != null) {
                 append("\n")
                 append(blanked)
             }
         },
         answer = answer,
-        explanation = "${key.verbFormLabel(note).replaceFirstChar { it.uppercase() }} of ${note.lemma}."
+        explanation = "${key.verbFormLabel(note).replaceFirstChar { it.uppercase() }} of ${note.lemma}.",
+        choices = guided.values,
+        choiceLabels = guided.labels
     )
 }
 
@@ -623,19 +739,19 @@ private fun aspectDrill(
     // frequently contradict the requested cue.
     return when (cue) {
         "PROCESS" -> AspectDrill(
-            carrier = "Вчера он долго ___.".blankAny(blankCandidates),
+            carrier = "Context: the action is viewed in progress, without asserting its endpoint.\nВчера он долго ___.".blankAny(blankCandidates),
             cueLabel = "ongoing process",
-            rationale = "A duration/process cue (долго) focuses on the action while it was unfolding, so imperfective fits."
+            rationale = "This context focuses on the action while it unfolds rather than its boundary, so imperfective is the intended default. Real discourse can override a bare adverb, so interpret the whole context."
         )
         "HABITUAL" -> AspectDrill(
-            carrier = "Раньше он часто ___.".blankAny(blankCandidates),
+            carrier = "Context: this happened repeatedly as a habit.\nРаньше он часто ___.".blankAny(blankCandidates),
             cueLabel = "repeated or habitual action",
-            rationale = "A frequency cue (часто) asks for repeated action, which is normally imperfective."
+            rationale = "A repeated habitual series is normally presented with imperfective. A specific count or bounded series could change that interpretation."
         )
         "COMPLETED" -> AspectDrill(
-            carrier = "Сегодня он уже ___.".blankAny(blankCandidates),
-            cueLabel = "completed action",
-            rationale = "The cue уже (already) presents the action as finished, so perfective fits."
+            carrier = "Context: one occurrence reached its endpoint and is viewed as a whole.\nВчера он ___.".blankAny(blankCandidates),
+            cueLabel = "single completed whole",
+            rationale = "The context explicitly supplies an endpoint and a single completed whole, so perfective is intended. No individual cue word mechanically determines aspect."
         )
         "RESULT" -> AspectDrill(
             carrier = "Он ___, и теперь всё готово.".blankAny(blankCandidates),
@@ -710,7 +826,12 @@ private fun String.hasTokenCharacterAt(index: Int): Boolean =
 private fun Char.isTokenCharacter(): Boolean =
     isLetterOrDigit() || this == '\u0301' || this == '\u0308'
 
-private data class CaseDrill(val prompt: String, val answer: String)
+private data class CaseDrill(
+    val prompt: String,
+    val answer: String,
+    val choices: List<String> = emptyList(),
+    val choiceLabels: Map<String, String> = emptyMap()
+)
 
 private fun caseDrillFromJson(card: Card, note: Note, rawJson: String, exampleSentence: String?): CaseDrill? = runCatching {
     val json = JSONObject(rawJson)
@@ -732,6 +853,13 @@ private fun caseDrillFromJson(card: Card, note: Note, rawJson: String, exampleSe
     // themselves. The reveal still teaches the rule, and diagnosticFeedbackFor() names
     // the case they actually produced if they pick the wrong one.
     val selectMode = card.reps >= 2 && blankedCarrier != null
+    val targetNumber = target.substringAfter('_', "SG")
+    val sameNumberForms = cases.keys().asSequence()
+        .filter { it.endsWith("_$targetNumber") }
+        .map { cases.optString(it) }
+        .filter { it.isNotBlank() }
+        .toList()
+    val guided = guidedGrammarChoices(card, answer, sameNumberForms)
     CaseDrill(
         prompt = buildString {
             if (selectMode) {
@@ -740,13 +868,16 @@ private fun caseDrillFromJson(card: Card, note: Note, rawJson: String, exampleSe
                 append(blankedCarrier)
             } else {
                 append("Make \"${note.russian.withoutStressMarks()}\" ${target.humanCaseLabel()}.")
+                guided.sharedStem?.let { append("\nChoose the ending: ${it}___") }
                 if (blankedCarrier != null) {
                     append("\n")
                     append(blankedCarrier)
                 }
             }
         },
-        answer = answer
+        answer = answer,
+        choices = guided.values,
+        choiceLabels = guided.labels
     )
 }.getOrNull()
 
@@ -787,6 +918,7 @@ private fun fallbackCaseKey(cases: JSONObject): String? {
 fun diagnosticFeedbackFor(prompt: ReviewPrompt, actualAnswer: String): String? {
     if (prompt.card.cardType == CardType.ASPECT_SELECT) return aspectDiagnosticFeedback(prompt, actualAnswer)
     if (prompt.card.cardType == CardType.GENDER_ID) return genderDiagnosticFeedback(prompt)
+    if (prompt.card.cardType == CardType.ADJ_AGREE) return adjectiveAgreementDiagnosticFeedback(prompt, actualAnswer)
     if (prompt.card.cardType == CardType.VERB_FORM) return verbFormDiagnosticFeedback(prompt, actualAnswer)
     if (prompt.card.cardType != CardType.CASE_FILL) return null
     val rawJson = prompt.note.declensionJson ?: return null
@@ -805,11 +937,45 @@ fun diagnosticFeedbackFor(prompt: ReviewPrompt, actualAnswer: String): String? {
             .firstOrNull { key -> normalizeRussian(cases.optString(key)) == actual }
         when {
             actual == normalizeRussian(prompt.note.russian) || actual == normalizeRussian(prompt.note.lemma) ->
-                "You left it in the dictionary/nominative form; this prompt asks for ${target.humanCaseLabel()}."
+                "You left it in the dictionary/nominative form; this prompt asks for ${target.humanCaseLabel()}. Use ${prompt.expectedAnswer}."
             matchedCase != null && matchedCase != target ->
-                "You made ${matchedCase.humanCaseLabel()}; this prompt asks for ${target.humanCaseLabel()}."
+                "You made ${matchedCase.humanCaseLabel()}; this prompt asks for ${target.humanCaseLabel()}. ${prompt.note.lemma} → ${prompt.expectedAnswer}."
             else ->
-                "This prompt asks for ${target.humanCaseLabel()}; check the case ending for ${prompt.note.gender ?: "this noun"} ${prompt.card.gramNumber?.lowercase().orEmpty()}."
+                "This prompt asks for ${target.humanCaseLabel()}; check the case ending for ${prompt.note.gender ?: "this noun"} ${prompt.card.gramNumber?.lowercase().orEmpty()}. Correct form: ${prompt.note.lemma} → ${prompt.expectedAnswer}."
+        }
+    }.getOrNull()
+}
+
+private fun adjectiveAgreementDiagnosticFeedback(prompt: ReviewPrompt, actualAnswer: String): String? {
+    val raw = prompt.note.declensionJson ?: return null
+    val actual = normalizeRussian(actualAnswer)
+    if (actual.isBlank()) return null
+    val targetLabel = when (prompt.card.gramContextCue) {
+        "FEM" -> "feminine singular"
+        "NEUT" -> "neuter singular"
+        "PL" -> "plural"
+        else -> "masculine singular"
+    }
+    return runCatching {
+        val json = JSONObject(raw)
+        val forms = if (json.has("cases")) json.getJSONObject("cases") else json
+        val labels = mapOf(
+            "NOM_SG" to "masculine singular",
+            "FEM_NOM" to "feminine singular",
+            "NEUT_NOM" to "neuter singular",
+            "PL_NOM" to "plural"
+        )
+        val matched = labels.keys.firstOrNull { normalizeRussian(forms.optString(it)) == actual }
+        val cueReason = when (prompt.card.gramContextCue) {
+            "FEM" -> "The noun книга is feminine singular."
+            "NEUT" -> "The noun окно is neuter singular."
+            "PL" -> "The noun дома is plural."
+            else -> "The noun дом is masculine singular."
+        }
+        if (matched != null && labels[matched] != targetLabel) {
+            "You chose ${labels[matched]}, but $cueReason The adjective must be $targetLabel: ${prompt.note.lemma} → ${prompt.expectedAnswer}."
+        } else {
+            "$cueReason Match the adjective to $targetLabel: ${prompt.note.lemma} → ${prompt.expectedAnswer}."
         }
     }.getOrNull()
 }
@@ -823,11 +989,11 @@ private fun verbFormDiagnosticFeedback(prompt: ReviewPrompt, actualAnswer: Strin
         .firstOrNull { (_, form) -> normalizeRussian(form) == actual }
     return when {
         matchedForm != null && matchedForm.first != key ->
-            "You made ${matchedForm.first.verbFormLabel(prompt.note)}; this prompt asks for $label."
+            "You made ${matchedForm.first.verbFormLabel(prompt.note)}; this prompt asks for $label. ${prompt.note.lemma} → ${prompt.expectedAnswer}."
         actual == normalizeRussian(prompt.note.lemma) || actual == normalizeRussian(prompt.note.russian) ->
-            "You used the infinitive/dictionary form; this prompt asks for $label."
+            "You used the infinitive/dictionary form; this prompt asks for $label. Use ${prompt.expectedAnswer}."
         else ->
-            "This prompt asks for $label; check the person, number, gender, or tense ending."
+            "This prompt asks for $label; check the person, number, gender, or tense ending. Correct form: ${prompt.note.lemma} → ${prompt.expectedAnswer}."
     }
 }
 

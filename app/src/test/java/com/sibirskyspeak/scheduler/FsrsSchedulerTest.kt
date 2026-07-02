@@ -279,4 +279,18 @@ class FsrsSchedulerTest {
         val after = scheduler.review(newCard, Rating.GOOD, now = 0L).first.scheduledDays
         assertTrue("a live weight bump must change scheduling without rebuilding", after > before)
     }
+
+    @Test
+    fun malformedLiveConfigurationFallsBackToSafeSchedulerDefaults() {
+        val scheduler = FsrsScheduler(
+            desiredRetentionProvider = { Double.NaN },
+            intervalModifierProvider = { Double.POSITIVE_INFINITY },
+            weightsProvider = { doubleArrayOf(Double.NaN) }
+        )
+        val card = Card(noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB)
+        val reviewed = scheduler.review(card, Rating.GOOD, now = 0L).first
+        assertTrue(reviewed.stability.isFinite() && reviewed.stability > 0.0)
+        assertTrue(reviewed.difficulty.isFinite() && reviewed.difficulty in 1.0..10.0)
+        assertTrue(reviewed.scheduledDays >= 1)
+    }
 }

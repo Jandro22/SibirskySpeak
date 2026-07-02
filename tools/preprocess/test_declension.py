@@ -6,7 +6,7 @@ fleeting-vowel bug (рынок→рынка, not рынока), which would othe
 non-existent forms.
 """
 import domain_wordlist as wl
-from russian_morph import decline_noun, strip_stress
+from russian_morph import decline_adjective, decline_noun, strip_stress
 
 # Expected GEN_SG for known fleeting-vowel nouns (the vowel drops).
 FLEETING_GEN_SG = {
@@ -55,3 +55,20 @@ def test_no_domain_noun_keeps_full_nominative_in_genitive():
         table = decline_noun(cit, cls, animate=an, numbers=tuple(nums.split("+")))
         # oblique stem must be shorter than the nominative (a vowel was dropped)
         assert len(table["GEN_SG"]) <= len(lemma) + 1, f"{lemma}: GEN_SG looks wrong: {table['GEN_SG']}"
+
+
+def test_possessive_iy_adjectives_restore_hidden_soft_sign():
+    expected = {
+        "божий": ("божья", "божье", "божьи"),
+        "собачий": ("собачья", "собачье", "собачьи"),
+        "медвежий": ("медвежья", "медвежье", "медвежьи"),
+        "волчий": ("волчья", "волчье", "волчьи"),
+    }
+    for adjective, forms in expected.items():
+        table = decline_adjective(adjective)
+        assert (table["FEM_NOM"], table["NEUT_NOM"], table["PL_NOM"]) == forms
+
+
+def test_regular_chiy_adjectives_do_not_gain_a_soft_sign():
+    assert decline_adjective("горячий")["FEM_NOM"] == "горячая"
+    assert decline_adjective("рабочий")["PL_NOM"] == "рабочие"

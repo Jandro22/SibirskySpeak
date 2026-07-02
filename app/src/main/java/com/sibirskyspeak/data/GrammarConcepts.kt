@@ -20,9 +20,13 @@ data class GrammarConcept(
     /** One-line reminder shown on every drill prompt for this concept. */
     val hint: String,
     /**
-     * Ordering within the A1 spine. Lower comes first. Concepts that are part of the
-     * core spine ([spine] = true) gate the formal/political domain tier: the domain
-     * stays locked until every spine concept's lesson has been seen.
+     * True teaching order across the whole curriculum (matches the unit sequence
+     * in a1_starter.py..c2_starter.py) — informational/display ordering only, not
+     * consulted by concept gating (see [LearningRepository.lockedConceptIds],
+     * which derives locking from actual card/lesson state, not this field).
+     * Concepts that are part of the core spine ([spine] = true) gate the formal/
+     * political domain tier: the domain stays locked until every spine concept's
+     * lesson has been seen.
      */
     val order: Int,
     val spine: Boolean = true
@@ -36,7 +40,7 @@ object GrammarConcepts {
             "can tell from the ending: a consonant or -й is masculine, -а/-я is " +
             "feminine, -о/-е is neuter. Gender matters because adjectives and past-" +
             "tense verbs change their endings to match the noun.",
-        exampleRu = "стол (м.) · книга (ж.) · окно (ср.)",
+        exampleRu = "стол (masculine) · книга (feminine) · окно (neuter)",
         exampleEn = "table (m.) · book (f.) · window (n.)",
         hint = "Ending → gender: consonant/-й = masc, -а/-я = fem, -о/-е = neut.",
         order = 10
@@ -51,7 +55,7 @@ object GrammarConcepts {
         exampleRu = "стол → столы · книга → книги · окно → окна",
         exampleEn = "table → tables · book → books · window → windows",
         hint = "Plural: usually -ы/-и; neuter -о/-е → -а/-я.",
-        order = 20
+        order = 30
     )
 
     val ACC = GrammarConcept(
@@ -63,7 +67,7 @@ object GrammarConcepts {
         exampleRu = "Я читаю книгу.",
         exampleEn = "I'm reading a book. (книга → книгу)",
         hint = "Direct object → accusative. Feminine -а → -у, -я → -ю.",
-        order = 30
+        order = 50
     )
 
     val GEN = GrammarConcept(
@@ -75,7 +79,7 @@ object GrammarConcepts {
         exampleRu = "У меня нет времени.",
         exampleEn = "I have no time. (время → времени)",
         hint = "\"of\" / нет / без / из / у → genitive.",
-        order = 40
+        order = 60
     )
 
     val PREP = GrammarConcept(
@@ -87,7 +91,7 @@ object GrammarConcepts {
         exampleRu = "Книга на столе.",
         exampleEn = "The book is on the table. (стол → столе)",
         hint = "After в/на (where) and о (about) → prepositional, usually -е.",
-        order = 50
+        order = 70
     )
 
     val DAT = GrammarConcept(
@@ -99,7 +103,7 @@ object GrammarConcepts {
         exampleRu = "Я пишу другу.",
         exampleEn = "I'm writing to a friend. (друг → другу)",
         hint = "Recipient \"to/for\", к, по, age → dative.",
-        order = 60
+        order = 80
     )
 
     val INS = GrammarConcept(
@@ -111,7 +115,7 @@ object GrammarConcepts {
         exampleRu = "Я пишу ручкой.",
         exampleEn = "I write with a pen. (ручка → ручкой)",
         hint = "Means \"by/with\", and с (together with) → instrumental.",
-        order = 70
+        order = 90
     )
 
     val PAST = GrammarConcept(
@@ -123,7 +127,7 @@ object GrammarConcepts {
         exampleRu = "Он читал. Она читала. Они читали.",
         exampleEn = "He read. She read. They read.",
         hint = "Past = stem + -л/-ла/-ло/-ли (agrees with subject gender/number).",
-        order = 80
+        order = 100
     )
 
     val ADJ_AGREE = GrammarConcept(
@@ -134,8 +138,8 @@ object GrammarConcepts {
             "-ое, and plural -ые/-ие.",
         exampleRu = "новый дом · новая книга · новое окно · новые дома",
         exampleEn = "new house · new book · new window · new houses",
-        hint = "Adjective matches its noun: -ый(м) / -ая(ж) / -ое(ср) / -ые(мн).",
-        order = 90,
+        hint = "Adjective matches its noun: -ый/-ий/-ой (masculine), -ая/-яя (feminine), -ое/-ее (neuter), -ые/-ие (plural).",
+        order = 20,
         spine = false
     )
 
@@ -146,7 +150,7 @@ object GrammarConcepts {
         exampleRu = "писать -> пишу, пишешь, пишет; любить -> люблю, любишь, любит",
         exampleEn = "to write -> I write, you write, he writes; to love -> I love, you love, he loves",
         hint = "Present: learn the stored stem pattern; watch mutations like писать -> пишу, любить -> люблю.",
-        order = 85
+        order = 40
     )
 
     val ASPECT = GrammarConcept(
@@ -159,7 +163,7 @@ object GrammarConcepts {
         exampleRu = "Я писал письмо. / Я написал письмо.",
         exampleEn = "I was writing a letter. / I wrote (finished) a letter.",
         hint = "Ongoing/repeated = imperfective; completed result = perfective.",
-        order = 100,
+        order = 110,
         spine = false
     )
 
@@ -174,7 +178,7 @@ object GrammarConcepts {
         exampleRu = "Я бу́ду чита́ть. / Я прочита́ю кни́гу.",
         exampleEn = "I will be reading. / I will read (finish) the book.",
         hint = "Future: буду + imperfective inf, OR conjugated perfective.",
-        order = 110, spine = false
+        order = 120, spine = false
     )
     val IMPERATIVE = GrammarConcept(
         id = "IMPERATIVE",
@@ -185,7 +189,7 @@ object GrammarConcepts {
         exampleRu = "Чита́й! Чита́йте! Напиши́те письмо́.",
         exampleEn = "Read! Read (pl.)! Write the letter.",
         hint = "Command: stem + -й/-и(+те). Perfective = one result.",
-        order = 120, spine = false
+        order = 130, spine = false
     )
     val REFLEXIVE = GrammarConcept(
         id = "REFLEXIVE",
@@ -197,7 +201,7 @@ object GrammarConcepts {
         exampleRu = "Я учу́сь. Уро́к начина́ется.",
         exampleEn = "I study. The lesson begins.",
         hint = "-ся/-сь = action on oneself / intransitive.",
-        order = 130, spine = false
+        order = 140, spine = false
     )
     val COMPARATIVE = GrammarConcept(
         id = "COMPARATIVE",
@@ -208,7 +212,7 @@ object GrammarConcepts {
         exampleRu = "Э́та кни́га интере́снее. Москва́ бо́льше.",
         exampleEn = "This book is more interesting. Moscow is bigger.",
         hint = "More: adjective + -ее (лучше/больше). \"Than\" = чем or genitive.",
-        order = 140, spine = false
+        order = 150, spine = false
     )
     val MODAL = GrammarConcept(
         id = "MODAL",
@@ -219,7 +223,7 @@ object GrammarConcepts {
         exampleRu = "Мне на́до рабо́тать. Здесь мо́жно кури́ть?",
         exampleEn = "I need to work. May one smoke here?",
         hint = "надо/нужно/можно/нельзя + dative person + infinitive.",
-        order = 150, spine = false
+        order = 160, spine = false
     )
     val MOTION = GrammarConcept(
         id = "MOTION",
@@ -230,7 +234,7 @@ object GrammarConcepts {
         exampleRu = "Я иду́ в шко́лу. Я ча́сто хожу́ в парк.",
         exampleEn = "I'm going to school (now). I often go to the park.",
         hint = "идти/ехать = one trip now; ходить/ездить = repeated/round.",
-        order = 160, spine = false
+        order = 170, spine = false
     )
     val POSSESSIVE_SVOJ = GrammarConcept(
         id = "POSSESSIVE_SVOJ",
@@ -241,7 +245,7 @@ object GrammarConcepts {
         exampleRu = "Он чита́ет свою́ кни́гу.",
         exampleEn = "He is reading his (own) book.",
         hint = "свой = belonging to the subject; agrees like мой.",
-        order = 170, spine = false
+        order = 180, spine = false
     )
 
     // --- B1 -----------------------------------------------------------------
@@ -254,7 +258,7 @@ object GrammarConcepts {
         exampleRu = "Он пришёл домо́й и ушёл сно́ва.",
         exampleEn = "He came home and left again.",
         hint = "при-=arrive, у-=leave, в-=enter, вы-=exit, по-=set off.",
-        order = 210, spine = false
+        order = 190, spine = false
     )
     val CONDITIONAL = GrammarConcept(
         id = "CONDITIONAL",
@@ -264,7 +268,7 @@ object GrammarConcepts {
         exampleRu = "Я бы помо́г. Е́сли бы я знал, я бы сказа́л.",
         exampleEn = "I would help. If I had known, I would have said.",
         hint = "бы + past = \"would\". Если бы … , … бы …",
-        order = 220, spine = false
+        order = 200, spine = false
     )
     val RELATIVE = GrammarConcept(
         id = "RELATIVE",
@@ -275,7 +279,7 @@ object GrammarConcepts {
         exampleRu = "Кни́га, кото́рую я чита́ю, интере́сная.",
         exampleEn = "The book that I'm reading is interesting.",
         hint = "который: gender/number from antecedent, case from its own clause.",
-        order = 230, spine = false
+        order = 210, spine = false
     )
     val SUPERLATIVE = GrammarConcept(
         id = "SUPERLATIVE",
@@ -285,7 +289,7 @@ object GrammarConcepts {
         exampleRu = "Э́то са́мый интере́сный го́род.",
         exampleEn = "This is the most interesting city.",
         hint = "самый + adjective = \"the most\".",
-        order = 240, spine = false
+        order = 220, spine = false
     )
     val PURPOSE = GrammarConcept(
         id = "PURPOSE",
@@ -295,7 +299,7 @@ object GrammarConcepts {
         exampleRu = "Я чита́ю, что́бы учи́ться. Я хочу́, что́бы ты пришёл.",
         exampleEn = "I read in order to study. I want you to come.",
         hint = "чтобы + infinitive (same subj) / + past (different subj).",
-        order = 250, spine = false
+        order = 230, spine = false
     )
     val NUMERAL_CASE = GrammarConcept(
         id = "NUMERAL_CASE",
@@ -306,7 +310,21 @@ object GrammarConcepts {
         exampleRu = "одна́ кни́га, две кни́ги, пять книг",
         exampleEn = "one book, two books, five books",
         hint = "1 → nom; 2–4 → gen sg; 5+ → gen pl.",
-        order = 260, spine = false
+        order = 240, spine = false
+    )
+
+    val SHORT_FORM_ADJ = GrammarConcept(
+        id = "SHORT_FORM_ADJ",
+        title = "Predicate short forms",
+        lesson = "Many adjectives have a short form used only as the predicate (after " +
+            "an implied \"is/are\", never before a noun): drop the full ending and add " +
+            "nothing for masculine, -а for feminine, -о for neuter, -ы/-и for plural. " +
+            "You already know до́лжен this way. Short forms describe a temporary state " +
+            "or judgment; the full form (краси́вый, etc.) still names an inherent quality.",
+        exampleRu = "Он рад. Она́ ра́да. Мы ра́ды.",
+        exampleEn = "He is glad. She is glad. We are glad.",
+        hint = "Predicate-only form: masc (bare stem) / -а(fem) / -о(neut) / -ы/-и(pl).",
+        order = 245, spine = false
     )
 
     // --- B2 -----------------------------------------------------------------
@@ -319,7 +337,7 @@ object GrammarConcepts {
         exampleRu = "челове́к, чита́ющий кни́гу",
         exampleEn = "the person reading a book (who reads a book)",
         hint = "Active participle = \"who does X\"; agrees like an adjective.",
-        order = 310, spine = false
+        order = 250, spine = false
     )
     val PARTICIPLE_PASSIVE = GrammarConcept(
         id = "PARTICIPLE_PASSIVE",
@@ -330,7 +348,7 @@ object GrammarConcepts {
         exampleRu = "кни́га, напи́санная им; письмо́ напи́сано",
         exampleEn = "the book written by him; the letter is written",
         hint = "Passive participle = \"X-ed\"; short form -н/-на/-но/-ны = result.",
-        order = 320, spine = false
+        order = 260, spine = false
     )
     val GERUND = GrammarConcept(
         id = "GERUND",
@@ -341,7 +359,7 @@ object GrammarConcepts {
         exampleRu = "Чита́я письмо́, он молча́л.",
         exampleEn = "Reading the letter, he was silent.",
         hint = "Gerund: -я (while doing) / -в (having done); invariable.",
-        order = 330, spine = false
+        order = 270, spine = false
     )
     val PASSIVE = GrammarConcept(
         id = "PASSIVE",
@@ -353,7 +371,7 @@ object GrammarConcepts {
         exampleRu = "Дом стро́ится рабо́чими. Догово́р подпи́сан.",
         exampleEn = "The house is being built by workers. The treaty is signed.",
         hint = "Passive: -ся verb (process) or short participle (result); agent = instrumental.",
-        order = 340, spine = false
+        order = 280, spine = false
     )
     val REPORTED = GrammarConcept(
         id = "REPORTED",
@@ -364,7 +382,7 @@ object GrammarConcepts {
         exampleRu = "Он сказа́л, что рабо́тает. Я спроси́л, придёт ли он.",
         exampleEn = "He said (that) he works. I asked whether he would come.",
         hint = "Reported: что / ли / question word; tense doesn't shift.",
-        order = 350, spine = false
+        order = 290, spine = false
     )
 
     // --- C1 -----------------------------------------------------------------
@@ -378,7 +396,7 @@ object GrammarConcepts {
         exampleRu = "Несмотря́ на то что бы́ло тру́дно, он успе́л.",
         exampleEn = "Despite the fact that it was hard, he made it in time.",
         hint = "однако / поэтому / несмотря на то что / в то время как.",
-        order = 410, spine = false
+        order = 300, spine = false
     )
     val NOMINALIZATION = GrammarConcept(
         id = "NOMINALIZATION",
@@ -389,7 +407,7 @@ object GrammarConcepts {
         exampleRu = "приня́тие реше́ния заняло́ вре́мя",
         exampleEn = "taking the decision took time",
         hint = "Formal register nominalises verbs: решить → принятие решения.",
-        order = 420, spine = false
+        order = 310, spine = false
     )
     val ASPECT_NUANCE = GrammarConcept(
         id = "ASPECT_NUANCE",
@@ -401,7 +419,7 @@ object GrammarConcepts {
         exampleRu = "Не чита́й э́то! / Прочита́й э́то!",
         exampleEn = "Don't read this! / Read this (through)!",
         hint = "Imperfective: process/fact/negated commands; perfective: single result.",
-        order = 430, spine = false
+        order = 320, spine = false
     )
     val REGISTER = GrammarConcept(
         id = "REGISTER",
@@ -412,7 +430,7 @@ object GrammarConcepts {
         exampleRu = "в связи́ с да́нным реше́нием",
         exampleEn = "in connection with this decision (formal)",
         hint = "Match register: officialese (данный, осуществлять, в связи с) vs. neutral.",
-        order = 440, spine = false
+        order = 330, spine = false
     )
     val IDIOM = GrammarConcept(
         id = "IDIOM",
@@ -423,7 +441,72 @@ object GrammarConcepts {
         exampleRu = "Я име́ю в виду́ друго́е.",
         exampleEn = "I mean something else.",
         hint = "Learn set phrases whole: иметь в виду, принять во внимание.",
-        order = 450, spine = false
+        order = 340, spine = false
+    )
+
+    // --- C2 -----------------------------------------------------------------
+    val DISCOURSE_PARTICLES = GrammarConcept(
+        id = "DISCOURSE_PARTICLES",
+        title = "Hedging and reported stance",
+        lesson = "Near-native Russian marks the speaker's distance from a quoted claim " +
+            "with reporting particles: мол and де́скать flag casual reported speech " +
+            "(\"so they say\"), я́кобы signals the claim may be false (\"allegedly\"), " +
+            "and вро́де бы softens a statement (\"sort of\"). None of these change the " +
+            "sentence's grammar — they only signal the speaker's stance toward it.",
+        exampleRu = "Он сказа́л, мол, всё гото́во, но э́то я́кобы непра́вда.",
+        exampleEn = "He said - so he claims - everything's ready, but that's allegedly not true.",
+        hint = "мол/дескать = casual reported speech; якобы = doubted claim; вроде бы = soft hedge.",
+        order = 350, spine = false
+    )
+    val EMPHATIC_PARTICLES = GrammarConcept(
+        id = "EMPHATIC_PARTICLES",
+        title = "Emphasis and contrast particles",
+        lesson = "A small set of particles carry pure emphasis with no dictionary " +
+            "translation of their own: ведь appeals to something the listener should " +
+            "already accept (\"after all\"), всё-та́ки signals a stubborn contrast " +
+            "(\"still, despite that\"), уж intensifies (\"quite, indeed\"), and лишь " +
+            "restricts (\"only, merely\", more literary than то́лько).",
+        exampleRu = "Он ведь зна́л об э́том, но всё-та́ки не сказа́л ни сло́ва.",
+        exampleEn = "He knew about it, after all, but still didn't say a word.",
+        hint = "ведь = appeals to shared knowledge; всё-таки = despite that; уж = indeed; лишь = only.",
+        order = 360, spine = false
+    )
+    val BOOKISH_SUBORDINATION = GrammarConcept(
+        id = "BOOKISH_SUBORDINATION",
+        title = "Literary connectors",
+        lesson = "Formal and literary Russian has its own tier of subordinators above " +
+            "the C1 set: и́бо (\"for\", explains a cause), да́бы (archaic \"in order " +
+            "that\"), поско́льку (\"insofar as, since\"), and the phrase всле́дствие " +
+            "того́ что (\"owing to the fact that\") for citing a cause formally.",
+        exampleRu = "Он не отве́тил, поско́льку не был уве́рен, и́бо вопро́с был сло́жным.",
+        exampleEn = "He didn't answer, since he wasn't sure, for the question was complex.",
+        hint = "ибо = for; дабы = in order that (archaic); поскольку = insofar as; вследствие того что = owing to.",
+        order = 370, spine = false
+    )
+    val INVERSION_EMPHASIS = GrammarConcept(
+        id = "INVERSION_EMPHASIS",
+        title = "Emphatic word order",
+        lesson = "Russian word order is freer than English, and near-native speakers " +
+            "use that freedom deliberately: fronting a word with и́менно marks it as " +
+            "the precise focus (\"this one, specifically\"), недаро́м implies the " +
+            "following clause is no coincidence, тем не ме́нее pivots to a contrast, " +
+            "and в свою́ о́чередь hands the topic to the next actor in turn.",
+        exampleRu = "И́менно он реши́л вопро́с; она́, в свою́ о́чередь, начала́ но́вый прое́кт.",
+        exampleEn = "He specifically was the one who solved it; she, in turn, started a new project.",
+        hint = "именно = precisely this one; недаром = no accident; тем не менее = nonetheless; в свою очередь = in turn.",
+        order = 380, spine = false
+    )
+    val SUBJUNCTIVE_NUANCE = GrammarConcept(
+        id = "SUBJUNCTIVE_NUANCE",
+        title = "Deeper hypotheticals",
+        lesson = "Beyond the B1 бы conditional, C2 control includes concessive бы " +
+            "chains: что бы ни / как бы ни + past tense (\"no matter what/how\"), " +
+            "е́сли бы не (\"if not for\") for a counterfactual condition, and хотя́ бы " +
+            "(\"at least\") for a minimal concession.",
+        exampleRu = "Что бы ни случи́лось, е́сли бы не твоя́ по́мощь, я бы не спра́вился.",
+        exampleEn = "Whatever happened, if not for your help, I wouldn't have managed.",
+        hint = "что/как бы ни = no matter what/how; если бы не = if not for; хотя бы = at least.",
+        order = 390, spine = false
     )
 
     val ALL: List<GrammarConcept> =
@@ -435,9 +518,11 @@ object GrammarConcepts {
             // B1
             MOTION_PREFIX, CONDITIONAL, RELATIVE, SUPERLATIVE, PURPOSE, NUMERAL_CASE,
             // B2
-            PARTICIPLE_ACTIVE, PARTICIPLE_PASSIVE, GERUND, PASSIVE, REPORTED,
+            SHORT_FORM_ADJ, PARTICIPLE_ACTIVE, PARTICIPLE_PASSIVE, GERUND, PASSIVE, REPORTED,
             // C1
-            COMPLEX_SYNTAX, NOMINALIZATION, ASPECT_NUANCE, REGISTER, IDIOM
+            COMPLEX_SYNTAX, NOMINALIZATION, ASPECT_NUANCE, REGISTER, IDIOM,
+            // C2
+            DISCOURSE_PARTICLES, EMPHATIC_PARTICLES, BOOKISH_SUBORDINATION, INVERSION_EMPHASIS, SUBJUNCTIVE_NUANCE
         )
 
     private val byId: Map<String, GrammarConcept> = ALL.associateBy { it.id }

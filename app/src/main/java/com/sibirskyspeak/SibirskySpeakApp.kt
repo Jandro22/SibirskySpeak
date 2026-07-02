@@ -46,6 +46,7 @@ class SibirskySpeakApp : Application() {
             bootstrapReaderTexts = { assets.readTextAsset("bootstrap_reader_texts.jsonl") },
             transactionRunner = { block -> database.withTransaction(block) },
             config = { LearningConfig(dailyGoal = settings.dailyGoal, sessionSize = settings.sessionSize, newCardsPerDay = settings.newCardsPerDay, desiredRetention = settings.desiredRetention, doctrine = settings.doctrine) },
+            decayProvider = { FsrsScheduler.decayOf(settings.fsrsWeights) },
             restoreBackup = { withContext(Dispatchers.IO) { backup.read() } },
             writeBackup = { content -> withContext(Dispatchers.IO) { backup.write(content) } }
         )

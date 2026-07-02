@@ -90,7 +90,24 @@ UNITS = [
         ],
     },
     {
+        # Adjective agreement depends on knowing noun gender, so it's taught
+        # immediately after GENDER (unit 1) and before anything else — every
+        # example sentence from here on can lean on it. Previously this concept
+        # had a full Kotlin lesson (GrammarConcepts.ADJ_AGREE) but no curriculum
+        # unit ever taught it, so CardType.ADJ_AGREE drills fired with no lesson
+        # ever shown first, silently violating teach-before-test.
         "unit": 2,
+        "title": "Describing things",
+        "concept": "ADJ_AGREE",
+        "adjs": [
+            ("тёплый", "warm", "Э́то тёплая вода́.", "This is warm water.",
+             [("Вот тёплый стол.", "Here is a warm table.")]),
+            ("холо́дный", "cold", "Э́то холо́дная ко́мната.", "This is a cold room.",
+             [("Вот холо́дное окно́.", "Here is a cold window.")]),
+        ],
+    },
+    {
+        "unit": 3,
         "title": "More than one",
         "concept": "NOM_PL",
         "nouns": [
@@ -115,7 +132,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 3,
+        "unit": 4,
         "title": "Everyday actions",
         "concept": "PRESENT",
         "nouns": [
@@ -158,7 +175,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 4,
+        "unit": 5,
         "title": "Doing something to things",
         "concept": "ACC",
         "nouns": [
@@ -186,7 +203,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 5,
+        "unit": 6,
         "title": "Having and not having",
         "concept": "GEN",
         "words": [
@@ -206,7 +223,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 6,
+        "unit": 7,
         "title": "Where things are",
         "concept": "PREP",
         "nouns": [
@@ -227,7 +244,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 7,
+        "unit": 8,
         "title": "Giving and telling",
         "concept": "DAT",
         "verbs": [
@@ -250,7 +267,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 8,
+        "unit": 9,
         "title": "With what, with whom",
         "concept": "INS",
         "nouns": [
@@ -263,7 +280,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 9,
+        "unit": 10,
         "title": "Talking about the past",
         "concept": "PAST",
         "words": [
@@ -274,7 +291,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 10,
+        "unit": 11,
         "title": "Finished or ongoing",
         "concept": "ASPECT",
         "verbs": [
@@ -315,6 +332,20 @@ def a1_reader_texts():
             "source": "graded:a1",
             "body": "Э́то моя́ ма́ма и мой па́па. Ма́ма рабо́тает в шко́ле. "
                     "Па́па чита́ет газе́ту. Я пишу́ ма́ме. Мы пьём чай.",
+        },
+        {
+            "title": "A1 · Тёплый чай",
+            "source": "graded:a1",
+            "body": "Вот тёплый чай и тёплая ко́мната. "
+                    "Мой друг живёт здесь. У меня́ есть кни́га о го́роде. "
+                    "Мы пьём чай и чита́ем кни́гу.",
+        },
+        {
+            "title": "A1 · Мой сосе́д",
+            "source": "graded:a1",
+            "body": "У меня́ есть сосе́д. Он рабо́тает в рестора́не. "
+                    "Он идёт на рабо́ту. "
+                    "Вчера́ я написа́л сло́во сосе́ду.",
         },
     ]
 

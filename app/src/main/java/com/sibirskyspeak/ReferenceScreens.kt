@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -127,7 +128,10 @@ internal fun GrammarReferenceScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         } else {
-            val withTables = results.filter { paradigmRows(it.declensionJson).isNotEmpty() }
+            // paradigmRows parses each note's declensionJson; memoized so an unrelated
+            // recomposition of this screen (e.g. a caller-side lambda identity change)
+            // doesn't re-parse JSON for every search result again.
+            val withTables = remember(results) { results.filter { paradigmRows(it.declensionJson).isNotEmpty() } }
             if (withTables.isEmpty()) {
                 Text(
                     "No form table for this search yet. Try the dictionary form, or use the concept reference below.",

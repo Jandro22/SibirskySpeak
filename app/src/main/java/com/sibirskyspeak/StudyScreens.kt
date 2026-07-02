@@ -10,7 +10,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -68,7 +67,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
@@ -143,21 +141,19 @@ internal fun StudySessionScreen(
     onReadNext: () -> Unit = {}
 ) {
     LaunchedEffect(Unit) { if (!state.inStudySession) onStartSession() }
+    // Hoisted here (once per session) rather than inside ReviewContent: earcon
+    // synthesis is ~26k sin/exp sample computations, and ReviewContent is re-entered
+    // fresh by AnimatedContent for every new card — recreating it per-card meant
+    // resynthesizing the same two constant waveforms from scratch on every review.
+    val answerSounds = remember { AnswerSoundEffects() }
+    DisposableEffect(answerSounds) { onDispose { answerSounds.release() } }
     var editing by remember { mutableStateOf(false) }
     var retireAction by remember { mutableStateOf<ReviewRetireAction?>(null) }
     val sessionSize = state.sessionPlan?.reviewQueue?.size ?: 0
     val prompt = state.prompt
-    // Track resolution of the session's original cards. Retry/scaffold insertions may
-    // grow the live queue, but should not make visible progress run backwards.
-    val goalProgress = if (state.sessionProgressTotal > 0) {
-        (state.sessionProgressCompleted.toFloat() / state.sessionProgressTotal).coerceIn(0f, 1f)
-    } else 1f
-    val animatedGoalProgress by animateFloatAsState(
-        targetValue = goalProgress,
-        animationSpec = tween(650, easing = FastOutSlowInEasing),
-        label = "sitting-progress"
-    )
     val headerMessage = when {
+        prompt == null && state.sessionStoppedEarly ->
+            "Adaptive stop: ${state.stoppedQueueRemaining} prompts were deferred to protect retention and tomorrow's workload."
         prompt == null -> state.sessionPlan?.completion?.message ?: "Session complete."
         state.revealed -> "Check the answer, then rate your recall."
         prompt.answerMode == AnswerMode.AUDIO_ONLY -> "Audio started automatically. Type what you heard."
@@ -183,6 +179,7 @@ internal fun StudySessionScreen(
                             Text("Practice", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                             PracticeStageChip(
                                 when {
+                                    prompt == null && state.sessionStoppedEarly -> "Stopped"
                                     prompt == null -> "Done"
                                     state.revealed -> "Rate"
                                     else -> "Answer"
@@ -226,14 +223,14 @@ internal fun StudySessionScreen(
                         }
                     }
                 }
-                LinearProgressIndicator(
-                    progress = { animatedGoalProgress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(8.dp)
-                        .clip(RoundedCornerShape(99.dp)),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                Text(
+                    when {
+                        prompt == null -> "${state.sessionCompletedCards} practice actions completed"
+                        state.sessionCompletedCards == 0 -> "Adaptive session · length changes with your answers"
+                        else -> "${state.sessionCompletedCards} practice actions completed · session length adapts"
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
             }
         }
@@ -253,6 +250,8 @@ internal fun StudySessionScreen(
                     reader = state.sessionPlan?.readingAssignment?.recommendation,
                     sessionReviewed = state.sessionReviewed,
                     sessionCorrect = state.sessionCorrect,
+                    stoppedEarly = state.sessionStoppedEarly,
+                    deferredPrompts = state.stoppedQueueRemaining,
                     matchReport = state.matchReport,
                     onReadNext = onReadNext
                 )
@@ -260,6 +259,7 @@ internal fun StudySessionScreen(
                 ReviewContent(
                     state = state,
                     prompt = prompt,
+                    answerSounds = answerSounds,
                     typedAnswerFlow = typedAnswer,
                     onAnswerChanged = onAnswerChanged,
                     onChoice = onChoice,
@@ -515,6 +515,7 @@ internal fun AutoPlayCardAudio(cardId: Long, onSpeak: () -> Unit) {
 internal fun ReviewContent(
     state: ReviewUiState,
     prompt: ReviewPrompt,
+    answerSounds: AnswerSoundEffects,
     typedAnswerFlow: StateFlow<String>,
     onAnswerChanged: (String) -> Unit,
     onChoice: (String) -> Unit,
@@ -527,8 +528,6 @@ internal fun ReviewContent(
     onKnewIt: () -> Unit,
     onKnowWord: () -> Unit
 ) {
-    val answerSounds = remember { AnswerSoundEffects() }
-    DisposableEffect(answerSounds) { onDispose { answerSounds.release() } }
     LaunchedEffect(state.feedbackSequence) {
         if (state.feedbackSequence > 0) state.feedbackCorrect?.let(answerSounds::play)
     }
@@ -537,7 +536,9 @@ internal fun ReviewContent(
     // word is already shown). For production, cloze, stress, and choice cards, auto-
     // play would speak the very answer the learner is meant to recall — so it's off;
     // they can still tap "Hear Russian" any time (and after reveal).
-    if (prompt.answerMode == AnswerMode.AUDIO_ONLY || prompt.answerMode == AnswerMode.ENGLISH) {
+    if (prompt.answerMode == AnswerMode.AUDIO_ONLY || prompt.answerMode == AnswerMode.ENGLISH ||
+        prompt.isNewVocabularyIntroduction()
+    ) {
         AutoPlayCardAudio(cardId = prompt.card.id, onSpeak = onSpeak)
     }
     // A lesson is a teaching screen, not a quiz: render it on its own and bail out
@@ -690,7 +691,10 @@ internal fun ReviewContent(
                     }
                 }
                 Text(
-                    prompt.prompt.ifBlank { "Listen and type what you hear" },
+                    prompt.prompt.ifBlank {
+                        if (prompt.card.cardType == CardType.AUDIO_TO_RU) "Word dictation: type what you hear"
+                        else "Sentence dictation: type what you hear"
+                    },
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -707,7 +711,11 @@ internal fun ReviewContent(
             if (!state.revealed) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     prompt.choices.forEachIndexed { index, choice ->
-                        ChoiceAnswerButton(choice = choice, index = index, onClick = { onChoice(choice) })
+                        ChoiceAnswerButton(
+                            choice = prompt.choiceLabels[choice] ?: choice,
+                            index = index,
+                            onClick = { onChoice(choice) }
+                        )
                     }
                 }
             }
@@ -951,6 +959,20 @@ internal fun LessonCard(
         }
         Spacer(Modifier.height(10.dp))
         Text(lesson.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        if (isVocabIntro) {
+            Spacer(Modifier.height(8.dp))
+            AssistChip(
+                onClick = onSpeak,
+                label = { Text("Hear word") },
+                leadingIcon = {
+                    Icon(
+                        Icons.AutoMirrored.Filled.VolumeUp,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            )
+        }
         Spacer(Modifier.height(10.dp))
         Text(lesson.body, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
         if (lesson.exampleRu.isNotBlank()) {
@@ -1071,9 +1093,9 @@ internal fun ChoiceAnswerButton(choice: String, index: Int, onClick: () -> Unit)
 @Composable
 internal fun PrimaryPracticeButton(
     hasAnswer: Boolean,
-    blankMeansMiss: Boolean = false,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit
+    blankMeansMiss: Boolean = false
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -1232,7 +1254,19 @@ internal fun RevealPanel(
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ResultBanner(state, prompt, typedAnswer, onSpeak)
         prompt.explanation?.let {
-            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+            ) {
+                Text(
+                    it,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
         prompt.note.mnemonic?.takeIf { it.isNotBlank() }?.let { hook ->
             Surface(
@@ -1476,7 +1510,7 @@ internal fun CorrectionPractice(
     if (prompt.answerMode == AnswerMode.CHOICE && prompt.choices.isNotEmpty()) {
         Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
             prompt.choices.forEachIndexed { index, choice ->
-                ChoiceAnswerButton(choice, index) {
+                ChoiceAnswerButton(prompt.choiceLabels[choice] ?: choice, index) {
                     onChange(choice)
                     onSubmit()
                 }
@@ -1618,7 +1652,11 @@ internal fun ReviewPrompt.speechText(): String =
             expectedAnswer
         ).firstOrNull { it.hasRussianTextForSpeech() }
             ?: expectedAnswer
-        AnswerMode.LESSON -> lesson?.exampleRu?.takeIf { it.isNotBlank() } ?: note.russian
+        AnswerMode.LESSON -> if (isNewVocabularyIntroduction()) {
+            note.russian
+        } else {
+            lesson?.exampleRu?.takeIf { it.isNotBlank() } ?: note.russian
+        }
     }
 
 internal fun String.hasRussianTextForSpeech(): Boolean =

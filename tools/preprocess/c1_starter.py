@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""C1 curriculum (tier 0, units 34–40): connecting ideas, nominal style, fine
+"""C1 curriculum (tier 0, units 35–41): connecting ideas, nominal style, fine
 points of aspect, register, and idiom — the discourse-level skills that mark
 advanced command. Grammar here is taught (lesson cards) and consolidated through
 formal/abstract vocabulary in controlled sentences. Each word ships 2 example
@@ -11,7 +11,7 @@ from curriculum_common import build_level
 
 UNITS = [
     {
-        "unit": 34,
+        "unit": 38,
         "title": "Connecting ideas",
         "concept": "COMPLEX_SYNTAX",
         "verbs": [
@@ -34,7 +34,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 35,
+        "unit": 39,
         "title": "Nominal style",
         "concept": "NOMINALIZATION",
         "verbs": [
@@ -51,7 +51,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 36,
+        "unit": 40,
         "title": "Shades of aspect",
         "concept": "ASPECT_NUANCE",
         "verbs": [
@@ -70,7 +70,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 37,
+        "unit": 41,
         "title": "Register and tone",
         "concept": "REGISTER",
         "verbs": [
@@ -93,7 +93,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 38,
+        "unit": 42,
         "title": "Set phrases",
         "concept": "IDIOM",
         "nouns": [
@@ -112,7 +112,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 39,
+        "unit": 43,
         "title": "Goals and systems",
         "concept": None,
         "nouns": [
@@ -129,7 +129,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 40,
+        "unit": 44,
         "title": "Knowledge and language",
         "concept": None,
         "nouns": [
@@ -169,6 +169,21 @@ def c1_reader_texts():
                     "Когда́ я говорю́, что зна́ние име́ет значе́ние, я име́ю в виду́, "
                     "что без него́ нельзя́ поня́ть совреме́нное о́бщество. "
                     "Да́нный вопро́с тре́бует вре́мени и внима́ния.",
+        },
+        {
+            "title": "C1 · Официа́льный докуме́нт",
+            "source": "graded:c1",
+            "body": "Да́нный докуме́нт осуществля́ет ва́жный прое́кт, одна́ко его́ проце́сс "
+                    "сло́жен и тре́бует внима́ния властей. Сле́дует приня́ть во внима́ние, "
+                    "что о́пыт и систе́ма рабо́тают вме́сте, поэ́тому иссле́дование "
+                    "продолжа́ется ка́ждый ме́сяц.",
+        },
+        {
+            "title": "C1 · Никогда́ не спеши́",
+            "source": "graded:c1",
+            "body": "Он никогда́ не принима́ет реше́ние сли́шком бы́стро. Иногда́ он ду́мает "
+                    "до́лго, одна́ко результа́т всегда́ пра́вильный. Э́то представля́ет его́ гла́вную цель: "
+                    "разви́ть систе́му, кото́рая име́ет значе́ние для всех.",
         },
     ]
 

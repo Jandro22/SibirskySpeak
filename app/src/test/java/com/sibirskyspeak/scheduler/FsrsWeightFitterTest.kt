@@ -44,6 +44,19 @@ class FsrsWeightFitterTest {
     }
 
     @Test
+    fun unsortedHistoryProducesTheSameFitAndMalformedWeightsAreRepaired() {
+        val rows = initStabilityRows(ratingValue = 3, trueStability = 12.0, decay = defaults[20], perCell = 40)
+        val sorted = FsrsWeightFitter.fit(rows, defaults.copyOf())
+        val shuffled = FsrsWeightFitter.fit(rows.reversed(), defaults.copyOf())
+        assertTrue(sorted.weights.contentEquals(shuffled.weights))
+        assertEquals(sorted.initStabilitySamples, shuffled.initStabilitySamples)
+
+        val repaired = FsrsWeightFitter.fit(emptyList(), doubleArrayOf(Double.NaN))
+        assertEquals(defaults.size, repaired.weights.size)
+        assertTrue(repaired.weights.all(Double::isFinite))
+    }
+
+    @Test
     fun recoversSteeperDecay() {
         val trueDecay = 0.30
         val rows = decayRows(trueDecay = trueDecay, perCell = 220)

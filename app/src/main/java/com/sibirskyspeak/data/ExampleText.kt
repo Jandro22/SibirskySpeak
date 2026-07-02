@@ -48,7 +48,7 @@ object ExampleText {
                 idx = text.indexOf(sep, idx + 1)
             }
         }
-        return bestLeft?.let { it to bestRight!! }
+        return if (bestLeft != null && bestRight != null) bestLeft to bestRight else null
     }
 }
 

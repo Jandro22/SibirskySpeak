@@ -12,10 +12,11 @@ from a2_starter import a2_rows, a2_reader_texts
 from b1_starter import b1_rows, b1_reader_texts
 from b2_starter import b2_rows, b2_reader_texts
 from c1_starter import c1_rows, c1_reader_texts
+from c2_starter import c2_rows, c2_reader_texts
 
 WORD_RE = re.compile(r"[а-яё-]+", re.IGNORECASE)
 
-LEVELS = ["A1", "A2", "B1", "B2", "C1"]
+LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 
 
 def _norm(text):
@@ -23,14 +24,14 @@ def _norm(text):
 
 
 def all_rows():
-    rows = a1_rows() + a2_rows() + b1_rows() + b2_rows() + c1_rows()
+    rows = a1_rows() + a2_rows() + b1_rows() + b2_rows() + c1_rows() + c2_rows()
     # Stable sort by unit so the cumulative-vocabulary check sees curriculum order.
     return sorted(rows, key=lambda n: n["unit"])
 
 
 def all_readers():
     return (a1_reader_texts() + a2_reader_texts() + b1_reader_texts()
-            + b2_reader_texts() + c1_reader_texts())
+            + b2_reader_texts() + c1_reader_texts() + c2_reader_texts())
 
 
 # Closed-class forms (pronouns in all cases, copula/future of быть, irregular

@@ -190,8 +190,8 @@ internal class FakeCardDao(
                     difficulty = difficulty,
                     scheduledDays = scheduledDays,
                     elapsedDays = 0,
-                    reps = maxOf(card.reps, 1),
-                    consecutiveCorrect = maxOf(card.consecutiveCorrect, 1),
+                    reps = maxOf(card.reps, 3),
+                    consecutiveCorrect = maxOf(card.consecutiveCorrect, 3),
                     lastReview = now
                 )
             } else card
@@ -204,6 +204,18 @@ internal class FakeCardDao(
             if (card.noteId == noteId && card.queue == Queue.VOCAB && card.state == CardState.GRADUATED) {
                 changed += 1
                 card.copy(state = CardState.NEW, due = 0, reps = 0, lapses = 0, stability = 0.0, difficulty = 0.0, elapsedDays = 0, scheduledDays = 0, consecutiveCorrect = 0, suspended = false, lastReview = null)
+            } else card
+        }
+        return changed
+    }
+    override suspend fun repairGraduatedRecognitionMaturity(): Int {
+        var changed = 0
+        cards.replaceAll { card ->
+            if (card.cardType == CardType.RU_TO_MEANING && card.state == CardState.GRADUATED &&
+                (card.reps < 3 || card.consecutiveCorrect < 3)
+            ) {
+                changed += 1
+                card.copy(reps = maxOf(card.reps, 3), consecutiveCorrect = maxOf(card.consecutiveCorrect, 3))
             } else card
         }
         return changed
@@ -224,6 +236,16 @@ internal class FakeCardDao(
         cards.filter { it.queue == Queue.GRAMMAR && it.gramCase == gramCase && it.gramGender == gramGender && it.gramNumber == gramNumber }
     override suspend fun getGrammarCardsForNotes(noteIds: List<Long>): List<Card> = cards.filter { it.queue == Queue.GRAMMAR && it.noteId in noteIds }
     override suspend fun getAspectCards(): List<Card> = cards.filter { it.queue == Queue.GRAMMAR && it.cardType == CardType.ASPECT_SELECT && it.state != CardState.GRADUATED && !it.suspended }
+    override suspend fun suspendDeprecatedAspectCueCards(): Int {
+        var changed = 0
+        cards.replaceAll { card ->
+            if (card.cardType == CardType.ASPECT_SELECT && card.gramContextCue in setOf("RESULT", "SINGLE_EVENT") && !card.suspended) {
+                changed++
+                card.copy(suspended = true)
+            } else card
+        }
+        return changed
+    }
     override suspend fun getAllGrammarCards(): List<Card> = cards.filter { it.queue == Queue.GRAMMAR }
     override suspend fun getCaseCategoryKeys(): List<CaseCategoryRow> =
         cards.filter { it.queue == Queue.GRAMMAR && it.cardType == CardType.CASE_FILL && it.gramCase != null && it.gramGender != null && it.gramNumber != null }
@@ -256,6 +278,10 @@ internal class FakeCardDao(
     override suspend fun getCardsForNotes(noteIds: List<Long>): List<Card> = cards.filter { it.noteId in noteIds }
     override suspend fun getByIds(cardIds: List<Long>): List<Card> = cards.filter { it.id in cardIds }
     override suspend fun getAll(): List<Card> = cards.toList()
+    override suspend fun getSchedulingCards(): List<Card> =
+        cards.filter { it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended }
+    override suspend fun countEstablishedCards(): Int =
+        cards.count { it.state == CardState.GRADUATED || it.reps >= 2 }
     override suspend fun getAllVocabCards(): List<Card> = cards.filter { it.queue == Queue.VOCAB }
     override suspend fun getKnownVocabNoteIds(): List<Long> =
         cards.filter {

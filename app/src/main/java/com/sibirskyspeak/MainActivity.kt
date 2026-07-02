@@ -60,6 +60,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -118,6 +121,15 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
     var settingsArea by rememberSaveable { mutableStateOf(SettingsArea.STUDY) }
     var showReference by rememberSaveable { mutableStateOf(false) }
     val activeTab = state.sessionStep.mainTab()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) viewModel.recordStudyScreenExit()
+            if (event == Lifecycle.Event.ON_START) viewModel.recordStudyScreenResume()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     // Manual reader browsing (reached from the Practice/Dashboard "Read" actions)
     // lives on the READER tab; in-session scheduled reading instead rides on the
     // study session. Treat both as "in the reader" for back-handling and layout.
@@ -158,7 +170,10 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
                 onContinue = viewModel::continueAfterRating,
                 onCorrectionChanged = viewModel::setCorrectionAnswer,
                 onSubmitCorrection = viewModel::submitCorrection,
-                onSpeak = { p -> tts.speak(p.speechText()) },
+                onSpeak = { p ->
+                    viewModel.recordAudioPlayed(p)
+                    tts.speak(p.speechText())
+                },
                 onExit = {
                     viewModel.recordStudyScreenExit()
                     studyActive = false
@@ -235,6 +250,10 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
                 onRetention = viewModel::setRetention,
                 onDoctrine = viewModel::setDoctrine,
                 onPlaceAfterLevel = viewModel::placeAfterLevel,
+                onStartPlacementTest = viewModel::startPlacementTest,
+                onAnswerPlacementQuestion = viewModel::answerPlacementQuestion,
+                onApplyPlacementResult = viewModel::applyPlacementResult,
+                onDismissPlacementTest = viewModel::dismissPlacementTest,
                 onReminderEnabled = { enabled ->
                     viewModel.setReminderEnabled(enabled)
                     Reminders.schedule(context)

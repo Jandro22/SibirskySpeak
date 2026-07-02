@@ -1,4 +1,8 @@
-<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+<!-- Adaptive icon XML is only recognized by AAPT from a v26-qualified directory. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="ObsoleteSdkInt">
     <background android:drawable="@color/ic_launcher_background" />
     <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
 </adaptive-icon>

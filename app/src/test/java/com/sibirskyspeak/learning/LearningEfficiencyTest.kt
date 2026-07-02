@@ -74,6 +74,16 @@ class LearningEfficiencyTest {
         assertEquals(5L, NextCardSelector.select(listOf(sibling, locked, lapsed, eligible), blueprint, live, now)?.card?.id)
     }
 
+    @Test fun `selector relaxes sibling spacing rather than ending valid session`() {
+        val sibling = prompt(
+            Card(id = 2, noteId = 1, cardType = CardType.CLOZE, queue = Queue.VOCAB),
+            note(1, "до́м", "house")
+        )
+        val blueprint = SessionBlueprint(SessionMode.FULL, emptySet(), 1, 0, 0, 0, emptyList(), .88)
+        val live = LiveSessionState(shown = 1, recentNoteIds = listOf(1))
+        assertEquals(2L, NextCardSelector.select(listOf(sibling), blueprint, live, 0L)?.card?.id)
+    }
+
     @Test fun `load smoothing alternates against the actual previous card difficulty`() {
         val now = 10L * 86_400_000
         val easy = prompt(
@@ -91,6 +101,19 @@ class LearningEfficiencyTest {
         assertEquals(1L, NextCardSelector.select(listOf(easy, hard), blueprint, afterHard, now)?.card?.id)
         val afterEasy = LiveSessionState(shown = 2, recentHard = listOf(false))
         assertEquals(2L, NextCardSelector.select(listOf(easy, hard), blueprint, afterEasy, now)?.card?.id)
+    }
+
+    @Test fun `selector uses bounded uncertainty to break otherwise equal frontier ties`() {
+        val low = prompt(Card(id = 1, noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB), note(1, "до́м", "house"))
+        val high = prompt(Card(id = 2, noteId = 2, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB), note(2, "стол", "table"))
+        val blueprint = SessionBlueprint(SessionMode.FULL, emptySet(), 2, 0, 0, 0, emptyList(), .88)
+        val selected = NextCardSelector.select(
+            listOf(low, high), blueprint, LiveSessionState(), 0L,
+            successProbability = { .85 },
+            itemUncertainty = { if (it.card.id == 2L) TrueSkill.SIGMA0 else 0.0 },
+            uncertaintyWeight = .20
+        )
+        assertEquals(2L, selected?.card?.id)
     }
 
     @Test fun `session lookahead finds an interior optimum, not always the cap`() {

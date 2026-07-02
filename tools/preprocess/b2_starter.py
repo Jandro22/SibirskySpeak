@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""B2 curriculum (tier 0, units 27–33): active and passive participles, verbal
-adverbs (gerunds), passive constructions, and reported speech, with more
-abstract vocabulary. The participle/gerund concepts are taught (lesson cards)
-but not auto-drilled, since those forms can't be derived safely by the engine.
-Each word ships 2 example contexts.
+"""B2 curriculum (tier 0, units 30–37): predicate short-form adjectives, active
+and passive participles, verbal adverbs (gerunds), passive constructions, and
+reported speech, with more abstract vocabulary. The participle/gerund concepts
+are taught (lesson cards) but not auto-drilled, since those forms can't be
+derived safely by the engine. Each word ships 2 example contexts.
 """
 from __future__ import annotations
 
@@ -11,7 +11,25 @@ from curriculum_common import build_level
 
 UNITS = [
     {
-        "unit": 27,
+        # Short-form predicate adjectives (рад, готов, до́лжен from A2 MODAL) are
+        # a distinct pattern from the full declinable adjectives ADJ_AGREE
+        # already covers — placed first in B2 since PARTICIPLE_PASSIVE's short
+        # passive-participle forms (-н/-на/-но/-ны) are the same pattern applied
+        # to participles, so this sets that up.
+        "unit": 30,
+        "title": "How things are",
+        "concept": "SHORT_FORM_ADJ",
+        "words": [
+            ("рад", "adjective", "glad (predicate-only short form)", "Он рад ви́деть тебя́.", "He is glad to see you.",
+             None),
+            ("гото́в", "adjective", "ready (predicate-only short form)", "Он гото́в помо́чь.", "He is ready to help.",
+             None),
+            ("уве́рен", "adjective", "sure, confident (predicate-only short form)", "Он уве́рен в себе́.", "He is confident in himself.",
+             None),
+        ],
+    },
+    {
+        "unit": 31,
         "title": "The person who is reading",
         "concept": "PARTICIPLE_ACTIVE",
         "verbs": [
@@ -28,7 +46,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 28,
+        "unit": 32,
         "title": "The letter that was written",
         "concept": "PARTICIPLE_PASSIVE",
         "verbs": [
@@ -51,7 +69,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 29,
+        "unit": 33,
         "title": "Doing two things at once",
         "concept": "GERUND",
         "verbs": [
@@ -74,7 +92,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 30,
+        "unit": 34,
         "title": "Being done",
         "concept": "PASSIVE",
         "verbs": [
@@ -91,7 +109,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 31,
+        "unit": 35,
         "title": "He said that…",
         "concept": "REPORTED",
         "verbs": [
@@ -108,7 +126,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 32,
+        "unit": 36,
         "title": "Ideas and decisions",
         "concept": None,
         "nouns": [
@@ -127,7 +145,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 33,
+        "unit": 37,
         "title": "Society and work",
         "concept": None,
         "nouns": [
@@ -167,6 +185,20 @@ def b2_reader_texts():
                     "Оди́н рабо́тник предложи́л но́вую иде́ю, отвеча́я на ка́ждый вопро́с споко́йно. "
                     "Докуме́нт, со́зданный им, был о́чень ва́жным. "
                     "В конце́ концо́в все согласи́лись, что э́то пра́вильное реше́ние.",
+        },
+        {
+            "title": "B2 · Гото́в к отве́ту",
+            "source": "graded:b2",
+            "body": "Учёный уве́рен, что его́ иде́я пра́вильная. Он гото́в объясни́ть её "
+                    "и отве́тить на ка́ждый вопро́с. Э́то но́вое зда́ние, кото́рое он стро́ит, "
+                    "ва́жно для всего́ о́бщества. Он рад, что его́ прое́кт наконе́ц гото́в.",
+        },
+        {
+            "title": "B2 · Мне́ние учёного",
+            "source": "graded:b2",
+            "body": "Учёный, кото́рый спра́шивал о совреме́нном о́бществе, дал изве́стный отве́т. "
+                    "Он счита́ет, что пра́вда ва́жнее, чем удо́бное мне́ние. "
+                    "Его́ статья́ была́ со́здана по́сле мно́гих ме́сяцев рабо́ты.",
         },
     ]
 

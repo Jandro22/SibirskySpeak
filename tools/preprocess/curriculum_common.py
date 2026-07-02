@@ -54,6 +54,7 @@ CONCEPT_TITLES = {
     "PURPOSE": "In order to (чтобы)",
     "NUMERAL_CASE": "Numbers and nouns",
     # B2
+    "SHORT_FORM_ADJ": "Predicate short forms",
     "PARTICIPLE_ACTIVE": "Active participles",
     "PARTICIPLE_PASSIVE": "Passive participles",
     "GERUND": "Verbal adverbs (gerunds)",
@@ -65,6 +66,12 @@ CONCEPT_TITLES = {
     "ASPECT_NUANCE": "Fine points of aspect",
     "REGISTER": "Register and style",
     "IDIOM": "Set phrases and idiom",
+    # C2
+    "DISCOURSE_PARTICLES": "Hedging and reported stance",
+    "EMPHATIC_PARTICLES": "Emphasis and contrast particles",
+    "BOOKISH_SUBORDINATION": "Literary connectors",
+    "INVERSION_EMPHASIS": "Emphatic word order",
+    "SUBJUNCTIVE_NUANCE": "Deeper hypotheticals",
 }
 
 

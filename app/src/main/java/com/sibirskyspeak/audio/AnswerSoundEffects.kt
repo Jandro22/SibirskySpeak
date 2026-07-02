@@ -55,7 +55,10 @@ class AnswerSoundEffects {
         }
         return AudioTrack.Builder()
             .setAudioAttributes(AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                // Feedback belongs to the app's audible lesson content. Routing it
+                // as system sonification makes some devices use the system/ringer
+                // stream, so it can ignore media-volume changes and media mute.
+                .setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build())
             .setAudioFormat(AudioFormat.Builder()

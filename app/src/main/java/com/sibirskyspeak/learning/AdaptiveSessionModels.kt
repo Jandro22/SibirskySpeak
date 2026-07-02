@@ -29,7 +29,8 @@ object PerformanceModel {
         var weightSum = 0.0
         graded.forEach { attempt ->
             val speed = (targetTimeMs(attempt.answerMode).toDouble() / attempt.responseMs.coerceAtLeast(1)).coerceIn(0.5, 1.5)
-            val weight = (1.0 + (attempt.itemDifficulty - TrueSkill.MU0) / TrueSkill.SIGMA0).coerceIn(0.5, 2.0)
+            val difficulty = attempt.itemDifficulty.takeIf(Double::isFinite) ?: TrueSkill.MU0
+            val weight = (1.0 + (difficulty - TrueSkill.MU0) / TrueSkill.SIGMA0).coerceIn(0.5, 2.0)
             weightedScore += weight * if (attempt.correct) speed else 0.0
             weightSum += weight
         }
@@ -46,10 +47,16 @@ object PerformanceModel {
 
 object FatigueModel {
     fun estimate(responseMs: List<Long>, correct: List<Boolean>): Double {
-        if (responseMs.isEmpty() || correct.isEmpty()) return 0.0
-        val baseline = responseMs.take(3).sorted().let { it[it.size / 2].toDouble() }.coerceAtLeast(1.0)
-        val rollingLatency = responseMs.takeLast(3).average()
-        val rollingAccuracy = correct.takeLast(4).count { it }.toDouble() / correct.takeLast(4).size
+        // Only aligned observations are meaningful. During process restoration the
+        // latency and correctness buffers can briefly differ in length.
+        val count = minOf(responseMs.size, correct.size)
+        if (count == 0) return 0.0
+        val latencies = responseMs.takeLast(count).map { it.coerceAtLeast(1L) }
+        val outcomes = correct.takeLast(count)
+        val baseline = latencies.take(3).sorted().let { it[it.size / 2].toDouble() }
+        val rollingLatency = latencies.takeLast(3).average()
+        val recentOutcomes = outcomes.takeLast(4)
+        val rollingAccuracy = recentOutcomes.count { it }.toDouble() / recentOutcomes.size
         return (0.6 * ((rollingLatency / baseline) - 1.0).coerceAtLeast(0.0) + 0.4 * (1.0 - rollingAccuracy)).coerceIn(0.0, 1.0)
     }
 }
@@ -59,8 +66,10 @@ object CausalFormatReward {
     const val FATIGUE_COST = 0.3
 
     fun reward(recalled: Boolean, counterfactualBase: Double, timeMinutes: Double, fatigueDelta: Double): Double =
-        (if (recalled) 1.0 else 0.0) - counterfactualBase.coerceIn(0.0, 1.0) -
-            TIME_COST_PER_MINUTE * timeMinutes.coerceAtLeast(0.0) - FATIGUE_COST * fatigueDelta.coerceAtLeast(0.0)
+        (if (recalled) 1.0 else 0.0) -
+            (counterfactualBase.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.5) -
+            TIME_COST_PER_MINUTE * (timeMinutes.takeIf(Double::isFinite)?.coerceAtLeast(0.0) ?: 0.0) -
+            FATIGUE_COST * (fatigueDelta.takeIf(Double::isFinite)?.coerceAtLeast(0.0) ?: 0.0)
 }
 
 data class BanditCredit(val action: String, val context: DoubleArray, val reward: Double)
@@ -72,7 +81,9 @@ object ColdStartModel {
 
     fun blend(personal: Double, cohort: Double, observations: Int, priorStrength: Int): Double {
         val weight = observations.coerceAtLeast(0).toDouble() / (observations.coerceAtLeast(0) + priorStrength.coerceAtLeast(1))
-        return weight * personal + (1.0 - weight) * cohort
+        val safeCohort = cohort.takeIf(Double::isFinite) ?: 0.0
+        val safePersonal = personal.takeIf(Double::isFinite) ?: safeCohort
+        return weight * safePersonal + (1.0 - weight) * safeCohort
     }
 
     fun infoGainWeight(activeDays: Int): Double =

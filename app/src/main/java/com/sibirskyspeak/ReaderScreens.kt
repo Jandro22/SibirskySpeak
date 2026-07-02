@@ -53,6 +53,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -394,7 +395,7 @@ internal fun ReaderTextScreen(
     // the tap-a-word pronunciation, with karaoke-style current-sentence highlighting.
     val readerTts = rememberRussianTts()
     val sentences = remember(selected.text.id) { splitIntoSentences(selected.text.body) }
-    var playingSentence by remember(selected.text.id) { mutableStateOf(-1) }
+    var playingSentence by remember(selected.text.id) { mutableIntStateOf(-1) }
     var isPlaying by remember(selected.text.id) { mutableStateOf(false) }
     LaunchedEffect(selected.text.id) {
         readerTts.stopSpeaking(); isPlaying = false; playingSentence = -1
@@ -509,7 +510,10 @@ internal fun ReaderTextScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
-                items(tokenChunks) { chunk ->
+                items(
+                    items = tokenChunks,
+                    key = { chunk -> chunk.firstOrNull()?.index ?: -1 }
+                ) { chunk ->
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(3.dp),
                         verticalArrangement = Arrangement.spacedBy(7.dp)

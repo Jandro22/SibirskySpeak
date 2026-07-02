@@ -158,13 +158,16 @@ data class Enrichment(
 /** Four-parameter Bayesian Knowledge Tracing update per concept/root. */
 object MasteryModel {
     fun update(prior: Double, success: Boolean, learn: Double = 0.12, guess: Double = 0.20, slip: Double = 0.10): Double {
-        val p = prior.coerceIn(0.001, 0.999)
+        val p = prior.takeIf(Double::isFinite)?.coerceIn(0.001, 0.999) ?: 0.5
+        val safeLearn = learn.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.12
+        val safeGuess = guess.takeIf(Double::isFinite)?.coerceIn(0.001, 0.999) ?: 0.20
+        val safeSlip = slip.takeIf(Double::isFinite)?.coerceIn(0.001, 0.999) ?: 0.10
         val posterior = if (success) {
-            p * (1.0 - slip) / (p * (1.0 - slip) + (1.0 - p) * guess)
+            p * (1.0 - safeSlip) / (p * (1.0 - safeSlip) + (1.0 - p) * safeGuess)
         } else {
-            p * slip / (p * slip + (1.0 - p) * (1.0 - guess))
+            p * safeSlip / (p * safeSlip + (1.0 - p) * (1.0 - safeGuess))
         }
-        return (posterior + (1.0 - posterior) * learn).coerceIn(0.001, 0.999)
+        return (posterior + (1.0 - posterior) * safeLearn).coerceIn(0.001, 0.999)
     }
 }
 
@@ -175,6 +178,8 @@ class ContextualBandit(private val dimensions: Int, private val alpha: Double = 
     data class Snapshot(val action: String, val pulls: Int, val reward: DoubleArray, val precision: DoubleArray)
     private val arms = linkedMapOf<String, Arm>()
 
+    init { require(dimensions > 0) { "dimensions must be positive" } }
+
     fun choose(context: DoubleArray, actions: Collection<String>): String? = actions.maxByOrNull { action ->
         score(action, context)
     }
@@ -182,16 +187,20 @@ class ContextualBandit(private val dimensions: Int, private val alpha: Double = 
     fun score(action: String, context: DoubleArray): Double {
         val arm = arms.getOrPut(action) { Arm(reward = DoubleArray(dimensions), precision = DoubleArray(dimensions) { 1.0 }) }
         return context.indices.take(dimensions).sumOf { i ->
-            val mean = arm.reward[i] / arm.precision[i]
-            context[i] * mean + alpha * abs(context[i]) / sqrt(arm.precision[i])
+            val x = context[i].takeIf(Double::isFinite) ?: 0.0
+            val precision = arm.precision[i].takeIf { it.isFinite() && it > 0.0 } ?: 1.0
+            val mean = (arm.reward[i].takeIf(Double::isFinite) ?: 0.0) / precision
+            x * mean + alpha.coerceAtLeast(0.0) * abs(x) / sqrt(precision)
         }
     }
 
     fun update(action: String, context: DoubleArray, reward: Double) {
         val arm = arms.getOrPut(action) { Arm(reward = DoubleArray(dimensions), precision = DoubleArray(dimensions) { 1.0 }) }
         context.indices.take(dimensions).forEach { i ->
-            arm.precision[i] += context[i] * context[i]
-            arm.reward[i] += context[i] * reward
+            val x = context[i].takeIf(Double::isFinite) ?: 0.0
+            val safeReward = reward.takeIf(Double::isFinite) ?: 0.0
+            arm.precision[i] += x * x
+            arm.reward[i] += x * safeReward
         }
         arm.pulls++
     }
@@ -203,22 +212,28 @@ class ContextualBandit(private val dimensions: Int, private val alpha: Double = 
     fun restore(states: Collection<Snapshot>) {
         arms.clear()
         states.forEach { snapshot ->
-            arms[snapshot.action] = Arm(
-                pulls = snapshot.pulls,
-                reward = snapshot.reward.copyOf(),
-                precision = snapshot.precision.copyOf()
-            )
+            val reward = DoubleArray(dimensions) { i -> snapshot.reward.getOrNull(i)?.takeIf(Double::isFinite) ?: 0.0 }
+            val precision = DoubleArray(dimensions) { i -> snapshot.precision.getOrNull(i)?.takeIf { it.isFinite() && it > 0.0 } ?: 1.0 }
+            arms[snapshot.action] = Arm(snapshot.pulls.coerceAtLeast(0), reward, precision)
         }
     }
 }
 
 /** Closed-form review intensity inspired by the Memorize/Hawkes control policy. */
 object ReviewControl {
-    fun intensity(retrievability: Double, reviewCost: Double = 1.0, forgettingCost: Double = 4.0): Double =
-        sqrt((forgettingCost / reviewCost).coerceAtLeast(0.0)) * (1.0 - retrievability.coerceIn(0.0, 1.0))
+    fun intensity(retrievability: Double, reviewCost: Double = 1.0, forgettingCost: Double = 4.0): Double {
+        val recall = retrievability.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.5
+        val cost = reviewCost.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
+        val loss = forgettingCost.takeIf { it.isFinite() && it >= 0.0 } ?: 4.0
+        return sqrt(loss / cost) * (1.0 - recall)
+    }
 
     fun optimalRetention(reviewBudgetPerCard: Double): Double =
-        (1.0 - reviewBudgetPerCard.coerceAtLeast(0.0) / 2.0).coerceIn(0.85, 0.90)
+        // More available review budget can sustain a higher recall target. The old
+        // `1 - budget/2` relation was inverted: it demanded 90% under scarcity and
+        // relaxed to 85% when capacity was plentiful.
+        (0.85 + (reviewBudgetPerCard.takeIf(Double::isFinite)?.coerceAtLeast(0.0) ?: 0.0) * 0.25)
+            .coerceIn(0.85, 0.90)
 }
 
 /** A "hard" productive card (recall/produce/listen) vs. an easy receptive one, used by
@@ -257,27 +272,35 @@ object BlueprintBuilder {
         recentAccuracy: Double,
         mode: SessionMode = SessionMode.FULL,
         successProbability: ((Card) -> Double)? = null,
-        decay: Double = 0.1542
+        decay: Double = FsrsScheduler.decayOf(FsrsScheduler.DEFAULT_WEIGHTS)
     ): SessionBlueprint {
-        val target = desiredRetention.coerceIn(0.85, 0.90)
+        val target = desiredRetention.takeIf(Double::isFinite)?.coerceIn(0.85, 0.90) ?: 0.88
+        val safeCapacity = capacity.coerceAtLeast(0)
+        val safeNewCap = dailyNewCap.coerceAtLeast(0)
+        val safeAccuracy = recentAccuracy.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.85
         val risks = cards.filter { it.state != CardState.NEW && it.state != CardState.GRADUATED }.mapNotNull { card ->
             val elapsed = ((now - (card.lastReview ?: now)).coerceAtLeast(0) / DAY_MS)
             val rNow = FsrsScheduler.retrievabilityOf(elapsed, card.stability, decay)
             val rTonight = FsrsScheduler.retrievabilityOf(elapsed + 1.0, card.stability, decay)
-            val unified = successProbability?.invoke(card) ?: rNow
+            val unified = successProbability?.invoke(card)?.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: rNow
             card.takeIf { unified < target || rTonight < target }
         }.sortedBy { card ->
             val elapsed = ((now - (card.lastReview ?: now)).coerceAtLeast(0) / DAY_MS)
-            successProbability?.invoke(card) ?: FsrsScheduler.retrievabilityOf(elapsed, card.stability, decay)
+            successProbability?.invoke(card)?.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0)
+                ?: FsrsScheduler.retrievabilityOf(elapsed, card.stability, decay)
         }
-        val hardCapacity = when (mode) { SessionMode.QUICK -> risks.size; SessionMode.FULL -> capacity; SessionMode.STRETCH -> capacity + max(3, capacity / 4) }
+        val hardCapacity = when (mode) {
+            SessionMode.QUICK -> risks.size
+            SessionMode.FULL -> safeCapacity
+            SessionMode.STRETCH -> (safeCapacity.toLong() + max(3, safeCapacity / 4)).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        }
             .coerceAtLeast(0)
         val reviews = minOf(risks.size, hardCapacity)
         val adaptiveNew = when {
             mode == SessionMode.QUICK || backlog -> 0
-            recentAccuracy < 0.75 -> dailyNewCap / 2
-            recentAccuracy > 0.90 && mode == SessionMode.STRETCH -> dailyNewCap + 3
-            else -> dailyNewCap
+            safeAccuracy < 0.75 -> safeNewCap / 2
+            safeAccuracy > 0.90 && mode == SessionMode.STRETCH -> safeNewCap.toLong().plus(3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            else -> safeNewCap
         }.coerceAtMost((hardCapacity - reviews).coerceAtLeast(0))
         val total = reviews + adaptiveNew
         return SessionBlueprint(
@@ -287,7 +310,11 @@ object BlueprintBuilder {
             newBudget = adaptiveNew,
             warmUpCount = minOf(3, max(0, total / 8)),
             coolDownCount = if (total > 2) 1 else 0,
-            readingInsertions = if (total >= 6) listOf(total / 2, total) else listOf(total),
+            readingInsertions = when {
+                total <= 0 -> emptyList()
+                total >= 6 -> listOf(total / 2, total)
+                else -> listOf(total)
+            },
             targetRetention = target
         )
     }
@@ -299,6 +326,7 @@ data class LiveSessionState(
     val recentNoteIds: List<Long> = emptyList(),
     val lapsedShownAt: Map<Long, Int> = emptyMap(),
     val introducedConcepts: Set<String> = emptySet(),
+    val recentCardTypes: List<CardType> = emptyList(),
     // Whether each of the most-recently-shown cards was a "hard" productive card, so
     // the scorer can actually alternate hard/easy. Last element = previous card.
     val recentHard: List<Boolean> = emptyList()
@@ -324,8 +352,10 @@ object NextCardSelector {
         productionRatio: Double = 0.25,
         successProbability: (ReviewPrompt) -> Double = { prompt ->
             val elapsed = ((now - (prompt.card.lastReview ?: now)).coerceAtLeast(0) / 86_400_000.0)
-            if (prompt.card.state == CardState.NEW) 1.0 else FsrsScheduler.retrievabilityOf(elapsed, prompt.card.stability, 0.1542)
+            if (prompt.card.state == CardState.NEW) 1.0 else FsrsScheduler.retrievabilityOf(elapsed, prompt.card.stability, FsrsScheduler.decayOf(FsrsScheduler.DEFAULT_WEIGHTS))
         },
+        itemUncertainty: (ReviewPrompt) -> Double = { TrueSkill.SIGMA0 },
+        uncertaintyWeight: Double = 0.18,
         policyBias: (ReviewPrompt) -> Double = { 0.0 }
     ): ReviewPrompt? {
         val phase = when {
@@ -333,14 +363,19 @@ object NextCardSelector {
             live.shown >= blueprint.totalBudget - blueprint.coolDownCount -> SessionPhase.COOL_DOWN
             else -> SessionPhase.CORE
         }
-        val eligible = pool.filter { prompt ->
-            prompt.note.id !in live.recentNoteIds.takeLast(1) &&
-                (prompt.card.gramConcept == null || prompt.card.cardType == CardType.LESSON || prompt.card.gramConcept in live.introducedConcepts) &&
+        val prerequisiteSafe = pool.filter { prompt ->
+            (prompt.card.gramConcept == null || prompt.card.cardType == CardType.LESSON || prompt.card.gramConcept in live.introducedConcepts) &&
                 (live.lapsedShownAt[prompt.card.id]?.let { live.shown - it >= recoveryGap(live.flow) } != false) &&
                 !(live.flow == FlowState.STRUGGLING && prompt.card.state == CardState.NEW)
         }
+        // Prefer note spacing, but do not end a session merely because the only
+        // prerequisite-safe work happens to be a sibling of the previous card.
+        val spaced = prerequisiteSafe.filter { it.note.id !in live.recentNoteIds.takeLast(1) }
+        val eligible = spaced.ifEmpty { prerequisiteSafe }
         return eligible.maxByOrNull { prompt ->
-            score(prompt, phase, blueprint, live, now, confusableNoteIds, targetDifficulty, productionRatio, successProbability(prompt)) + policyBias(prompt)
+            val success = successProbability(prompt)
+            score(prompt, phase, blueprint, live, confusableNoteIds, targetDifficulty, productionRatio, success) +
+                UncertaintyAwareSelection.utility(success, itemUncertainty(prompt), targetDifficulty, uncertaintyWeight) + policyBias(prompt)
         }
     }
 
@@ -349,7 +384,6 @@ object NextCardSelector {
         phase: SessionPhase,
         blueprint: SessionBlueprint,
         live: LiveSessionState,
-        now: Long,
         pairs: Set<Pair<Long, Long>>,
         targetDifficulty: Double,
         productionRatio: Double,
@@ -367,7 +401,11 @@ object NextCardSelector {
             hard -> -0.35
             else -> 0.35
         }
-        val difficultyFit = (1.0 - abs(card.difficulty.coerceIn(0.0, 1.0) - targetDifficulty)).coerceIn(0.0, 1.0)
+        // Pace.targetDifficulty is the desired probability of success, not FSRS's
+        // intrinsic 1..10 difficulty field. Compare like with like so challenge is
+        // personalized to the learner rather than blindly favoring hard items.
+        val desiredSuccess = targetDifficulty.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.85
+        val difficultyFit = (1.0 - abs(retention - desiredSuccess)).coerceIn(0.0, 1.0)
         val productionTilt = if (hard) productionRatio else (1.0 - productionRatio) * 0.15
         val arc = when (phase) {
             SessionPhase.WARM_UP -> if (!hard && card.state != CardState.NEW) 1.5 else -0.5
@@ -375,7 +413,14 @@ object NextCardSelector {
             SessionPhase.COOL_DOWN -> if (!hard || CognateDetector.isCognate(prompt.note.russian, prompt.note.translation)) 2.0 else -1.0
         }
         val contrast = live.recentNoteIds.lastOrNull()?.let { last -> if ((last to prompt.note.id) in pairs || (prompt.note.id to last) in pairs) 0.5 else 0.0 } ?: 0.0
-        return 2.2 * urgency + 0.5 * difficultyFit + productionTilt + load + arc + contrast + if (prompt.note.id !in live.recentNoteIds.takeLast(3)) 0.4 else 0.0
+        val formatRotation = when {
+            live.recentCardTypes.lastOrNull() == card.cardType -> -0.40
+            card.cardType !in live.recentCardTypes.takeLast(5) -> 0.25
+            else -> 0.0
+        }
+        val pedagogy = CardPedagogy.selectorUtility(prompt)
+        return 2.2 * urgency + 0.5 * difficultyFit + productionTilt + load + arc + contrast + formatRotation + pedagogy +
+            if (prompt.note.id !in live.recentNoteIds.takeLast(3)) 0.4 else 0.0
     }
 
     fun recoveryGap(flow: FlowState): Int = when (flow) { FlowState.STRUGGLING -> 4; FlowState.STEADY -> 6; FlowState.FLOW -> 8 }
@@ -390,7 +435,7 @@ data class MpcInputs(
     val debtLimit: Double = 0.35,
     val pReturn: Double = 0.8,
     val stretchAlreadyOffered: Boolean = false,
-    val minimumEvidenceCards: Int = 4
+    val minimumEvidenceCards: Int = 6
 )
 
 object SessionMpcController {
@@ -405,13 +450,17 @@ object SessionMpcController {
             accuracy > inputs.targetAccuracy && speedHolding && inputs.fatigue < 0.5 &&
             inputs.debtRatio < inputs.debtLimit && inputs.pReturn >= 0.80
 
-        val cardUtility = 0.9 + if (live.flow == FlowState.FLOW) 0.25 else 0.0 - 0.8 * inputs.fatigue
-        val stopUtility = 0.35 + 1.5 * inputs.fatigue + 2.0 * (inputs.targetAccuracy - accuracy).coerceAtLeast(0.0) +
-            if (live.shown >= 4) 0.15 else -0.5
+        // Stopping is a safety action, not a reaction to one miss. Require either
+        // severe measured fatigue or a full four-card window with sustained struggle.
+        // Review debt must never be a reason to discard due reviews; it only blocks
+        // adding/stretching work above.
+        val severeFatigue = live.shown >= 4 && inputs.fatigue >= 0.80
+        val sustainedStruggle = recent.size >= 4 && accuracy <= 0.50 &&
+            (inputs.fatigue >= 0.45 || !speedHolding)
         val stretchUtility = if (canStretch) 1.25 + 0.8 * (accuracy - inputs.targetAccuracy) - 0.4 * inputs.fatigue else Double.NEGATIVE_INFINITY
         return when {
-            stopUtility > maxOf(cardUtility, stretchUtility) -> MpcAction.STOP
-            stretchUtility > cardUtility -> MpcAction.STRETCH
+            severeFatigue || sustainedStruggle -> MpcAction.STOP
+            stretchUtility > 0.9 -> MpcAction.STRETCH
             else -> MpcAction.CARD
         }
     }
@@ -420,7 +469,7 @@ object SessionMpcController {
 /** Chains high-coverage corpus sentences by lexical overlap into a narrow read. */
 object NarrowReadingGenerator {
     fun chain(candidates: List<MinedExample>, limit: Int = 5): List<MinedExample> {
-        if (candidates.isEmpty()) return emptyList()
+        if (candidates.isEmpty() || limit <= 0) return emptyList()
         val remaining = candidates.sortedByDescending { it.score }.toMutableList()
         val result = mutableListOf(remaining.removeAt(0))
         while (remaining.isNotEmpty() && result.size < limit) {
@@ -437,13 +486,14 @@ object NarrowReadingGenerator {
 /** Seven-day MPC-lite: deterministic rollouts are deliberately bounded for phones. */
 object SessionLookahead {
     data class Choice(val newCards: Int, val projectedReviews: Int, val utility: Double)
-    fun choose(cap: Int, dueForecast: List<Int>, retention: Double): Choice = (0..cap).map { added ->
-        val projectedReviews = dueForecast.sum() + (added * (1.0 + (1.0 - retention) * 3.0)).toInt()
+    fun choose(cap: Int, dueForecast: List<Int>, retention: Double): Choice = (0..cap.coerceAtLeast(0)).map { added ->
+        val safeRetention = retention.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.85
+        val projectedReviews = dueForecast.sumOf { it.coerceAtLeast(0) } + (added * (1.0 + (1.0 - safeRetention) * 3.0)).toInt()
         // Concave benefit (diminishing returns on cramming more new cards into one day)
         // minus the linear future-review load each adds. The old form used a linear
         // benefit and a tiny 0.06 cost, so utility rose monotonically and it always
         // returned `cap` — a no-op. ln() gives a genuine interior optimum.
-        val utility = retention * ln(1.0 + added) - projectedReviews * 0.02
+        val utility = safeRetention * ln(1.0 + added) - projectedReviews * 0.02
         Choice(added, projectedReviews, utility)
     }.maxBy { it.utility }
 }

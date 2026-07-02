@@ -54,7 +54,7 @@ class ReviewViewModelTest {
     private suspend fun caseFillOnlyFixture(lemma: String, freqRank: Int): Pair<RepoFixture, Card> {
         val fixture = RepoFixture()
         fixture.repository.importJsonLines(
-            """{"russian":"войска","lemma":"$lemma","pos":"noun","translation":"troops","gender":"PL","declensionJson":{"NOM_PL":"войска","GEN_PL":"войск"},"domainFreqRank":$freqRank}"""
+            """{"russian":"войска","lemma":"$lemma","pos":"noun","translation":"troops","gender":"PL","declensionJson":{"NOM_PL":"войска","GEN_PL":"войск"},"domainFreqRank":$freqRank,"exampleSentence":"Здесь нет войск."}"""
         )
         val note = fixture.notes.getByLemma(lemma)!!
         fixture.notes.update(note.copy(encounterCount = 5))

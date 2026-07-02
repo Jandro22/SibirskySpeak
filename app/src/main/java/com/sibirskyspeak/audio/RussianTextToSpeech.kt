@@ -32,6 +32,9 @@ class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
     fun speak(text: String) {
         val cleaned = text.cleanForSpeech()
         if (cleaned.isBlank()) return
+        // A normal utterance interrupts reader sequence mode. Resolve its callbacks
+        // immediately so UI highlighting cannot remain stuck on an old sentence.
+        if (sequenceOnDone != null) finishSequence()
         if (!ready) {
             pendingSpeech = cleaned
             return
@@ -60,7 +63,8 @@ class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
             return
         }
         if (!ready) {
-            // Engine not ready yet: fall back to a single flush of the joined text.
+            // Queue the joined text. There is no reliable sentence-boundary callback
+            // before TTS initialization, so finish the visual sequence immediately.
             speak(cleaned.joinToString(" "))
             onDone()
             return
@@ -84,14 +88,16 @@ class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
                 mainHandler.post { finishSequence() }
             }
         })
+        var firstQueued = true
         cleaned.forEachIndexed { index, sentence ->
             if (sentence.isBlank()) return@forEachIndexed
             engine?.speak(
                 sentence,
-                if (index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
+                if (firstQueued) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
                 null,
                 index.toString()
             )
+            firstQueued = false
         }
     }
 
@@ -110,6 +116,8 @@ class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
     }
 
     fun shutdown() {
+        finishSequence()
+        mainHandler.removeCallbacksAndMessages(null)
         engine?.shutdown()
         engine = null
         ready = false

@@ -19,7 +19,6 @@ class GenerativePaceWorldModelTest {
             abilityMinusDifficulty = 0.0,
             memoryProbit = 0.5,
             masteryCentered = 0.2,
-            formatFit = 0.0,
             fatigue = 0.1,
             scale = 10.0
         )
@@ -79,6 +78,21 @@ class GenerativePaceWorldModelTest {
         val flow = LiveSessionState(shown = 6, recent = listOf(2_000L to true, 1_900L to true, 1_800L to true, 1_700L to true))
         assertEquals(MpcAction.STRETCH, SessionMpcController.decide(true, flow, MpcInputs(fatigue = 0.1, debtRatio = 0.1, pReturn = 0.9)))
         assertEquals(MpcAction.CARD, SessionMpcController.decide(true, flow, MpcInputs(fatigue = 0.1, debtRatio = 0.6, pReturn = 0.9)))
+
+        // Real-session regression: one miss followed by two exact answers is not
+        // enough evidence to throw away the rest of a due queue, even under debt.
+        val sparseEvidence = LiveSessionState(
+            shown = 4,
+            recent = listOf(13_436L to false, 6_119L to true, 3_578L to true)
+        )
+        assertEquals(
+            MpcAction.CARD,
+            SessionMpcController.decide(
+                true,
+                sparseEvidence,
+                MpcInputs(fatigue = 0.289, debtRatio = 0.688, debtLimit = 0.35, pReturn = 0.865)
+            )
+        )
     }
 
     @Test fun `objective performance weights correctness speed and difficulty`() {
@@ -235,6 +249,15 @@ class GenerativePaceWorldModelTest {
         assertTrue(updated.sustainableMinutes < listOf(10.0, 14.0, 9.0, 16.0).average())
     }
 
+    @Test fun `protected short stops are censored and cannot collapse capacity`() {
+        val healthy = CapacityBelief(mu = 12.0, sigma = 4.0)
+        assertEquals(healthy, CapacityModel.updateFromSession(healthy, observedMinutes = 0.7, stoppedEarly = true, fatigue = 0.29))
+
+        val poisoned = CapacityBelief(mu = 1.0, sigma = 2.0)
+        val repaired = CapacityModel.updateFromSession(poisoned, observedMinutes = 0.7, stoppedEarly = true, fatigue = 0.29)
+        assertTrue(repaired.mu >= 5.0)
+    }
+
     @Test fun `review debt decreases new budget as load rises and uses tiers`() {
         val debt = 0.6
         val sustainable = 12.0
@@ -254,7 +277,9 @@ class GenerativePaceWorldModelTest {
         )
         assertEquals(0, tired.newItemBudget)
         assertEquals(StopPolicy.EARLY_STOP, tired.stretchStopPolicy)
-        assertTrue(tired.readingInserts.isNotEmpty())
+        // No cards means there is no valid insertion position; the old [1, 1]
+        // sentinel caused a phantom checkpoint in an otherwise empty session.
+        assertTrue(tired.readingInserts.isEmpty())
         assertTrue(tired.pReturn >= 0.80)
 
         val strong = PaceController.generatePace(
@@ -300,7 +325,7 @@ class GenerativePaceWorldModelTest {
             configuredRetention = 0.90,
             hasAdaptiveSignal = true
         )
-        assertEquals(1, learned.capacity)
+        assertTrue("personal pace should steer, not erase, configured capacity", learned.capacity in 2 until cold.capacity)
         assertEquals(SessionMode.STRETCH, learned.mode)
     }
 
@@ -308,10 +333,9 @@ class GenerativePaceWorldModelTest {
         val user = Gaussian(32.0, 4.0)
         val rival = Rival.rubberBand(RivalBelief(Gaussian(10.0, 8.0)), user)
         assertTrue(Rival.isRubberBanded(rival.rating, user, tolerance = 16.0))
-        val card = Card(id = 1, noteId = 1, cardType = CardType.CASE_FILL, queue = Queue.GRAMMAR)
         val difficulty = ItemDifficulty(cardId = 1, elo = 25.0, sigma = 8.3333)
-        val weak = Rival.expectedCorrect(rival.rating, card, difficulty, learnerSkill = Gaussian(10.0, 4.0), cohortMeanSkill = 25.0)
-        val strong = Rival.expectedCorrect(rival.rating, card, difficulty, learnerSkill = Gaussian(30.0, 4.0), cohortMeanSkill = 25.0)
+        val weak = Rival.expectedCorrect(rival.rating, difficulty, learnerSkill = Gaussian(10.0, 4.0), cohortMeanSkill = 25.0)
+        val strong = Rival.expectedCorrect(rival.rating, difficulty, learnerSkill = Gaussian(30.0, 4.0), cohortMeanSkill = 25.0)
         assertTrue(weak > strong)
         assertTrue(Rival.resolve(user, rival, perfYou = 0.9, perfRival = 0.7).after.conservativeRating > user.conservativeRating)
     }

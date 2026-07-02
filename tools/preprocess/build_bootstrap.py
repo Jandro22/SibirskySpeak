@@ -378,10 +378,14 @@ def all_reader_texts():
 
 
 # Cumulative CEFR frequency benchmarks used to label the promoted course band.
-CEFR_BY_RANK = ((800, "A1"), (1500, "A2"), (2750, "B1"), (4500, "B2"))
+# Beyond the last threshold (5500, "C1") falls through to "C2" — see
+# promote_to_course. The A1-C1 hand-authored spine (a1_starter..c1_starter)
+# covers structured units at each level; this frequency tail extends the same
+# gated course into C1/C2 breadth using verified deck data, no new authorship.
+CEFR_BY_RANK = ((800, "A1"), (1500, "A2"), (2750, "B1"), (4500, "B2"), (5500, "C1"))
 
 
-def promote_to_course(general, target=4750, per_unit=40, start_unit=100):
+def promote_to_course(general, target=6500, per_unit=40, start_unit=100):
     """Promote the top-frequency reading-matrix words into the gated tier-0 course.
 
     The original frequency layer is "sorted by frequency" but not "gated by unit" —
@@ -399,7 +403,7 @@ def promote_to_course(general, target=4750, per_unit=40, start_unit=100):
         g["tier"] = 0
         g["unit"] = start_unit + i // per_unit
         rank = g.get("generalFreqRank") or 10 ** 9
-        g["cefrLevel"] = next((lvl for thresh, lvl in CEFR_BY_RANK if rank <= thresh), "C1")
+        g["cefrLevel"] = next((lvl for thresh, lvl in CEFR_BY_RANK if rank <= thresh), "C2")
     return promoted, remaining
 
 
@@ -471,7 +475,7 @@ def main():
     a1_lemmas = set()
     try:
         from curriculum_common import build_level
-        import a1_starter, a2_starter, b1_starter, b2_starter, c1_starter
+        import a1_starter, a2_starter, b1_starter, b2_starter, c1_starter, c2_starter
         seen = set()
         a1_notes = (
             build_level(a1_starter.UNITS, "A1", seen)
@@ -479,11 +483,12 @@ def main():
             + build_level(b1_starter.UNITS, "B1", seen)
             + build_level(b2_starter.UNITS, "B2", seen)
             + build_level(c1_starter.UNITS, "C1", seen)
+            + build_level(c2_starter.UNITS, "C2", seen)
         )
         a1_readers = (
             a1_starter.a1_reader_texts() + a2_starter.a2_reader_texts()
             + b1_starter.b1_reader_texts() + b2_starter.b2_reader_texts()
-            + c1_starter.c1_reader_texts()
+            + c1_starter.c1_reader_texts() + c2_starter.c2_reader_texts()
         )
         a1_lemmas = {n["lemma"] for n in a1_notes if n.get("pos") != "lesson"}
     except ImportError:

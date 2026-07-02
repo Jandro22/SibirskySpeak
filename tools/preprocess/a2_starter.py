@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""A2 curriculum (tier 0, units 11–18): builds on A1 with the future tense,
+"""A2 curriculum (tier 0, units 12–19): builds on A1 with the future tense,
 commands, reflexive verbs, comparison, modals, verbs of motion, and свой.
 Each word ships 2 example contexts.
 
@@ -12,7 +12,7 @@ from curriculum_common import build_level
 
 UNITS = [
     {
-        "unit": 11,
+        "unit": 12,
         "title": "Talking about tomorrow",
         "concept": "FUTURE",
         "nouns": [
@@ -31,7 +31,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 12,
+        "unit": 13,
         "title": "Asking and telling",
         "concept": "IMPERATIVE",
         "verbs": [
@@ -54,7 +54,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 13,
+        "unit": 14,
         "title": "Doing it to yourself",
         "concept": "REFLEXIVE",
         "verbs": [
@@ -73,9 +73,17 @@ UNITS = [
             ("ва́жный", "important", "Э́то ва́жный уро́к.", "This is an important lesson.",
              [("Э́то ва́жное де́ло.", "This is an important matter.")]),
         ],
+        "words": [
+            # себя has no nominative — only genitive/accusative (себя), dative/
+            # prepositional (себе), and instrumental (собой) — and always refers
+            # back to the subject, which is exactly what -ся verbs do to the verb
+            # itself. Natural pairing with the REFLEXIVE lesson.
+            ("себя́", "pronoun", "oneself (reflexive, refers back to the subject)", "Он лю́бит то́лько себя́.", "He only loves himself.",
+             [("Я говорю́ с собо́й.", "I talk to myself.")]),
+        ],
     },
     {
-        "unit": 14,
+        "unit": 15,
         "title": "More and less",
         "concept": "COMPARATIVE",
         "adjs": [
@@ -98,7 +106,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 15,
+        "unit": 16,
         "title": "Can, must, need",
         "concept": "MODAL",
         "verbs": [
@@ -121,7 +129,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 16,
+        "unit": 17,
         "title": "Coming and going",
         "concept": "MOTION",
         "verbs": [
@@ -148,7 +156,48 @@ UNITS = [
         ],
     },
     {
-        "unit": 17,
+        # Russian has ~14 unprefixed motion-verb pairs, each splitting into a
+        # unidirectional ("now, one trip") and multidirectional ("habitual/round
+        # trip") member, same as идти/ходить and ехать/ездить above. Only those
+        # two pairs were taught; this unit rounds out the four other common
+        # ones (carry, transport, run, fly, swim) so MOTION_PREFIX (B1) has more
+        # than one verb family to actually prefix onto.
+        "unit": 18,
+        "title": "More ways to move",
+        "concept": None,
+        "verbs": [
+            ("нести́", "to carry (on foot, now)", "Я несу́ кни́гу в шко́лу.", "I'm carrying a book to school.", "IPF", "activity", None,
+             [("Он несёт су́мку в шко́лу.", "He's carrying a bag to school.")]),
+            ("носи́ть", "to carry (on foot, often)", "Он ча́сто но́сит кни́ги в шко́лу.", "He often carries books to school.", "IPF", "activity", None,
+             None),
+            ("везти́", "to transport (by vehicle, now)", "Я везу́ дру́га в го́род.", "I'm driving a friend to the city.", "IPF", "activity", None,
+             None),
+            ("вози́ть", "to transport (by vehicle, often)", "Она́ ча́сто во́зит кни́ги в го́род.", "She often transports books to the city.", "IPF", "activity", None,
+             None),
+            ("бежа́ть", "to run (on foot, now)", "Я бегу́ в парк.", "I'm running to the park.", "IPF", "activity", None,
+             None),
+            ("бе́гать", "to run (often)", "Он ча́сто бе́гает в па́рке.", "He often runs in the park.", "IPF", "activity", None,
+             None),
+            ("лете́ть", "to fly (now)", "Самолёт лети́т в го́род.", "The plane is flying to the city.", "IPF", "activity", None,
+             None),
+            ("лета́ть", "to fly (often)", "Она́ ча́сто лета́ет в го́род.", "She often flies to the city.", "IPF", "activity", None,
+             None),
+            ("плыть", "to swim, to sail (now)", "Он плывёт по реке́.", "He is swimming along the river.", "IPF", "activity", None,
+             None),
+            ("пла́вать", "to swim (often)", "Она́ ча́сто пла́вает в реке́.", "She often swims in the river.", "IPF", "activity", None,
+             None),
+        ],
+        "nouns": [
+            ("самолёт", "m_hard", "M", False, "airplane", "Самолёт лети́т в го́род.", "The plane is flying to the city.", None,
+             None),
+            ("река́", "f_a", "F", False, "river", "Он плывёт по реке́.", "He is swimming along the river.", {"NOM_PL": "реки", "ACC_PL": "реки", "GEN_PL": "рек"},
+             None),
+            ("су́мка", "f_a", "F", False, "bag", "Он несёт су́мку в шко́лу.", "He's carrying a bag to school.", {"GEN_PL": "сумок"},
+             None),
+        ],
+    },
+    {
+        "unit": 19,
         "title": "One's own things",
         "concept": "POSSESSIVE_SVOJ",
         "nouns": [
@@ -166,7 +215,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 18,
+        "unit": 20,
         "title": "Days and weeks",
         "concept": None,
         "nouns": [
@@ -212,6 +261,18 @@ def a2_reader_texts():
             "body": "Я е́ду в го́род. Снача́ла я иду́ в магази́н. "
                     "«Скажи́, пожа́луйста, где хлеб?» Я покупа́ю хлеб и газе́ту. "
                     "По́сле я помога́ю сестре́ и чита́ю письмо́.",
+        },
+        {
+            "title": "A2 · В парке",
+            "source": "graded:a2",
+            "body": "Ка́ждый день я бегу́ в парк. Мой друг то́же ча́сто бе́гает в па́рке. "
+                    "По́сле па́рка мы идём в шко́лу.",
+        },
+        {
+            "title": "A2 · Хоро́ший сосе́д",
+            "source": "graded:a2",
+            "body": "У меня́ есть сосе́д. Он ча́сто помога́ет мне. "
+                    "Вчера́ он забы́л свою́ кни́гу до́ма. Я нёс её в шко́лу.",
         },
     ]
 

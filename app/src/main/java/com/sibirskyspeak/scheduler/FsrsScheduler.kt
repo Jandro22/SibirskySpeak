@@ -33,10 +33,12 @@ class FsrsScheduler(
 ) : Scheduler {
     // Snapshot the active weights once per public call so a refit mid-call can't make
     // the stability/difficulty/interval math internally inconsistent.
-    private var weights: DoubleArray = weightsProvider()
+    init { require(maximumIntervalDays >= 1) { "maximumIntervalDays must be positive" } }
+
+    private var weights: DoubleArray = sanitizeWeights(weightsProvider())
 
     override fun review(card: Card, rating: Rating, now: Long): Pair<Card, ReviewLog> {
-        weights = weightsProvider()
+        weights = sanitizeWeights(weightsProvider())
         val elapsedDays = elapsedDays(card, now)
         val reviewed = applyQueueConstraints(nextCard(card, rating, now, elapsedDays, fuzzInterval = enableFuzz))
         val log = ReviewLog(
@@ -53,7 +55,7 @@ class FsrsScheduler(
     }
 
     override fun preview(card: Card, now: Long): Map<Rating, Int> {
-        weights = weightsProvider()
+        weights = sanitizeWeights(weightsProvider())
         return Rating.entries.associateWith { rating ->
             applyQueueConstraints(nextCard(card, rating, now, elapsedDays(card, now), fuzzInterval = false)).scheduledDays
         }
@@ -142,13 +144,13 @@ class FsrsScheduler(
             exp(weights[14] * (1.0 - retrievability))
 
     private fun interval(stability: Double): Int {
-        val desiredRetention = desiredRetentionProvider().coerceIn(0.80, 0.97)
-        val modifier = intervalModifierProvider().coerceIn(0.5, 2.0)
+        val desiredRetention = desiredRetentionProvider().takeIf(Double::isFinite)?.coerceIn(0.80, 0.97) ?: 0.9
+        val modifier = intervalModifierProvider().takeIf(Double::isFinite)?.coerceIn(0.5, 2.0) ?: 1.0
         val raw = stability / factor() * (desiredRetention.pow(-1.0 / decay()) - 1.0) * modifier
         return (if (raw.isFinite()) raw.roundToInt() else 1).coerceIn(1, maximumIntervalDays)
     }
 
-    private fun decay(): Double = weights[20]
+    private fun decay(): Double = sanitizeDecay(weights[20])
 
     private fun factor(): Double = 0.9.pow(-1.0 / decay()) - 1.0
 
@@ -234,8 +236,12 @@ class FsrsScheduler(
             difficulty = KNOWN_DIFFICULTY,
             elapsedDays = 0,
             scheduledDays = KNOWN_STABILITY_DAYS.toInt(),
-            reps = maxOf(card.reps, 1),
-            consecutiveCorrect = maxOf(card.consecutiveCorrect, 1),
+            // A word declared "known" must read as matured recognition everywhere else
+            // in the app checks it (isAdvancedFacetBeforeRecognitionMatures and its SQL
+            // twin require reps >= 3, consecutiveCorrect >= 2) — otherwise a note graduated
+            // this way can never unlock its own production facets or grammar drills.
+            reps = maxOf(card.reps, 3),
+            consecutiveCorrect = maxOf(card.consecutiveCorrect, 3),
             lastReview = now,
             due = due
         )
@@ -253,10 +259,10 @@ class FsrsScheduler(
 
         /** Forgetting-curve decay for a given weight vector (falls back to stock). */
         fun decayOf(weights: DoubleArray): Double =
-            weights.getOrElse(DECAY_INDEX) { DEFAULT_WEIGHTS[DECAY_INDEX] }
+            sanitizeDecay(weights.getOrElse(DECAY_INDEX) { DEFAULT_WEIGHTS[DECAY_INDEX] })
 
         /** The FSRS time-scaling factor for a given decay: `0.9^(-1/decay) - 1`. */
-        fun factorOf(decay: Double): Double = 0.9.pow(-1.0 / decay) - 1.0
+        fun factorOf(decay: Double): Double = 0.9.pow(-1.0 / sanitizeDecay(decay)) - 1.0
 
         /**
          * Modeled probability of recall at [elapsedDays] for a card of [stability],
@@ -266,7 +272,16 @@ class FsrsScheduler(
          */
         fun retrievabilityOf(elapsedDays: Double, stability: Double, decay: Double): Double {
             if (stability <= 0.0 || !stability.isFinite()) return 0.0
-            return (1.0 + factorOf(decay) * elapsedDays / stability).pow(-decay)
+            val safeDecay = sanitizeDecay(decay)
+            val elapsed = elapsedDays.takeIf(Double::isFinite)?.coerceAtLeast(0.0) ?: 0.0
+            return (1.0 + factorOf(safeDecay) * elapsed / stability).pow(-safeDecay).coerceIn(0.0, 1.0)
+        }
+
+        private fun sanitizeDecay(decay: Double): Double =
+            decay.takeIf { it.isFinite() && it in 0.05..1.0 } ?: DEFAULT_WEIGHTS[DECAY_INDEX]
+
+        private fun sanitizeWeights(candidate: DoubleArray): DoubleArray = DEFAULT_WEIGHTS.copyOf().also { safe ->
+            for (i in safe.indices) candidate.getOrNull(i)?.takeIf(Double::isFinite)?.let { safe[i] = it }
         }
     }
 }

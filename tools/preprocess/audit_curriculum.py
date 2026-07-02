@@ -13,6 +13,7 @@ from a2_starter import a2_rows
 from b1_starter import b1_rows
 from b2_starter import b2_rows
 from c1_starter import c1_rows
+from c2_starter import c2_rows
 from russian_morph import strip_stress
 from test_curriculum import CLOSED_CLASS, _surface_forms, _example_pairs
 
@@ -30,7 +31,7 @@ def _norm(text):
 
 def all_rows():
     return sorted(
-        a1_rows() + a2_rows() + b1_rows() + b2_rows() + c1_rows(),
+        a1_rows() + a2_rows() + b1_rows() + b2_rows() + c1_rows() + c2_rows(),
         key=lambda n: n["unit"],
     )
 

@@ -1,5 +1,7 @@
 package com.sibirskyspeak.review
 
+import com.sibirskyspeak.reviewContext
+import com.sibirskyspeak.speechText
 import com.sibirskyspeak.data.Card
 import com.sibirskyspeak.data.CardType
 import com.sibirskyspeak.data.CardState
@@ -205,7 +207,7 @@ class ReviewPromptTest {
 
         assertTrue(feedback!!.contains("Cue: ongoing process."))
         assertTrue(feedback.contains("does not fit this context"))
-        assertTrue(feedback.contains("imperfective fits"))
+        assertTrue(feedback.contains("imperfective is the intended default"))
     }
 
     @Test
@@ -316,10 +318,9 @@ class ReviewPromptTest {
 
         val prompt = buildPrompt(card, note, emptyMap())
 
-        assertEquals(
-            "You made dative singular; this prompt asks for genitive singular.",
-            diagnosticFeedbackFor(prompt, "state_dat")
-        )
+        val feedback = diagnosticFeedbackFor(prompt, "state_dat").orEmpty()
+        assertTrue(feedback.contains("You made dative singular"))
+        assertTrue(feedback.contains("state → state_gen"))
     }
 
     @Test
@@ -344,10 +345,36 @@ class ReviewPromptTest {
 
         val prompt = buildPrompt(card, note, emptyMap())
 
-        assertEquals(
-            "You left it in the dictionary/nominative form; this prompt asks for genitive singular.",
-            diagnosticFeedbackFor(prompt, "state")
+        val feedback = diagnosticFeedbackFor(prompt, "state").orEmpty()
+        assertTrue(feedback.contains("dictionary/nominative form"))
+        assertTrue(feedback.contains("Use state_gen"))
+    }
+
+    @Test
+    fun earlyCaseDrillUsesCompactEndingsAndLaterRequiresProduction() {
+        val note = Note(
+            id = 1,
+            russian = "дом",
+            lemma = "дом",
+            translation = "house",
+            partOfSpeech = "noun",
+            gender = "M",
+            declensionJson = """{"NOM_SG":"дом","GEN_SG":"дома","DAT_SG":"дому","INS_SG":"домом","PREP_SG":"доме"}""",
+            exampleSentence = "Нет дома."
         )
+        fun prompt(reps: Int) = buildPrompt(
+            Card(noteId = 1, cardType = CardType.CASE_FILL, queue = Queue.GRAMMAR, gramCase = "GEN", gramNumber = "SG", reps = reps),
+            note,
+            emptyMap()
+        )
+
+        val guided = prompt(0)
+        assertEquals(AnswerMode.CHOICE, guided.answerMode)
+        assertEquals(4, guided.choices.size)
+        assertEquals("-а", guided.choiceLabels["дома"])
+        assertTrue(guided.prompt.contains("дом___"))
+
+        assertEquals(AnswerMode.RUSSIAN_TYPED, prompt(2).answerMode)
     }
 
     @Test
@@ -444,10 +471,9 @@ class ReviewPromptTest {
 
         val prompt = buildPrompt(card, note, emptyMap())
 
-        assertEquals(
-            "You made present 3rd person singular; this prompt asks for present 1st person singular.",
-            diagnosticFeedbackFor(prompt, "\u0447\u0438\u0442\u0430\u0435\u0442")
-        )
+        val feedback = diagnosticFeedbackFor(prompt, "\u0447\u0438\u0442\u0430\u0435\u0442").orEmpty()
+        assertTrue(feedback.contains("present 3rd person singular"))
+        assertTrue(feedback.contains("\u0447\u0438\u0442\u0430\u0442\u044c → \u0447\u0438\u0442\u0430\u044e"))
     }
 
     @Test
@@ -469,10 +495,34 @@ class ReviewPromptTest {
 
         val prompt = buildPrompt(card, note, emptyMap())
 
-        assertEquals(
-            "You used the infinitive/dictionary form; this prompt asks for present 1st person singular.",
-            diagnosticFeedbackFor(prompt, "\u0447\u0438\u0442\u0430\u0442\u044c")
+        val feedback = diagnosticFeedbackFor(prompt, "\u0447\u0438\u0442\u0430\u0442\u044c").orEmpty()
+        assertTrue(feedback.contains("infinitive/dictionary form"))
+        assertTrue(feedback.contains("Use \u0447\u0438\u0442\u0430\u044e"))
+    }
+
+    @Test
+    fun earlyVerbDrillUsesEndingsAndLaterRequiresProduction() {
+        val note = Note(
+            id = 1,
+            russian = "читать",
+            lemma = "читать",
+            translation = "to read",
+            partOfSpeech = "verb",
+            declensionJson = """{"verbForms":{"PRES_1SG":"читаю","PRES_2SG":"читаешь","PRES_3SG":"читает","PRES_1PL":"читаем"}}"""
         )
+        fun prompt(reps: Int) = buildPrompt(
+            Card(noteId = 1, cardType = CardType.VERB_FORM, queue = Queue.GRAMMAR, gramContextCue = "PRES_1SG", reps = reps),
+            note,
+            emptyMap()
+        )
+
+        val guided = prompt(0)
+        assertEquals(AnswerMode.CHOICE, guided.answerMode)
+        assertEquals(4, guided.choices.size)
+        assertEquals("-ю", guided.choiceLabels["читаю"])
+        assertTrue(guided.prompt.contains("чита___"))
+
+        assertEquals(AnswerMode.RUSSIAN_TYPED, prompt(2).answerMode)
     }
 
     @Test
@@ -600,7 +650,8 @@ class ReviewPromptTest {
         val prompt = buildPrompt(card, note, emptyMap())
 
         assertTrue(prompt.prompt.contains("\u0421\u043e\u0431\u0435\u0440\u0438\u0442\u0435"))
-        assertTrue(prompt.prompt.contains("\u043c\u043e\u043b\u043e\u043a\u043e / \u043f\u044c\u044e / \u042f"))
+        val bank = prompt.prompt.substringAfter('\n').split(" / ").toSet()
+        assertEquals(setOf("\u042f", "\u043f\u044c\u044e", "\u043c\u043e\u043b\u043e\u043a\u043e"), bank)
         assertFalse(prompt.prompt.contains("I drink milk"))
         assertEquals("\u042f \u043f\u044c\u044e \u043c\u043e\u043b\u043e\u043a\u043e.", prompt.expectedAnswer)
     }
@@ -754,6 +805,107 @@ class ReviewPromptTest {
     }
 
     @Test
+    fun adjectiveAgreementDoesNotShowAnUnrelatedExampleTranslation() {
+        val note = Note(
+            id = 1,
+            russian = "стратегический",
+            lemma = "стратегический",
+            translation = "strategic",
+            partOfSpeech = "adjective",
+            declensionJson = """{"NOM_SG":"стратегический","PL_NOM":"стратегические"}""",
+            exampleSentence = "Участники отметили стратегическую роль.",
+            exampleTranslation = "The participants noted the strategic role."
+        )
+        val card = Card(
+            noteId = 1,
+            cardType = CardType.ADJ_AGREE,
+            queue = Queue.GRAMMAR,
+            gramContextCue = "PL"
+        )
+
+        val prompt = buildPrompt(card, note, emptyMap())
+
+        assertEquals("стратегические", prompt.expectedAnswer)
+        assertTrue(prompt.prompt.contains("___ дома"))
+        assertEquals(null, reviewContext(prompt))
+    }
+
+    @Test
+    fun adjectiveAgreementRepairsLegacyPossessiveIyForms() {
+        val note = Note(
+            id = 1,
+            russian = "собачий",
+            lemma = "собачий",
+            translation = "dog's / canine",
+            partOfSpeech = "adjective",
+            declensionJson = """{"NOM_SG":"собачий","FEM_NOM":"собачая","NEUT_NOM":"собачее","PL_NOM":"собачие"}"""
+        )
+
+        fun answer(cue: String) = buildPrompt(
+            Card(noteId = 1, cardType = CardType.ADJ_AGREE, queue = Queue.GRAMMAR, gramContextCue = cue),
+            note,
+            emptyMap()
+        ).expectedAnswer
+
+        assertEquals("собачья", answer("FEM"))
+        assertEquals("собачье", answer("NEUT"))
+        assertEquals("собачьи", answer("PL"))
+    }
+
+    @Test
+    fun earlyAgreementUsesFourEndingChoicesThenGraduatesToProduction() {
+        val note = Note(
+            id = 1,
+            russian = "стратегический",
+            lemma = "стратегический",
+            translation = "strategic",
+            partOfSpeech = "adjective",
+            declensionJson = """{"NOM_SG":"стратегический","FEM_NOM":"стратегическая","NEUT_NOM":"стратегическое","PL_NOM":"стратегические"}"""
+        )
+        fun prompt(reps: Int) = buildPrompt(
+            Card(noteId = 1, cardType = CardType.ADJ_AGREE, queue = Queue.GRAMMAR, gramContextCue = "PL", reps = reps),
+            note,
+            emptyMap()
+        )
+
+        val guided = prompt(0)
+        assertEquals(AnswerMode.CHOICE, guided.answerMode)
+        assertEquals(4, guided.choices.size)
+        assertEquals("-ие · plural", guided.choiceLabels["стратегические"])
+        assertTrue(guided.prompt.contains("стратегическ___ дома"))
+
+        val recalledChoice = prompt(1)
+        assertEquals("-ие", recalledChoice.choiceLabels["стратегические"])
+        assertFalse(recalledChoice.choiceLabels.values.any { it.contains("masculine") || it.contains("feminine") || it.contains("neuter") || it.contains("plural") })
+
+        val production = prompt(2)
+        assertEquals(AnswerMode.RUSSIAN_TYPED, production.answerMode)
+        assertTrue(production.choices.isEmpty())
+    }
+
+    @Test
+    fun agreementDiagnosticExplainsChosenFormAndNounCue() {
+        val note = Note(
+            id = 1,
+            russian = "стратегический",
+            lemma = "стратегический",
+            translation = "strategic",
+            partOfSpeech = "adjective",
+            declensionJson = """{"NOM_SG":"стратегический","FEM_NOM":"стратегическая","NEUT_NOM":"стратегическое","PL_NOM":"стратегические"}"""
+        )
+        val prompt = buildPrompt(
+            Card(noteId = 1, cardType = CardType.ADJ_AGREE, queue = Queue.GRAMMAR, gramContextCue = "PL"),
+            note,
+            emptyMap()
+        )
+
+        val feedback = diagnosticFeedbackFor(prompt, "стратегический").orEmpty()
+        assertTrue(feedback.contains("masculine singular"))
+        assertTrue(feedback.contains("дома is plural"))
+        assertTrue(feedback.contains("стратегический → стратегические"))
+    }
+
+    @Test
     fun speakCardAsksLearnerToSayTheRussianAloud() {
         val note = Note(
             id = 1,
@@ -769,6 +921,31 @@ class ReviewPromptTest {
         assertEquals(AnswerMode.SPEAK, prompt.answerMode)
         assertEquals("кни́га", prompt.expectedAnswer)
         assertTrue(prompt.prompt.contains("кни́га"))
+    }
+
+    @Test
+    fun newVocabularyLessonSpeaksTheHeadwordRatherThanItsExample() {
+        val note = Note(
+            id = 1,
+            russian = "книга",
+            lemma = "книга",
+            translation = "book",
+            partOfSpeech = "noun",
+            exampleSentence = "Вот книга.",
+            exampleTranslation = "Here is a book."
+        )
+        val card = Card(
+            noteId = 1,
+            cardType = CardType.RU_TO_MEANING,
+            queue = Queue.VOCAB,
+            state = CardState.NEW,
+            reps = 0
+        )
+
+        val prompt = buildPrompt(card, note, emptyMap())
+
+        assertTrue(prompt.isNewVocabularyIntroduction())
+        assertEquals("книга", prompt.speechText())
     }
 
     @Test
@@ -825,7 +1002,8 @@ class ReviewPromptTest {
         assertEquals(AnswerMode.RUSSIAN_TYPED, prompts[1].answerMode)
         assertEquals(AnswerMode.RUSSIAN_TYPED, prompts[2].answerMode)
         assertEquals(AnswerMode.AUDIO_ONLY, prompts[3].answerMode)
-        assertEquals(AnswerMode.RUSSIAN_TYPED, prompts[4].answerMode)
+        assertEquals("Meaning: state", prompts[3].explanation)
+        assertEquals(AnswerMode.CHOICE, prompts[4].answerMode)
         assertEquals(AnswerMode.RUSSIAN_TYPED, prompts[5].answerMode)
     }
 }

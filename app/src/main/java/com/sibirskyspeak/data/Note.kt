@@ -49,7 +49,7 @@ data class Note(
     val tier: Int = 1,
     val unit: Int? = null,
     val conceptId: String? = null,
-    // CEFR level this curated note belongs to ("A1".."C1"), for the curriculum
+    // CEFR level this curated note belongs to ("A1".."C2"), for the curriculum
     // course (tier 0). Null for the general/domain tiers. Drives the level label in
     // the UI; sequencing is by [unit], which is monotonic across levels.
     val cefrLevel: String? = null,

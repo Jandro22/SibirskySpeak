@@ -29,7 +29,6 @@ object Reminders {
     private const val NOTIFICATION_ID = 4201
 
     fun ensureChannel(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
             CHANNEL_ID,
             "Daily study reminders",
@@ -106,12 +105,14 @@ class DailyReminderWorker(
     params: WorkerParameters
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
+        val settings = PrefsSettingsStore(applicationContext)
+        if (!settings.reminderEnabled) return Result.success()
         val repo = (applicationContext as SibirskySpeakApp).repository
-        val info = runCatching { repo.reminderInfo() }.getOrNull()
+        val info = runCatching { repo.reminderInfo() }.getOrElse { return Result.retry() }
         val (title, body) = composeMessage(
-            streak = info?.currentStreak ?: 0,
-            studiedToday = info?.studiedToday ?: false,
-            dueToday = info?.dueToday ?: 0
+            streak = info.currentStreak,
+            studiedToday = info.studiedToday,
+            dueToday = info.dueToday
         )
         Reminders.postNotification(applicationContext, title, body)
         return Result.success()

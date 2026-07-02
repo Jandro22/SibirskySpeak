@@ -50,7 +50,7 @@ class LearningRepositoryTest {
         val jsonl = """
             {"russian":"писа́ть","lemma":"писать","pos":"verb","translation":"to write","aspect":"IPF","aspectPartner":"написать","aktionsart":"activity","aktionsartConfidence":"high","exampleSentence":"Я писал письмо."}
             {"russian":"написа́ть","lemma":"написать","pos":"verb","translation":"to write completely","aspect":"PF","aspectPartner":"писать","aktionsart":"accomplishment","aktionsartConfidence":"high","exampleSentence":"Я написал письмо."}
-            {"russian":"войска́","lemma":"войска","pos":"noun","translation":"troops","gender":"PL","declensionJson":{"NOM_PL":"войска","GEN_PL":"войск"},"domainFreqRank":10,"exampleSentence":"Войска у границы."}
+            {"russian":"войска́","lemma":"войска","pos":"noun","translation":"troops","gender":"PL","declensionJson":{"NOM_PL":"войска","GEN_PL":"войск"},"domainFreqRank":10,"exampleSentence":"Здесь нет войск."}
         """.trimIndent()
 
         assertEquals(3, fixture.repository.importJsonLines(jsonl))
@@ -69,7 +69,7 @@ class LearningRepositoryTest {
     fun seedUsesBootstrapAssetsWhenProvided() = runTest {
         val fixture = RepoFixture(
             bootstrapNotes = """
-                {"russian":"санкции","lemma":"санкция","pos":"noun","translation":"sanctions","gender":"F","declensionJson":{"NOM_PL":"санкции","GEN_PL":"санкций"},"domainFreqRank":1}
+                {"russian":"санкции","lemma":"санкция","pos":"noun","translation":"sanctions","gender":"F","declensionJson":{"NOM_PL":"санкции","GEN_PL":"санкций"},"domainFreqRank":1,"exampleSentence":"Здесь нет санкций."}
             """.trimIndent(),
             bootstrapReaderTexts = """
                 {"title":"Target","source":"target:test","body":"санкции санкции неизвестно"}
@@ -323,7 +323,7 @@ class LearningRepositoryTest {
     }
 
     @Test
-    fun stressIsFoldedIntoMarkedHeadwordAndAudioInsteadOfStandaloneCard() = runTest {
+    fun explicitlyMarkedMultisyllabicCourseWordGetsTargetedStressPractice() = runTest {
         val fixture = RepoFixture()
         val jsonl = """
             {"russian":"\u043c\u043e\u043b\u043e\u043a\u043e\u0301","lemma":"\u043c\u043e\u043b\u043e\u043a\u043e","pos":"noun","translation":"milk","tier":0,"exampleSentence":"\u042f \u043f\u044c\u044e \u043c\u043e\u043b\u043e\u043a\u043e\u0301.","exampleTranslation":"I drink milk."}
@@ -332,7 +332,7 @@ class LearningRepositoryTest {
         fixture.repository.importJsonLines(jsonl)
 
         val note = fixture.notes.getByLemma("\u043c\u043e\u043b\u043e\u043a\u043e")
-        assertFalse(fixture.cards.cards.any { it.noteId == note?.id && it.cardType == CardType.STRESS_MARK })
+        assertTrue(fixture.cards.cards.any { it.noteId == note?.id && it.cardType == CardType.STRESS_MARK })
         assertTrue(fixture.cards.cards.any { it.noteId == note?.id && it.cardType == CardType.AUDIO_TO_RU })
     }
 
@@ -435,10 +435,11 @@ class LearningRepositoryTest {
         val fixture = RepoFixture()
         fixture.repository.seedIfEmpty()
         val aspectCards = fixture.cards.cards.filter { it.cardType == CardType.ASPECT_SELECT }
-        // Each verb note generates five concrete aspect contexts; 2 verbs = 10 total.
-        assertEquals(10, aspectCards.size)
+        // Keep only defensible default cues; generic RESULT/SINGLE_EVENT carriers
+        // taught brittle cue-word shortcuts and were often semantically invalid.
+        assertEquals(6, aspectCards.size)
         assertEquals(
-            setOf("PROCESS", "HABITUAL", "COMPLETED", "RESULT", "SINGLE_EVENT"),
+            setOf("PROCESS", "HABITUAL", "COMPLETED"),
             aspectCards.mapNotNull { it.gramContextCue }.toSet()
         )
         val processPair = aspectCards.filter { it.gramContextCue == "PROCESS" }

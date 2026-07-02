@@ -210,6 +210,26 @@ def decline_adjective(citation: str, gender: str = "M") -> dict[str, str]:
     if not w.endswith(("ый", "ой", "ий")):
         raise ValueError(f"unhandled adjective ending: {citation!r}")
     stem = w[:-2]
+    # A small, productive-looking group of possessive adjectives has a hidden soft
+    # sign in every form except masculine nominative: собачий -> собачья/собачье/
+    # собачьи. Treating these as ordinary -ий adjectives produces non-words such as
+    # "собачая". This cannot be inferred from -чий/-жий alone (горячий and рабочий
+    # are regular), so keep the lexically exceptional class explicit.
+    possessive_iy = w in {
+        "божий", "собачий", "птичий", "охотничий", "казачий",
+        "девичий", "бабий", "медвежий", "рыбий", "волчий",
+    }
+    if possessive_iy:
+        return {
+            "NOM_SG": w,
+            "GEN_SG": stem + "ьего", "DAT_SG": stem + "ьему", "ACC_SG": w,
+            "INS_SG": stem + "ьим", "PREP_SG": stem + "ьем",
+            "FEM_NOM": stem + "ья", "FEM_GEN": stem + "ьей", "FEM_DAT": stem + "ьей",
+            "FEM_ACC": stem + "ью", "FEM_INS": stem + "ьей", "FEM_PREP": stem + "ьей",
+            "NEUT_NOM": stem + "ье",
+            "PL_NOM": stem + "ьи", "PL_GEN": stem + "ьих", "PL_DAT": stem + "ьим",
+            "PL_ACC": stem + "ьи", "PL_INS": stem + "ьими", "PL_PREP": stem + "ьих",
+        }
     last = stem[-1] if stem else ""
     velar = last in VELARS
     husher = last in HUSHES

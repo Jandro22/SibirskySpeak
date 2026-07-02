@@ -39,6 +39,7 @@ import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -47,6 +48,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -84,7 +86,23 @@ internal fun DashboardPanel(
     onReleaseLeech: (LeechItem) -> Unit = {},
     onSaveLeechEdit: (LeechItem, String?, String?, String?, String?) -> Unit = { _, _, _, _, _ -> }
 ) {
-    val stats = state.dashboardStats ?: return
+    val stats = state.dashboardStats
+    if (stats == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                CircularProgressIndicator()
+                Text(
+                    state.statusMessage ?: "Loading your learning dashboard…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+        return
+    }
     val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
     var showDetails by rememberSaveable { mutableStateOf(false) }
     var editingLeech by remember { mutableStateOf<LeechItem?>(null) }
@@ -136,6 +154,7 @@ internal fun LeechCard(
         }
         Spacer(Modifier.height(8.dp))
         leeches.take(20).forEach { item ->
+          key(item.card.id) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -180,6 +199,7 @@ internal fun LeechCard(
                     TextButton(onClick = { onRelease(item) }) { Text("Retry as new") }
                 }
             }
+          }
         }
     }
 }
@@ -387,7 +407,7 @@ internal fun WordsKnownCard(modifier: Modifier, game: GamificationStats) {
 @Composable
 internal fun AchievementsCard(game: GamificationStats) {
     val unlocked = game.achievements.count { it.unlocked }
-    val preview = game.achievements.filter { it.unlocked }.takeLast(3)
+    val preview = remember(game.achievements) { game.achievements.filter { it.unlocked }.takeLast(3) }
     var expanded by rememberSaveable { mutableStateOf(false) }
     SectionCard {
         Row(
@@ -443,14 +463,15 @@ internal fun SkillRadarCard(skillRatings: List<SkillRating>) {
         Spacer(Modifier.height(12.dp))
         SkillRadarChart(axes, ratings)
         Spacer(Modifier.height(12.dp))
-        FlowRowWithStats(
-            *axes.take(4).map { skill ->
+        val statLabels = remember(ratings, axes) {
+            axes.take(4).map { skill ->
                 val row = ratings[skill.name]
                 val value = row?.mu ?: 0.0
                 val uncertainty = row?.sigma ?: 0.0
                 skill.name.lowercase().replace('_', ' ') to String.format(Locale.US, "%.1f ± %.1f", value, uncertainty)
             }.toTypedArray()
-        )
+        }
+        FlowRowWithStats(*statLabels)
     }
 }
 

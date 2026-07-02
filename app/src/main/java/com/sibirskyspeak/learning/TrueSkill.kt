@@ -39,21 +39,26 @@ object TrueSkill {
         tau: Double = TAU,
         drawMargin: Double = drawMargin(beta)
     ): RatingUpdate {
+        val safeA = a.validated()
+        val safeB = b.validated()
+        val safeBeta = beta.takeIf { it.isFinite() && it > 0.0 } ?: BETA
+        val safeTau = tau.takeIf { it.isFinite() && it >= 0.0 } ?: TAU
+        val safeMargin = drawMargin.takeIf { it.isFinite() && it >= 0.0 } ?: TrueSkill.drawMargin(safeBeta)
         if (outcomeForA == MatchOutcome.LOSS) {
-            val reversed = update(b, a, MatchOutcome.WIN, beta, tau, drawMargin)
+            val reversed = update(safeB, safeA, MatchOutcome.WIN, safeBeta, safeTau, safeMargin)
             return RatingUpdate(reversed.b, reversed.a)
         }
-        val varianceA = a.variance + tau * tau
-        val varianceB = b.variance + tau * tau
+        val varianceA = safeA.variance + safeTau * safeTau
+        val varianceB = safeB.variance + safeTau * safeTau
         // Canonical TrueSkill match scale: c^2 = 2*beta^2 + varA + varB. (No tuned
         // multiplier — earlier code used a fitted constant that only matched one
         // operating point and biased every asymmetric update.)
-        val c = sqrt(2.0 * beta * beta + varianceA + varianceB)
-        val t = (a.mu - b.mu) / c
-        val margin = drawMargin / c
+        val c = sqrt(2.0 * safeBeta * safeBeta + varianceA + varianceB)
+        val t = (safeA.mu - safeB.mu) / c
+        val margin = safeMargin / c
         val factors = if (outcomeForA == MatchOutcome.DRAW) drawFactors(t, margin) else winFactors(t, margin)
-        val muA = a.mu + (varianceA / c) * factors.v
-        val muB = b.mu - (varianceB / c) * factors.v
+        val muA = safeA.mu + (varianceA / c) * factors.v
+        val muB = safeB.mu - (varianceB / c) * factors.v
         val sigA2 = (varianceA * (1.0 - (varianceA / (c * c)) * factors.w)).coerceAtLeast(minVariance)
         val sigB2 = (varianceB * (1.0 - (varianceB / (c * c)) * factors.w)).coerceAtLeast(minVariance)
         return RatingUpdate(Gaussian(muA, sqrt(sigA2)), Gaussian(muB, sqrt(sigB2)))
@@ -61,14 +66,18 @@ object TrueSkill {
 
     fun outcomeFromPerformance(you: Double, opponent: Double, epsilon: Double = EPS_PERF): MatchOutcome =
         when {
-            abs(you - opponent) <= epsilon -> MatchOutcome.DRAW
+            !you.isFinite() || !opponent.isFinite() -> MatchOutcome.DRAW
+            abs(you - opponent) <= (epsilon.takeIf { it.isFinite() && it >= 0.0 } ?: EPS_PERF) -> MatchOutcome.DRAW
             you > opponent -> MatchOutcome.WIN
             else -> MatchOutcome.LOSS
         }
 
     fun idleDecay(rating: Gaussian, days: Double, tauIdle: Double = TAU_IDLE): Gaussian {
-        val sigma = sqrt(min(SIGMA0 * SIGMA0, rating.variance + tauIdle * tauIdle * days.coerceAtLeast(0.0)))
-        return rating.copy(sigma = sigma)
+        val safe = rating.validated()
+        val elapsed = days.takeIf(Double::isFinite)?.coerceAtLeast(0.0) ?: 0.0
+        val drift = tauIdle.takeIf { it.isFinite() && it >= 0.0 } ?: TAU_IDLE
+        val sigma = sqrt(min(SIGMA0 * SIGMA0, safe.variance + drift * drift * elapsed))
+        return safe.copy(sigma = sigma)
     }
 
     fun displayed(rating: Gaussian): Double = rating.conservativeRating
@@ -97,9 +106,9 @@ object TrueSkill {
 }
 
 object Normal {
-    fun pdf(x: Double): Double = exp(-0.5 * x * x) / sqrt(2.0 * PI)
+    fun pdf(x: Double): Double = if (x.isNaN()) 0.0 else exp(-0.5 * x * x) / sqrt(2.0 * PI)
 
-    fun cdf(x: Double): Double = 0.5 * (1.0 + erf(x / sqrt(2.0)))
+    fun cdf(x: Double): Double = if (x.isNaN()) 0.5 else 0.5 * (1.0 + erf(x / sqrt(2.0)))
 
     fun invCdf(p: Double): Double {
         require(p in 0.0..1.0) { "p must be in [0, 1]" }
@@ -139,3 +148,8 @@ object Normal {
         return sign * y
     }
 }
+
+private fun Gaussian.validated(): Gaussian = Gaussian(
+    mu = mu.takeIf(Double::isFinite) ?: TrueSkill.MU0,
+    sigma = sigma.takeIf { it.isFinite() && it >= 0.0 } ?: TrueSkill.SIGMA0
+)

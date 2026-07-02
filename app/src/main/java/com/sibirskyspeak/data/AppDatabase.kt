@@ -11,7 +11,7 @@ import com.sibirskyspeak.scheduler.FsrsScheduler
 
 @Database(
     entities = [Note::class, Card::class, ReviewLog::class, ConfusablePair::class, ReaderText::class, ReadingSchedule::class, ReaderEncounter::class, ReadingActivity::class, TelemetryEvent::class, MinedExample::class, ItemDifficulty::class, ConceptMastery::class, OptimizerParameter::class, SkillRating::class, CapacityState::class, WillingnessState::class, RivalState::class, GhostSnapshot::class, MatchHistory::class, PaceLog::class, BanditPending::class, BanditArmState::class],
-    version = 18,
+    version = 19,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -38,7 +38,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "sibirsky_speak.db"
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)
                     // Only versions before the first real migration (7) are allowed to
                     // wipe destructively — those predate the JSON backup/restore safety
                     // net, so there's nothing worth preserving. Any version from 7 on
@@ -319,16 +319,6 @@ abstract class AppDatabase : RoomDatabase() {
                         PRIMARY KEY(`showAt`)
                     )
                 """.trimIndent())
-                db.execSQL("""
-                    CREATE TABLE IF NOT EXISTS `bandit_arm_state` (
-                        `action` TEXT NOT NULL,
-                        `rewardJson` TEXT NOT NULL,
-                        `precisionJson` TEXT NOT NULL,
-                        `pulls` INTEGER NOT NULL,
-                        `updatedAt` INTEGER NOT NULL,
-                        PRIMARY KEY(`action`)
-                    )
-                """.trimIndent())
             }
         }
 
@@ -344,6 +334,16 @@ abstract class AppDatabase : RoomDatabase() {
                         PRIMARY KEY(`action`)
                     )
                 """.trimIndent())
+            }
+        }
+
+        /** Composite indexes for the hot due/new-card queue predicates. Separate
+         * indexes on due and queue forced SQLite to filter tens of thousands of
+         * inactive/suspended rows during every session-plan rebuild. */
+        val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cards_state_suspended_due` ON `cards` (`state`, `suspended`, `due`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cards_queue_state_suspended_due` ON `cards` (`queue`, `state`, `suspended`, `due`)")
             }
         }
     }

@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -34,9 +35,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +49,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sibirskyspeak.data.SettingsStore
+import com.sibirskyspeak.learning.PlacementTest
 import com.sibirskyspeak.learning.Doctrine
 import com.sibirskyspeak.review.ReviewUiState
 
@@ -78,6 +82,10 @@ internal fun ImportExportPanel(
     onRetention: (Double) -> Unit,
     onDoctrine: (Doctrine) -> Unit,
     onPlaceAfterLevel: (String) -> Unit,
+    onStartPlacementTest: () -> Unit,
+    onAnswerPlacementQuestion: (Int) -> Unit,
+    onApplyPlacementResult: () -> Unit,
+    onDismissPlacementTest: () -> Unit,
     onReminderEnabled: (Boolean) -> Unit,
     onReminderHour: (Int) -> Unit,
     onFontScale: (Float) -> Unit,
@@ -128,13 +136,21 @@ internal fun ImportExportPanel(
                             Text("Placement", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(8.dp))
                             Text(
-                                "Already know earlier course material? Start after a level and mark those notes known.",
+                                "Not sure where you stand? Take a two-minute quiz for a suggested level, " +
+                                    "or jump straight to a level you already know below.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(Modifier.height(12.dp))
+                            Button(onClick = onStartPlacementTest, modifier = Modifier.fillMaxWidth()) {
+                                Text("Take a quick placement quiz")
+                            }
+                            Spacer(Modifier.height(12.dp))
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                listOf("A1", "A2", "B1", "B2").forEach { level ->
+                                // Mirrors LearningRepository.CEFR_LEVELS. C1 was previously
+                                // missing here even though the backend already supported it —
+                                // the picker just hadn't kept up with the curriculum's ceiling.
+                                listOf("A1", "A2", "B1", "B2", "C1", "C2").forEach { level ->
                                     OutlinedButton(onClick = { onPlaceAfterLevel(level) }) {
                                         Text("After $level")
                                     }
@@ -176,7 +192,9 @@ internal fun ImportExportPanel(
                             Text("Add Reader Text", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(12.dp))
                             val readerBodyReady = state.readerBody.isNotBlank()
-                            val readerWordCount = state.readerBody.trim().split(Regex("\\s+")).count { it.isNotBlank() }
+                            val readerWordCount = remember(state.readerBody) {
+                                state.readerBody.trim().split(Regex("\\s+")).count { it.isNotBlank() }
+                            }
                             OutlinedTextField(value = state.readerTitle, onValueChange = onTitle, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small, label = { Text("Text title") })
                             Spacer(Modifier.height(10.dp))
                             OutlinedTextField(value = state.readerBody, onValueChange = onBody, modifier = Modifier.fillMaxWidth(), minLines = 4, shape = MaterialTheme.shapes.small, label = { Text("Russian text") })
@@ -289,6 +307,62 @@ internal fun ImportExportPanel(
             }
         }
     }
+    if (state.placementActive) {
+        PlacementQuizDialog(
+            state = state,
+            onAnswer = onAnswerPlacementQuestion,
+            onApply = onApplyPlacementResult,
+            onDismiss = onDismissPlacementTest
+        )
+    }
+}
+
+@Composable
+internal fun PlacementQuizDialog(
+    state: ReviewUiState,
+    onAnswer: (Int) -> Unit,
+    onApply: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                if (state.placementCompleted) "Suggested placement"
+                else "Placement quiz · ${state.placementQuestionIndex + 1} / ${PlacementTest.QUESTIONS.size}"
+            )
+        },
+        text = {
+            if (state.placementCompleted) {
+                Text(
+                    state.placementResult?.let { "You already know material through $it. Place after $it and mark those notes known?" }
+                        ?: "This looks like a good place to start from the beginning — no placement needed."
+                )
+            } else {
+                val question = PlacementTest.QUESTIONS.getOrNull(state.placementQuestionIndex)
+                if (question == null) {
+                    Text("Something went wrong loading the quiz.")
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(question.prompt, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                        question.choices.forEachIndexed { index, choice ->
+                            OutlinedButton(onClick = { onAnswer(index) }, modifier = Modifier.fillMaxWidth()) {
+                                Text(choice)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (state.placementCompleted) {
+                TextButton(onClick = onApply) { Text(if (state.placementResult != null) "Apply" else "OK") }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(if (state.placementCompleted) "Not now" else stringResource(R.string.action_cancel)) }
+        }
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)

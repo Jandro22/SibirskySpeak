@@ -133,14 +133,17 @@ interface CardDao {
     /** Mark a single note's VOCAB cards known (graduated, pushed far out) — used when
      *  the learner marks the word KNOWN/IGNORED in the reader, so practice stops
      *  quizzing a word they already know. Writes a coherent FSRS state (long
-     *  [stability], low [difficulty], reps≥1, [now] as lastReview) rather than
-     *  leaving the all-zero "never scheduled" state that corrupts the weight fit and
-     *  any later review; callers pass the [FsrsScheduler.KNOWN_STABILITY_DAYS] /
-     *  [FsrsScheduler.KNOWN_DIFFICULTY] constants so there is a single source of truth. */
+     *  [stability], low [difficulty], reps>=3/consecutiveCorrect>=3, [now] as lastReview)
+     *  rather than leaving the all-zero "never scheduled" state that corrupts the weight
+     *  fit and any later review; callers pass the [FsrsScheduler.KNOWN_STABILITY_DAYS] /
+     *  [FsrsScheduler.KNOWN_DIFFICULTY] constants so there is a single source of truth.
+     *  reps/consecutiveCorrect must clear the same "recognition matured" bar used by
+     *  [FsrsScheduler.markKnown] and isAdvancedFacetBeforeRecognitionMatures — otherwise
+     *  a note graduated this way can never unlock its own production facets or grammar. */
     @Query(
         "UPDATE cards SET state = 'GRADUATED', due = :due, stability = :stability, " +
             "difficulty = :difficulty, scheduledDays = :scheduledDays, elapsedDays = 0, " +
-            "reps = MAX(reps, 1), consecutiveCorrect = MAX(consecutiveCorrect, 1), lastReview = :now " +
+            "reps = MAX(reps, 3), consecutiveCorrect = MAX(consecutiveCorrect, 3), lastReview = :now " +
             "WHERE noteId = :noteId AND queue = 'VOCAB' " +
             "AND (state != 'GRADUATED' OR stability <= 0.0 OR difficulty <= 0.0 OR due != :due)"
     )
@@ -157,6 +160,13 @@ interface CardDao {
      *  marks a previously-known word as LEARNING again, pulling it back into practice. */
     @Query("UPDATE cards SET state = 'NEW', due = 0, reps = 0, lapses = 0, stability = 0.0, difficulty = 0.0, elapsedDays = 0, scheduledDays = 0, consecutiveCorrect = 0, suspended = 0, lastReview = NULL WHERE noteId = :noteId AND queue = 'VOCAB' AND state = 'GRADUATED'")
     suspend fun reactivateVocabForNote(noteId: Long): Int
+
+    /** One-time data repair: RU_TO_MEANING cards graduated "known" before
+     *  graduateVocabForNote/markKnown required reps>=3/consecutiveCorrect>=3 left those
+     *  fields too low to clear isAdvancedFacetBeforeRecognitionMatures, permanently
+     *  blocking that note's production facets and grammar drills. */
+    @Query("UPDATE cards SET reps = MAX(reps, 3), consecutiveCorrect = MAX(consecutiveCorrect, 3) WHERE cardType = 'RU_TO_MEANING' AND state = 'GRADUATED' AND (reps < 3 OR consecutiveCorrect < 3)")
+    suspend fun repairGraduatedRecognitionMaturity(): Int
 
     /** Concept ids whose LESSON card has been seen (drills on them may now surface). */
     @Query("SELECT DISTINCT gramConcept FROM cards WHERE cardType = 'LESSON' AND gramConcept IS NOT NULL AND state != 'NEW'")
@@ -205,6 +215,9 @@ interface CardDao {
 
     @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR' AND cardType = 'ASPECT_SELECT' AND state != 'GRADUATED' AND suspended = 0")
     suspend fun getAspectCards(): List<Card>
+
+    @Query("UPDATE cards SET suspended = 1 WHERE cardType = 'ASPECT_SELECT' AND gramContextCue IN ('RESULT', 'SINGLE_EVENT') AND suspended = 0")
+    suspend fun suspendDeprecatedAspectCueCards(): Int
 
     @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR'")
     suspend fun getAllGrammarCards(): List<Card>
@@ -261,6 +274,14 @@ interface CardDao {
 
     @Query("SELECT * FROM cards")
     suspend fun getAll(): List<Card>
+
+    /** Small working set used by pace/debt forecasts; excludes dormant new and
+     * graduated cards so a large curriculum does not inflate every session build. */
+    @Query("SELECT * FROM cards WHERE state NOT IN ('NEW', 'GRADUATED') AND suspended = 0")
+    suspend fun getSchedulingCards(): List<Card>
+
+    @Query("SELECT COUNT(*) FROM cards WHERE state = 'GRADUATED' OR reps >= 2")
+    suspend fun countEstablishedCards(): Int
 
     @Query("SELECT * FROM cards WHERE queue = 'VOCAB'")
     suspend fun getAllVocabCards(): List<Card>
@@ -785,6 +806,12 @@ interface LearningModelDao {
     @Query("SELECT * FROM item_difficulty WHERE cardId = :cardId")
     suspend fun difficulty(cardId: Long): ItemDifficulty?
 
+    @Query("SELECT * FROM item_difficulty")
+    suspend fun difficulties(): List<ItemDifficulty>
+
+    @Query("SELECT * FROM item_difficulty WHERE cardId IN (:cardIds)")
+    suspend fun difficultiesFor(cardIds: List<Long>): List<ItemDifficulty>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertMastery(value: ConceptMastery)
 
@@ -794,8 +821,22 @@ interface LearningModelDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertParameter(value: OptimizerParameter)
 
+    @androidx.room.Transaction
+    suspend fun upsertParameters(values: List<OptimizerParameter>) {
+        values.forEach { upsertParameter(it) }
+    }
+
+    @androidx.room.Transaction
+    suspend fun replaceParameters(deleteKeys: List<String>, values: List<OptimizerParameter>) {
+        if (deleteKeys.isNotEmpty()) deleteParameters(deleteKeys)
+        values.forEach { upsertParameter(it) }
+    }
+
     @Query("SELECT * FROM optimizer_parameters")
     suspend fun parameters(): List<OptimizerParameter>
+
+    @Query("DELETE FROM optimizer_parameters WHERE `key` IN (:keys)")
+    suspend fun deleteParameters(keys: List<String>): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertSkillRating(value: SkillRating)

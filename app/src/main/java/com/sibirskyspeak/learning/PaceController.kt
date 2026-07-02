@@ -9,12 +9,24 @@ import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
-enum class Doctrine(val weights: DoubleArray, val doctrineNewCap: Int) {
-    BALANCED(doubleArrayOf(1.0, 0.5, 0.5, 0.6, 0.4, 0.5, 0.5, 0.3), 15),
-    CONSERVE(doubleArrayOf(0.8, 0.4, 0.3, 0.7, 0.8, 0.8, 0.8, 0.3), 8),
-    AMBITIOUS(doubleArrayOf(1.3, 0.6, 0.9, 0.4, 0.3, 0.4, 0.4, 0.2), 24),
-    SPRINT(doubleArrayOf(1.4, 0.9, 0.7, 0.3, 0.3, 0.2, 0.4, 0.2), 30),
-    RECOVERY(doubleArrayOf(0.3, 0.2, 0.2, 1.0, 0.9, 0.9, 0.9, 0.4), 0)
+/**
+ * Named per-doctrine tuning knobs, in addition to the new-card cap. Values are
+ * ordered consistently with [doctrineNewCap]'s existing intensity ranking
+ * (RECOVERY < CONSERVE < BALANCED < AMBITIOUS < SPRINT).
+ *
+ * @param debtTolerance multiplies [debtDelta] — how much future review load this
+ *   doctrine is willing to bank before it stops offering new material.
+ * @param productionBias additive nudge to the production-vs-recognition ratio
+ *   ([Pace.productionRatio] and the production term in the internal demand probe).
+ * @param demandScale multiplies the sustainable-minutes target ([Pace.targetMinutes]'s
+ *   base before capacity-fit blending) — how large a session this doctrine reaches for.
+ */
+enum class Doctrine(val doctrineNewCap: Int, val debtTolerance: Double, val productionBias: Double, val demandScale: Double) {
+    BALANCED(15, 1.00, 0.00, 1.00),
+    CONSERVE(8, 0.75, -0.10, 0.85),
+    AMBITIOUS(24, 1.15, 0.10, 1.10),
+    SPRINT(30, 1.25, 0.15, 1.20),
+    RECOVERY(0, 0.50, -0.20, 0.60)
 }
 
 enum class StopPolicy { CLEAN_STOP, STRETCH_ARMED, EARLY_STOP }
@@ -45,13 +57,16 @@ data class PaceInputs(
     val willingness: WillingnessBelief = WillingnessBelief(),
     val returnContext: ReturnContext = ReturnContext(),
     val activeCards: List<Card> = emptyList(),
+    val plannedNewFraction: Double = 0.0,
     val totalKnown: Int = 0,
     val recentAccuracy: Double = 0.85,
     val fatigue: Double = 0.0,
     val productionSigma: Double = TrueSkill.SIGMA0,
     val medianReviewMinutes: Double = 0.18,
     val sessionsPerDayExpected: Double = 1.0,
-    val decay: Double = 0.1542
+    val decay: Double = FsrsScheduler.decayOf(FsrsScheduler.DEFAULT_WEIGHTS),
+    val tunedTargetRetention: Double? = null,
+    val tunedNewBudgetScale: Double = 1.0
 )
 
 object PaceController {
@@ -66,12 +81,19 @@ object PaceController {
         configuredRetention: Double,
         hasAdaptiveSignal: Boolean
     ): AdoptedPacePlan {
-        val trust = if (hasAdaptiveSignal) 1.0 else 0.35
+        // Personal evidence should steer the user's settings, not erase them. Full
+        // trust created a self-reinforcing tiny-session loop after a few short runs.
+        val trust = if (hasAdaptiveSignal) 0.70 else 0.35
         val paceCapacity = (pace.reviewBudget + pace.newItemBudget).coerceAtLeast(1)
         val capacity = blendCount(configuredSessionSize.coerceAtLeast(1), paceCapacity, trust)
-        val newBudget = blendCount(configuredNewCardsPerDay.coerceAtLeast(0), pace.newItemBudget.coerceAtLeast(0), trust)
-            .coerceAtMost(capacity)
-        val retention = blendDouble(configuredRetention.coerceIn(0.80, 0.95), pace.targetRetention, trust).coerceIn(0.85, 0.90)
+        val configuredNewBudget = configuredNewCardsPerDay.coerceAtLeast(0)
+        val blendedNewBudget = blendCount(configuredNewBudget, pace.newItemBudget.coerceAtLeast(0), trust)
+        val newBudget = if (hasAdaptiveSignal) {
+            blendedNewBudget
+        } else {
+            blendedNewBudget.coerceAtMost(configuredNewBudget)
+        }.coerceAtMost(capacity)
+        val retention = blendDouble(configuredRetention.coerceIn(0.80, 0.95), pace.targetRetention, trust).coerceIn(0.80, 0.95)
         val mode = when {
             pace.stretchStopPolicy == StopPolicy.EARLY_STOP -> SessionMode.QUICK
             hasAdaptiveSignal && pace.stretchStopPolicy == StopPolicy.STRETCH_ARMED -> SessionMode.STRETCH
@@ -82,33 +104,43 @@ object PaceController {
 
     fun generatePace(inputs: PaceInputs, doctrine: Doctrine = Doctrine.BALANCED, now: Long = System.currentTimeMillis()): Pace {
         val sustainable = inputs.capacity.sustainableMinutes.coerceAtLeast(5.0)
-        val delta = debtDelta(inputs.totalKnown)
-        val loadNow = reviewLoadNow(inputs.activeCards, inputs.medianReviewMinutes, inputs.decay, now)
-        val debtPerNew = debtNew(inputs.medianReviewMinutes, inputs.decay)
+        val reviewMinutes = inputs.medianReviewMinutes.takeIf { it.isFinite() && it > 0.0 } ?: 0.18
+        val decay = inputs.decay.takeIf { it.isFinite() && it in 0.05..1.0 }
+            ?: FsrsScheduler.decayOf(FsrsScheduler.DEFAULT_WEIGHTS)
+        val accuracy = inputs.recentAccuracy.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.85
+        val fatigue = inputs.fatigue.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.0
+        val sessionsPerDay = inputs.sessionsPerDayExpected.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
+        val productionSigma = inputs.productionSigma.takeIf { it.isFinite() && it >= 0.0 } ?: TrueSkill.SIGMA0
+        val delta = (debtDelta(inputs.totalKnown) * doctrine.debtTolerance).coerceIn(0.05, 0.95)
+        val loadNow = reviewLoadNow(inputs.activeCards, reviewMinutes, decay)
+        val debtPerNew = debtNew(reviewMinutes, decay)
         val pReturnBase = maxOf(0.86, WillingnessModel.returnProbability(inputs.willingness, inputs.returnContext))
-        val targetRetention = ReviewControl.optimalRetention((delta - currentDebtRatio(loadNow, 0, debtPerNew, sustainable, HORIZON_DAYS)).coerceAtLeast(0.0))
-        val atRisk = atRisk(inputs.activeCards, now, targetRetention, inputs.decay)
-        val forecast = dueForecast(inputs.activeCards, now, inputs.decay)
+        val targetRetention = inputs.tunedTargetRetention?.takeIf(Double::isFinite)?.coerceIn(0.85, 0.95)
+            ?: ReviewControl.optimalRetention((delta - currentDebtRatio(loadNow, 0, debtPerNew, sustainable, HORIZON_DAYS)).coerceAtLeast(0.0))
+        val atRisk = atRisk(inputs.activeCards, now, targetRetention, decay)
+        val forecast = dueForecast(inputs.activeCards, now, decay)
+        val productionFraction = ((if (productionSigma < 4.0 && doctrine != Doctrine.RECOVERY) 0.45 else 0.25) + doctrine.productionBias).coerceIn(0.0, 1.0)
         val demandProbe = SessionDemand(
             minutes = (sustainable * 0.55).coerceIn(5.0, 28.0),
-            newFraction = (inputs.activeCards.count { it.state == CardState.NEW }.toDouble() / inputs.activeCards.size.coerceAtLeast(1)).coerceIn(0.0, 1.0),
-            productionFraction = if (inputs.productionSigma < 4.0 && doctrine != Doctrine.RECOVERY) 0.45 else 0.25,
-            hardness = (1.0 - inputs.recentAccuracy).coerceIn(0.0, 1.0),
+            newFraction = inputs.plannedNewFraction.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.0,
+            productionFraction = productionFraction,
+            hardness = 1.0 - accuracy,
             debtPressure = currentDebtRatio(loadNow, 0, debtPerNew, sustainable, HORIZON_DAYS).coerceIn(0.0, 1.0)
         )
         val capacityFit = CapacityModel.successProbability(inputs.capacity, demandProbe)
-        val t0 = (sustainable * (0.70 + 0.30 * capacityFit)).coerceIn(5.0, 40.0)
-        val nMax = maxNewItems(loadNow, debtPerNew, sustainable * inputs.sessionsPerDayExpected, delta)
+        val t0 = (sustainable * (0.70 + 0.30 * capacityFit) * doctrine.demandScale).coerceIn(5.0, 40.0)
+        val budgetScale = inputs.tunedNewBudgetScale.takeIf(Double::isFinite)?.coerceIn(0.5, 1.5) ?: 1.0
+        val nMax = (maxNewItems(loadNow, debtPerNew, sustainable * sessionsPerDay, delta) * budgetScale).toInt().coerceAtLeast(0)
         val lookahead = SessionLookahead.choose(cap = nMax.coerceAtLeast(0), dueForecast = forecast, retention = targetRetention)
-        val reviewBudget = minOf(atRisk.size, (t0 / inputs.medianReviewMinutes.coerceAtLeast(0.05)).toInt().coerceAtLeast(0))
+        val reviewBudget = minOf(atRisk.size, (t0 / reviewMinutes.coerceAtLeast(0.05)).toInt().coerceAtLeast(0))
         val accuracyScaled = when {
-            inputs.recentAccuracy < 0.75 || doctrine == Doctrine.RECOVERY || inputs.fatigue > 0.65 -> 0
-            inputs.recentAccuracy < 0.82 -> nMax / 2
+            accuracy < 0.75 || doctrine == Doctrine.RECOVERY || fatigue > 0.65 -> 0
+            accuracy < 0.82 -> nMax / 2
             else -> nMax
         }
-        val newBudget = minOf(accuracyScaled, lookahead.newCards, doctrine.doctrineNewCap, ((t0 - reviewBudget * inputs.medianReviewMinutes) / 0.45).toInt().coerceAtLeast(0))
+        val newBudget = minOf(accuracyScaled, lookahead.newCards, doctrine.doctrineNewCap, ((t0 - reviewBudget * reviewMinutes) / 0.45).toInt().coerceAtLeast(0))
         val debtRatio = currentDebtRatio(loadNow, newBudget, debtPerNew, sustainable, HORIZON_DAYS)
-        val rawPReturn = (pReturnBase - 0.005 * (newBudget / 5.0) - 0.006 * (t0 / 20.0) - 0.12 * inputs.fatigue - 0.08 * (1.0 - capacityFit)).coerceIn(0.0, 1.0)
+        val rawPReturn = (pReturnBase - 0.005 * (newBudget / 5.0) - 0.006 * (t0 / 20.0) - 0.12 * fatigue - 0.08 * (1.0 - capacityFit)).coerceIn(0.0, 1.0)
         // When the unconstrained candidate risks tomorrow, the controller chooses an
         // early clean finish. That habit-preserving action has positive return value;
         // account for it before enforcing the hard return constraint.
@@ -117,10 +149,12 @@ object PaceController {
         } else rawPReturn
         val safeNewBudget = if (debtRatio >= delta || pReturn < TAU_RETURN || capacityFit < 0.45) 0 else newBudget
         val total = reviewBudget + safeNewBudget
-        val reading = if (debtRatio > delta * 0.8 || inputs.fatigue > 0.45 || capacityFit < 0.65) listOf(max(1, total / 2), max(1, total)) else emptyList()
+        val reading = if (total > 0 && (debtRatio > delta * 0.8 || fatigue > 0.45 || capacityFit < 0.65)) {
+            listOf(max(1, total / 2), total).distinct()
+        } else emptyList()
         val stopPolicy = when {
-            inputs.fatigue > 0.65 || inputs.recentAccuracy < 0.75 || capacityFit < 0.45 -> StopPolicy.EARLY_STOP
-            inputs.recentAccuracy > 0.9 && inputs.fatigue < 0.5 && debtRatio < delta && pReturn >= TAU_RETURN && capacityFit >= 0.55 -> StopPolicy.STRETCH_ARMED
+            fatigue > 0.65 || accuracy < 0.75 || capacityFit < 0.45 -> StopPolicy.EARLY_STOP
+            accuracy > 0.9 && fatigue < 0.5 && debtRatio < delta && pReturn >= TAU_RETURN && capacityFit >= 0.55 -> StopPolicy.STRETCH_ARMED
             else -> StopPolicy.CLEAN_STOP
         }
         return Pace(
@@ -128,8 +162,8 @@ object PaceController {
             newItemBudget = safeNewBudget,
             reviewBudget = reviewBudget,
             targetRetention = targetRetention,
-            targetDifficulty = (0.80 + 0.12 * capacityFit - 0.10 * inputs.fatigue).coerceIn(0.75, 0.95),
-            productionRatio = if (inputs.productionSigma < 4.0 && doctrine != Doctrine.RECOVERY) 0.45 else 0.25,
+            targetDifficulty = (0.80 + 0.12 * capacityFit - 0.10 * fatigue).coerceIn(0.75, 0.95),
+            productionRatio = productionFraction,
             readingInserts = reading,
             stretchStopPolicy = stopPolicy,
             debtRatio = currentDebtRatio(loadNow, safeNewBudget, debtPerNew, sustainable, HORIZON_DAYS),
@@ -156,7 +190,7 @@ object PaceController {
         return (loadNow * horizon + newItems * debtNew) / denominator
     }
 
-    private fun reviewLoadNow(cards: List<Card>, reviewMinutes: Double, decay: Double, now: Long): Double =
+    private fun reviewLoadNow(cards: List<Card>, reviewMinutes: Double, decay: Double): Double =
         cards.filter { it.state != CardState.NEW && it.state != CardState.GRADUATED }.sumOf { card ->
             reviewMinutes / max(intervalFor(card.stability.coerceAtLeast(0.1), 0.88, decay), 0.5)
         }
@@ -168,7 +202,7 @@ object PaceController {
     }
 
     private fun intervalFor(stability: Double, retention: Double, decay: Double): Double {
-        val factor = 0.9.pow(-1.0 / decay) - 1.0
+        val factor = FsrsScheduler.factorOf(decay)
         return stability / factor * (retention.pow(-1.0 / decay) - 1.0)
     }
 
@@ -186,9 +220,9 @@ object PaceController {
     private fun dueForecast(cards: List<Card>, now: Long, decay: Double): List<Int> {
         val counts = IntArray(HORIZON_DAYS)
         cards.filter { it.state != CardState.NEW && it.state != CardState.GRADUATED && it.lastReview != null }.forEach { card ->
-            val elapsed = ((now - (card.lastReview ?: now)).coerceAtLeast(0) / 86_400_000.0)
             val interval = intervalFor(card.stability.coerceAtLeast(0.1), 0.88, decay).coerceAtLeast(1.0).roundToInt()
-            val dueDay = interval.coerceIn(1, HORIZON_DAYS)
+            val elapsed = ((now - (card.lastReview ?: now)).coerceAtLeast(0) / 86_400_000.0).roundToInt()
+            val dueDay = (interval - elapsed).coerceIn(1, HORIZON_DAYS)
             counts[dueDay - 1] += 1
         }
         return counts.toList()

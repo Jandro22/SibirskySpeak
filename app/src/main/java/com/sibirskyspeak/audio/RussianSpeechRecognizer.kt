@@ -72,9 +72,7 @@ class RussianSpeechRecognizer(context: Context) {
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             // Prefer an offline model so practice works without a network connection.
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            }
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
         }
         listening = true
         runCatching { engine.startListening(intent) }

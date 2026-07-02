@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""B1 curriculum (tier 0, units 19–26): prefixed motion verbs, the conditional,
+"""B1 curriculum (tier 0, units 20–27): prefixed motion verbs, the conditional,
 relative clauses (который), superlatives, purpose (чтобы), and number + noun case.
 Each word ships 2 example contexts.
 """
@@ -9,7 +9,7 @@ from curriculum_common import build_level
 
 UNITS = [
     {
-        "unit": 19,
+        "unit": 21,
         "title": "Arriving and leaving",
         "concept": "MOTION_PREFIX",
         "verbs": [
@@ -34,7 +34,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 20,
+        "unit": 22,
         "title": "What I would do",
         "concept": "CONDITIONAL",
         "verbs": [
@@ -55,7 +55,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 21,
+        "unit": 23,
         "title": "The book that I read",
         "concept": "RELATIVE",
         "verbs": [
@@ -76,7 +76,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 22,
+        "unit": 24,
         "title": "The biggest and best",
         "concept": "SUPERLATIVE",
         "adjs": [
@@ -93,7 +93,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 23,
+        "unit": 25,
         "title": "In order to",
         "concept": "PURPOSE",
         "verbs": [
@@ -108,7 +108,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 24,
+        "unit": 26,
         "title": "Counting things",
         "concept": "NUMERAL_CASE",
         "words": [
@@ -118,10 +118,18 @@ UNITS = [
              [("Я ви́жу два до́ма.", "I see two houses.")]),
             ("три", "numeral", "three", "Я ви́жу три маши́ны.", "I see three cars.",
              [("У меня́ три дру́га.", "I have three friends.")]),
+            ("четы́ре", "numeral", "four", "Я ви́жу четы́ре до́ма.", "I see four houses.",
+             None),
             ("пять", "numeral", "five", "У меня́ пять книг.", "I have five books.",
              [("Здесь пять домо́в.", "There are five houses here.")]),
             ("шесть", "numeral", "six", "Я зна́ю шесть слов.", "I know six words.",
              [("У меня́ шесть книг.", "I have six books.")]),
+            ("семь", "numeral", "seven", "У меня́ семь книг.", "I have seven books.",
+             None),
+            ("во́семь", "numeral", "eight", "Здесь во́семь домо́в.", "There are eight houses here.",
+             None),
+            ("де́вять", "numeral", "nine", "Я зна́ю де́вять слов.", "I know nine words.",
+             None),
             ("де́сять", "numeral", "ten", "Здесь де́сять книг.", "There are ten books here.",
              [("Я зна́ю де́сять слов.", "I know ten words.")]),
             ("ско́лько", "adverb", "how many", "Ско́лько книг у тебя́?", "How many books do you have?",
@@ -129,7 +137,43 @@ UNITS = [
         ],
     },
     {
-        "unit": 25,
+        # Ordinals decline exactly like regular adjectives (ADJ_AGREE, A1) — no
+        # new grammar concept needed, just the vocabulary itself, which the
+        # cardinal-number unit above never covered.
+        "unit": 27,
+        "title": "First, second, third",
+        "concept": None,
+        "adjs": [
+            ("пе́рвый", "first", "Э́то пе́рвый уро́к.", "This is the first lesson.",
+             [("Он пе́рвый студе́нт.", "He is the first student.")]),
+            ("второ́й", "second", "Э́то второ́й уро́к.", "This is the second lesson.",
+             [("Э́то втора́я кни́га.", "This is the second book.")]),
+            ("четвёртый", "fourth", "Э́то четвёртый уро́к.", "This is the fourth lesson.",
+             None),
+            ("пя́тый", "fifth", "Э́то пя́тый уро́к.", "This is the fifth lesson.",
+             None),
+            ("шесто́й", "sixth", "Э́то шесто́й уро́к.", "This is the sixth lesson.",
+             None),
+            ("седьмо́й", "seventh", "Э́то седьмо́й уро́к.", "This is the seventh lesson.",
+             None),
+            ("восьмо́й", "eighth", "Э́то восьмо́й уро́к.", "This is the eighth lesson.",
+             None),
+            ("девя́тый", "ninth", "Э́то девя́тый уро́к.", "This is the ninth lesson.",
+             None),
+            ("деся́тый", "tenth", "Э́то деся́тый уро́к.", "This is the tenth lesson.",
+             None),
+        ],
+        "words": [
+            # третий declines irregularly (третий/третья/третье/третьи, with a
+            # soft-sign stem insertion in every non-masculine-nominative form)
+            # unlike the rule-engine-derivable -ый/-ой adjectives above, so it
+            # stays vocab-only rather than risk a wrong generated table.
+            ("тре́тий", "adjective", "third", "Э́то тре́тий уро́к.", "This is the third lesson.",
+             None),
+        ],
+    },
+    {
+        "unit": 28,
         "title": "Work and people",
         "concept": None,
         "nouns": [
@@ -145,7 +189,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 26,
+        "unit": 29,
         "title": "Plans and choices",
         "concept": None,
         "verbs": [
@@ -188,6 +232,20 @@ def b1_reader_texts():
             "body": "На рабо́те есть оди́н тру́дный вопро́с. Рабо́тник до́лго реша́л его́. "
                     "Е́сли бы у меня́ бы́ло вре́мя, я бы помо́г. "
                     "Мы реши́ли э́тот вопро́с вме́сте, и тепе́рь все счастли́вы.",
+        },
+        {
+            "title": "B1 · Пе́рвый день на рабо́те",
+            "source": "graded:b1",
+            "body": "Сего́дня мой пе́рвый день на рабо́те. Я до́лжен прийти́ ра́но. "
+                    "Рабо́тник, кото́рый рабо́тает здесь до́лго, помога́ет мне. "
+                    "У нас есть ва́жный план.",
+        },
+        {
+            "title": "B1 · Второ́й план",
+            "source": "graded:b1",
+            "body": "У меня́ был тру́дный вопро́с. Я реша́л его́ до́лго. "
+                    "Мой друг вы́брал но́вый план. "
+                    "Тепе́рь у нас есть хоро́ший план.",
         },
     ]
 

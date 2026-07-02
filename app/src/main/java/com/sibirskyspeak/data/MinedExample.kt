@@ -3,6 +3,7 @@ package com.sibirskyspeak.data
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
+import com.sibirskyspeak.learning.TrueSkill
 
 /** Learner-specific cache over the immutable sentence corpus. Authored examples on
  * [Note] always win; this row only fills an example gap. */
@@ -43,8 +44,8 @@ data class MinedExample(
 @Entity(tableName = "item_difficulty")
 data class ItemDifficulty(
     @androidx.room.PrimaryKey val cardId: Long,
-    val elo: Double = 25.0,
-    val sigma: Double = 8.3333,
+    val elo: Double = TrueSkill.MU0,
+    val sigma: Double = TrueSkill.SIGMA0,
     val observations: Int = 0,
     val updatedAt: Long = System.currentTimeMillis()
 )
@@ -70,7 +71,7 @@ data class SkillRating(
     @androidx.room.PrimaryKey val skill: String,
     val muGlobalShare: Double = 0.6,
     val mu: Double = 0.0,
-    val sigma: Double = 8.3333,
+    val sigma: Double = TrueSkill.SIGMA0,
     val observations: Int = 0,
     val updatedAt: Long = System.currentTimeMillis()
 )
@@ -94,8 +95,8 @@ data class WillingnessState(
 @Entity(tableName = "rival_state")
 data class RivalState(
     @androidx.room.PrimaryKey val id: Int = 0,
-    val mu: Double = 25.0,
-    val sigma: Double = 8.3333,
+    val mu: Double = TrueSkill.MU0,
+    val sigma: Double = TrueSkill.SIGMA0,
     val handicap: Double = 0.0,
     val winStreak: Int = 0,
     val persona: String = "rival",

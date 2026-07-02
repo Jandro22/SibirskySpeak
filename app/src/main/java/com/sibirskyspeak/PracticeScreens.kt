@@ -38,10 +38,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.sibirskyspeak.data.DailyPlan
 import com.sibirskyspeak.data.GamificationStats
 import com.sibirskyspeak.data.ReaderStatus
+import com.sibirskyspeak.data.SessionPlan
 import com.sibirskyspeak.review.ReviewUiState
 import com.sibirskyspeak.learning.SessionMode
+import androidx.compose.runtime.key
 
 // ---------------------------------------------------------------------------
 // Practice home
@@ -54,18 +57,25 @@ internal fun PracticeScreen(
     onRead: () -> Unit,
     onOpenReader: (Long) -> Unit
 ) {
+    // Narrowed to the two fields these panels actually use, instead of passing the
+    // whole ReviewUiState down five times: state also carries the active review
+    // prompt, reader selection, typed-answer, and status-message fields, all of
+    // which churn during a session and none of which these dashboard panels read —
+    // passing the full object made every panel recompose on those unrelated changes.
+    val dailyPlan = state.dailyPlan
+    val sessionPlan = state.sessionPlan
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        DailyPlanPanel(state, onStart, onRead)
-        PracticeFocusPanel(state)
-        UnitMasteryPanel(state)
-        ProblemCardAuditPanel(state)
-        ReadingSuggestion(state, onOpenReader)
+        DailyPlanPanel(dailyPlan, sessionPlan, onStart, onRead)
+        PracticeFocusPanel(dailyPlan, sessionPlan)
+        UnitMasteryPanel(sessionPlan)
+        ProblemCardAuditPanel(sessionPlan)
+        ReadingSuggestion(sessionPlan, onOpenReader)
     }
 }
 
 @Composable
-internal fun ProblemCardAuditPanel(state: ReviewUiState) {
-    val problems = state.sessionPlan?.problemCards.orEmpty()
+internal fun ProblemCardAuditPanel(sessionPlan: SessionPlan?) {
+    val problems = sessionPlan?.problemCards.orEmpty()
     if (problems.isEmpty()) return
     SectionCard {
         Text("Cards needing repair", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -88,8 +98,8 @@ internal fun ProblemCardAuditPanel(state: ReviewUiState) {
 }
 
 @Composable
-internal fun UnitMasteryPanel(state: ReviewUiState) {
-    val units = state.sessionPlan?.unitMastery.orEmpty()
+internal fun UnitMasteryPanel(sessionPlan: SessionPlan?) {
+    val units = sessionPlan?.unitMastery.orEmpty()
     if (units.isEmpty()) return
     val activeIndex = units.indexOfFirst { it.unlocked && it.progress < 0.80 }.let { if (it < 0) units.lastIndex else it }
     val visible = units.drop((activeIndex - 1).coerceAtLeast(0)).take(3)
@@ -105,32 +115,40 @@ internal fun UnitMasteryPanel(state: ReviewUiState) {
         )
         Spacer(Modifier.height(12.dp))
         visible.forEach { unit ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Unit ${unit.unit}${if (!unit.unlocked) " · locked" else ""}", fontWeight = FontWeight.SemiBold)
-                Text("${(unit.progress * 100).toInt()}%", color = MaterialTheme.colorScheme.primary)
+          // The visible window slides as mastery advances (drop/take on activeIndex),
+          // so without a key Compose matches rows by position instead of identity and
+          // recomposes/re-animates all three progress bars on every shift, not just
+          // the one that's actually new.
+          key(unit.unit) {
+            Column {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Unit ${unit.unit}${if (!unit.unlocked) " · locked" else ""}", fontWeight = FontWeight.SemiBold)
+                    Text("${(unit.progress * 100).toInt()}%", color = MaterialTheme.colorScheme.primary)
+                }
+                LinearProgressIndicator(
+                    progress = { unit.progress.toFloat().coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).height(7.dp).clip(RoundedCornerShape(99.dp))
+                )
+                Text(
+                    "Vocabulary ${unit.vocabularyMastered}/${unit.vocabularyTotal} · Grammar ${unit.grammarMastered}/${unit.grammarTotal}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(10.dp))
             }
-            LinearProgressIndicator(
-                progress = { unit.progress.toFloat().coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).height(7.dp).clip(RoundedCornerShape(99.dp))
-            )
-            Text(
-                "Vocabulary ${unit.vocabularyMastered}/${unit.vocabularyTotal} · Grammar ${unit.grammarMastered}/${unit.grammarTotal}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(10.dp))
+          }
         }
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun DailyPlanPanel(state: ReviewUiState, onStart: (SessionMode) -> Unit, onRead: () -> Unit) {
-    val plan = state.dailyPlan ?: return
-    val prompts = state.sessionPlan?.reviewQueue.orEmpty()
+internal fun DailyPlanPanel(dailyPlan: DailyPlan?, sessionPlan: SessionPlan?, onStart: (SessionMode) -> Unit, onRead: () -> Unit) {
+    val plan = dailyPlan ?: return
+    val prompts = sessionPlan?.reviewQueue.orEmpty()
     val sessionSize = prompts.size
     val backlog = plan.dueVocab + plan.dueGrammar
-    val reader = state.sessionPlan?.readingAssignment?.recommendation
+    val reader = sessionPlan?.readingAssignment?.recommendation
     val focus = plan.grammarFocus.firstOrNull()?.label?.takeIf { it.isNotBlank() }
 
     HeroCard {
@@ -150,7 +168,7 @@ internal fun DailyPlanPanel(state: ReviewUiState, onStart: (SessionMode) -> Unit
                 )
             }
         }
-        state.sessionPlan?.unitMastery?.firstOrNull { it.unlocked && it.progress < 0.80 }?.let { unit ->
+        sessionPlan?.unitMastery?.firstOrNull { it.unlocked && it.progress < 0.80 }?.let { unit ->
             Spacer(Modifier.height(12.dp))
             Text(
                 "Curriculum Unit ${unit.unit}: ${(unit.progress * 100).toInt()}% mastered · " +
@@ -217,15 +235,15 @@ internal fun DailyPlanPanel(state: ReviewUiState, onStart: (SessionMode) -> Unit
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun PracticeFocusPanel(state: ReviewUiState) {
-    val plan = state.dailyPlan ?: return
-    val prompts = state.sessionPlan?.reviewQueue.orEmpty()
-    val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
+internal fun PracticeFocusPanel(dailyPlan: DailyPlan?, sessionPlan: SessionPlan?) {
+    val plan = dailyPlan ?: return
+    val prompts = sessionPlan?.reviewQueue.orEmpty()
+    val game = sessionPlan?.gamification ?: GamificationStats.EMPTY
     val hasVocab = prompts.any { it.card.queue.name == "VOCAB" }
     val hasGrammar = prompts.any { it.card.queue.name == "GRAMMAR" }
     val hasNew = prompts.any { it.card.state.name == "NEW" }
     val hasReview = prompts.any { it.card.state.name != "NEW" }
-    val ruleSummary = state.sessionPlan?.ruleSummary
+    val ruleSummary = sessionPlan?.ruleSummary
 
     SectionCard {
         Row(
@@ -305,8 +323,8 @@ internal fun PracticeFocusChip(label: String, accuracy: Double?) {
 }
 
 @Composable
-internal fun ReadingSuggestion(state: ReviewUiState, onOpenReader: (Long) -> Unit) {
-    val reader = state.sessionPlan?.readingAssignment?.recommendation ?: return
+internal fun ReadingSuggestion(sessionPlan: SessionPlan?, onOpenReader: (Long) -> Unit) {
+    val reader = sessionPlan?.readingAssignment?.recommendation ?: return
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             CoverageRing(reader.coverage, Modifier.size(56.dp))
@@ -321,7 +339,7 @@ internal fun ReadingSuggestion(state: ReviewUiState, onOpenReader: (Long) -> Uni
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                state.sessionPlan.readingReason?.let { reason ->
+                sessionPlan.readingReason?.let { reason ->
                     Text(reason, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 }
             }
