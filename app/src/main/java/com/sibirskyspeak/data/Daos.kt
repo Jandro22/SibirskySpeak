@@ -53,6 +53,17 @@ data class CardTypeRetention(
     val retained: Int
 )
 
+/** One grammar drill card plus whether it has ever recorded a non-miss review.
+ *  See CardDao.getGrammarDrillOutcomes. */
+data class GrammarDrillOutcome(
+    val cardId: Long,
+    val cardType: CardType,
+    val gramCase: String?,
+    val gramContextCue: String?,
+    val gramConcept: String?,
+    val everSucceeded: Boolean
+)
+
 @Dao
 interface CardDao {
     @Query("SELECT * FROM cards WHERE due <= :now AND state NOT IN ('NEW', 'GRADUATED') AND suspended = 0 ORDER BY due ASC, id ASC LIMIT :limit")
@@ -67,8 +78,18 @@ interface CardDao {
     @Query("SELECT * FROM cards WHERE due <= :now AND state NOT IN ('NEW', 'GRADUATED') AND suspended = 0 ORDER BY due ASC, id ASC")
     suspend fun getAllDueCards(now: Long): List<Card>
 
+    /** Distinct notes with a due-soon card (P5.2 dueOverlap reader scoring): the
+     * reader deliberately favors texts that smuggle in words FSRS wants reviewed. */
+    @Query("SELECT DISTINCT noteId FROM cards WHERE due <= :cutoff AND state NOT IN ('NEW', 'GRADUATED') AND suspended = 0")
+    suspend fun getDueSoonNoteIds(cutoff: Long): List<Long>
+
     @Query("SELECT * FROM cards WHERE state = 'NEW' AND suspended = 0 ORDER BY due ASC, id ASC LIMIT :limit")
     suspend fun getNewCards(limit: Int): List<Card>
+
+    /** Debug-only: any card of [cardType], most-practiced first, so a QA build can jump
+     * straight to a card type instead of waiting for the adaptive session to surface one. */
+    @Query("SELECT * FROM cards WHERE cardType = :cardType AND suspended = 0 ORDER BY reps DESC, id ASC LIMIT :limit")
+    suspend fun getSampleCardsOfType(cardType: CardType, limit: Int = 5): List<Card>
 
     /**
      * New cards in curriculum order: the A1 starter tier (tier 0) first, by unit,
@@ -168,6 +189,12 @@ interface CardDao {
     @Query("UPDATE cards SET reps = MAX(reps, 3), consecutiveCorrect = MAX(consecutiveCorrect, 3) WHERE cardType = 'RU_TO_MEANING' AND state = 'GRADUATED' AND (reps < 3 OR consecutiveCorrect < 3)")
     suspend fun repairGraduatedRecognitionMaturity(): Int
 
+    /** All graduated recognition cards, oldest review first — the sampling frame
+     * for the monthly checkpoint (P6.4): stratifying across this list samples
+     * uniformly over graduation age without needing a dedicated timestamp field. */
+    @Query("SELECT * FROM cards WHERE cardType = 'RU_TO_MEANING' AND state = 'GRADUATED' ORDER BY lastReview ASC")
+    suspend fun getGraduatedRecognitionCards(): List<Card>
+
     /** Concept ids whose LESSON card has been seen (drills on them may now surface). */
     @Query("SELECT DISTINCT gramConcept FROM cards WHERE cardType = 'LESSON' AND gramConcept IS NOT NULL AND state != 'NEW'")
     suspend fun getIntroducedConceptIds(): List<String>
@@ -175,6 +202,32 @@ interface CardDao {
     /** Concept ids that have a LESSON card at all (so we know which drills to gate). */
     @Query("SELECT DISTINCT gramConcept FROM cards WHERE cardType = 'LESSON' AND gramConcept IS NOT NULL")
     suspend fun getConceptIdsWithLessons(): List<String>
+
+    /** Concept ids whose CONCEPT_APPLY card has proven transfer (P4.3 taper gate):
+     * once true, new per-note grammar drills for that concept stop being introduced
+     * (existing card state is untouched — this only affects future selection). */
+    @Query("SELECT DISTINCT gramConcept FROM cards WHERE cardType = 'CONCEPT_APPLY' AND gramConcept IS NOT NULL AND reps >= 4 AND consecutiveCorrect >= 3")
+    suspend fun getTaperedConceptIds(): List<String>
+
+    /**
+     * Every non-suspended grammar drill card, plus whether it has EVER recorded a
+     * non-miss review (not necessarily its first attempt — a card that missed once
+     * and later succeeded on a retry still counts). Backs the "concept stays on
+     * probation until its one admitted drill succeeds" gate in
+     * LearningRepository.conceptGate: a miss doesn't need special handling here,
+     * since ReviewViewModel's existing repair/scaffold retry loop already reteaches
+     * any missed card in place until it's eventually gotten right.
+     */
+    @Query("""
+        SELECT c.id AS cardId, c.cardType AS cardType, c.gramCase AS gramCase,
+               c.gramContextCue AS gramContextCue, c.gramConcept AS gramConcept,
+               MAX(CASE WHEN rl.rating IS NOT NULL AND rl.rating != 'AGAIN' THEN 1 ELSE 0 END) AS everSucceeded
+        FROM cards c
+        LEFT JOIN review_logs rl ON rl.cardId = c.id
+        WHERE c.queue = 'GRAMMAR' AND c.cardType != 'LESSON' AND c.suspended = 0
+        GROUP BY c.id
+    """)
+    suspend fun getGrammarDrillOutcomes(): List<GrammarDrillOutcome>
 
     @Query("SELECT * FROM cards WHERE noteId = :noteId AND cardType = :cardType LIMIT 1")
     suspend fun getByNoteAndType(noteId: Long, cardType: CardType): Card?
@@ -456,6 +509,12 @@ interface ReviewLogDao {
     @Query("SELECT * FROM review_logs ORDER BY reviewDatetime ASC, id ASC")
     suspend fun getAll(): List<ReviewLog>
 
+    @Query("SELECT reviewDatetime FROM review_logs WHERE source IN ('SRS_REVIEW','GRAMMAR_DRILL') ORDER BY reviewDatetime DESC LIMIT :limit")
+    suspend fun recentReviewTimes(limit: Int = 1000): List<Long>
+
+    @Query("SELECT COUNT(*) FROM review_logs WHERE cardId = :cardId AND reviewDatetime >= :dayStart AND source IN ('READING','LISTENING','PRODUCTION')")
+    suspend fun passiveEvidenceCountSince(cardId: Long, dayStart: Long): Int
+
     @Query("SELECT COUNT(*) FROM review_logs WHERE reviewDatetime >= :since AND source != 'READER_LOOKUP'")
     suspend fun countSince(since: Long): Int
 
@@ -669,6 +728,9 @@ interface ReaderTextDao {
 
     @Query("DELETE FROM reader_texts WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("UPDATE reader_texts SET source = :source WHERE id = :id")
+    suspend fun updateSource(id: Long, source: String): Int
 }
 
 @Dao
@@ -818,6 +880,8 @@ interface LearningModelDao {
     @Query("SELECT * FROM concept_mastery WHERE concept = :concept")
     suspend fun mastery(concept: String): ConceptMastery?
 
+    @Query("SELECT * FROM concept_mastery") suspend fun masteries(): List<ConceptMastery>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertParameter(value: OptimizerParameter)
 
@@ -873,24 +937,28 @@ interface LearningModelDao {
 
     @Query("SELECT * FROM ghost_snapshot WHERE takenAt <= :cutoff ORDER BY takenAt DESC LIMIT 1")
     suspend fun ghostSnapshotAtOrBefore(cutoff: Long): GhostSnapshot?
+    @Query("SELECT * FROM ghost_snapshot") suspend fun ghostSnapshots(): List<GhostSnapshot>
 
     @Insert
     suspend fun insertMatchHistory(value: MatchHistory): Long
 
     @Query("SELECT * FROM match_history ORDER BY at DESC LIMIT :limit")
     suspend fun matchHistory(limit: Int = 20): List<MatchHistory>
+    @Query("SELECT * FROM match_history ORDER BY at") suspend fun allMatchHistory(): List<MatchHistory>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertPaceLog(value: PaceLog)
 
     @Query("SELECT * FROM pace_log ORDER BY at DESC LIMIT :limit")
     suspend fun paceLogs(limit: Int = 20): List<PaceLog>
+    @Query("SELECT * FROM pace_log ORDER BY at") suspend fun allPaceLogs(): List<PaceLog>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertBanditPending(value: BanditPending)
 
     @Query("SELECT * FROM bandit_pending WHERE itemId = :itemId ORDER BY showAt ASC")
     suspend fun pendingBanditCredits(itemId: Long): List<BanditPending>
+    @Query("SELECT * FROM bandit_pending") suspend fun allBanditPending(): List<BanditPending>
 
     @Query("DELETE FROM bandit_pending WHERE showAt = :showAt")
     suspend fun deleteBanditPending(showAt: Long): Int
@@ -900,4 +968,27 @@ interface LearningModelDao {
 
     @Query("SELECT * FROM bandit_arm_state")
     suspend fun banditArmStates(): List<BanditArmState>
+}
+
+@Dao interface WeeklyReportDao {
+    @Insert suspend fun insert(report: WeeklyReport): Long
+    @Query("SELECT * FROM weekly_reports ORDER BY generatedAt DESC LIMIT :limit") suspend fun recent(limit: Int=12): List<WeeklyReport>
+}
+
+@Dao interface ConfusionEventDao {
+    @Insert suspend fun insert(event: ConfusionEvent): Long
+    @Query("""
+        SELECT expectedKey, producedKey, cardType, COUNT(*) as count FROM confusion_events
+        WHERE at >= :since GROUP BY expectedKey, producedKey, cardType
+        ORDER BY count DESC, expectedKey LIMIT 1
+    """)
+    suspend fun topPairSince(since: Long): ConfusionPairCount?
+    @Query("DELETE FROM confusion_events WHERE at < :cutoff") suspend fun deleteOlderThan(cutoff: Long): Int
+}
+
+@Dao interface CheckpointResultDao {
+    @Insert suspend fun insert(result: CheckpointResult): Long
+    @Insert suspend fun insertAll(results: List<CheckpointResult>): List<Long>
+    @Query("SELECT * FROM checkpoint_results WHERE at >= :since ORDER BY at DESC") suspend fun since(since: Long): List<CheckpointResult>
+    @Query("SELECT * FROM checkpoint_results ORDER BY at DESC LIMIT :limit") suspend fun recent(limit: Int = 200): List<CheckpointResult>
 }

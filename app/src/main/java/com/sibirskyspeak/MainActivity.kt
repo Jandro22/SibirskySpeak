@@ -8,9 +8,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.sibirskyspeak.notify.Reminders
+import dagger.hilt.android.AndroidEntryPoint
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
@@ -59,6 +60,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -70,33 +72,40 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sibirskyspeak.audio.RussianTextToSpeech
 import com.sibirskyspeak.data.Achievement
 import com.sibirskyspeak.review.ReviewViewModel
-import com.sibirskyspeak.review.ReviewViewModelFactory
 import com.sibirskyspeak.review.SessionStep
 import kotlinx.coroutines.delay
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    private val reviewViewModel: ReviewViewModel by viewModels {
-        val app = application as SibirskySpeakApp
-        ReviewViewModelFactory(app.repository, app.settings)
-    }
-
+    companion object { const val EXTRA_MICRO = "mode_micro" }
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    @OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Reminders.ensureChannel(this)
         Reminders.schedule(this)
+        Reminders.scheduleWeekly(this)
         maybeRequestNotificationPermission()
         setContent {
             SibirskySpeakTheme {
-                ReviewScreen(reviewViewModel)
+                // Exposes every Modifier.testTag below as the platform view's resource-id,
+                // so uiautomator/Espresso device tests (and ad hoc QA scripting) can select
+                // controls by stable tag instead of scraping visible text.
+                Box(modifier = Modifier.semantics { testTagsAsResourceId = true }) {
+                    ReviewScreen(hiltViewModel<ReviewViewModel>(), intent?.getBooleanExtra(EXTRA_MICRO, false) == true)
+                }
             }
         }
     }
@@ -109,18 +118,56 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-internal val MainTabs = listOf(SessionStep.REVIEWS, SessionStep.DASHBOARD, SessionStep.IMPORT)
+internal val MainTabs = listOf(SessionStep.REVIEWS, SessionStep.DASHBOARD, SessionStep.LAB, SessionStep.IMPORT)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun ReviewScreen(viewModel: ReviewViewModel) {
+internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = false) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val tts = rememberRussianTts()
     val context = LocalContext.current
+    // Which of the two top-level layouts (study session vs. everything else) is showing
+    // right now — a UI-navigation intent, distinct from ReviewViewModel's `inStudySession`
+    // (whether a session actually exists to show) and its private `studySessionActive`
+    // (a re-entrancy guard against starting two sessions at once). There are exactly two
+    // safe ways to flip this to true:
+    //   1. Call a *synchronous* ViewModel method that sets `inStudySession = true` before
+    //      returning (e.g. `startStudySession()`), then set this true right after — or
+    //   2. Set it true only inside a completion callback from an *async* ViewModel method
+    //      (e.g. `debugStartSessionWithCardType(type) { studyActive = true }`), never before
+    //      kicking the async work off.
+    // Setting it true before an unconfirmed async operation (pattern 2 done wrong) is
+    // exactly the bug this comment exists to prevent — it shipped once, in the debug
+    // card-type jump, and got fixed by switching to pattern 2. `StudySessionScreen`'s own
+    // `LaunchedEffect(Unit) { if (!state.inStudySession) onStartSession() }` is what makes
+    // pattern-1 callers safe to set this eagerly without waiting a frame for the ViewModel.
     var studyActive by rememberSaveable { mutableStateOf(false) }
+    var autoStartedDueSession by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.skeletonReady) { if (state.skeletonReady) { studyActive = true; autoStartedDueSession = true } }
+    LaunchedEffect(launchMicro, state.sessionPlan) {
+        if (launchMicro && !autoStartedDueSession && state.sessionPlan != null) {
+            autoStartedDueSession = true
+            viewModel.startMicroSession()
+            studyActive = true
+        }
+    }
     var settingsArea by rememberSaveable { mutableStateOf(SettingsArea.STUDY) }
     var showReference by rememberSaveable { mutableStateOf(false) }
     val activeTab = state.sessionStep.mainTab()
+    LaunchedEffect(state.dashboardStats?.dueVocab, state.dashboardStats?.dueGrammar) {
+        val due = (state.dashboardStats?.dueVocab ?: 0) + (state.dashboardStats?.dueGrammar ?: 0)
+        if (!launchMicro && !autoStartedDueSession && due > 0 && !state.inStudySession) {
+            autoStartedDueSession = true
+            viewModel.startStudySession()
+            studyActive = true
+        }
+    }
+    // Identifies the "page" the shared scroll container below is showing. Keying
+    // rememberScrollState() on this (rather than reusing one instance and resetting it
+    // via an effect) means Compose itself gives every new page a fresh scroll position —
+    // scrolling down mid-card can't leak into the next card's header, and a tab switch
+    // can't inherit a stale offset either.
+    val pageKey = if (studyActive) "study:${state.prompt?.card?.id ?: -1}" else "tab:$activeTab"
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
@@ -134,18 +181,14 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
     // lives on the READER tab; in-session scheduled reading instead rides on the
     // study session. Treat both as "in the reader" for back-handling and layout.
     val inReader = (!studyActive && activeTab == SessionStep.READER) || state.inSessionReading
-    BackHandler(enabled = studyActive) {
-        viewModel.recordStudyScreenExit()
-        studyActive = false
-    }
-    BackHandler(enabled = showReference && !studyActive) { showReference = false }
-    // Back out of the manual reader: close an open text first, else return to Practice.
-    // Gated on !showReference so an open grammar-reference overlay (drawn on top of the
-    // Reader tab) takes Back priority and dismisses itself instead of navigating the
-    // tab underneath it and leaving the overlay stranded.
-    BackHandler(enabled = !studyActive && !showReference && activeTab == SessionStep.READER) {
-        if (state.selectedReaderTextId != null) viewModel.closeReaderText()
-        else viewModel.setSessionStep(SessionStep.REVIEWS)
+    // One ordered back policy; destinations no longer compete through stacked handlers.
+    BackHandler(enabled = studyActive || showReference || activeTab == SessionStep.READER) {
+        when {
+            studyActive -> { viewModel.recordStudyScreenExit(); studyActive = false }
+            showReference -> showReference = false
+            state.selectedReaderTextId != null -> viewModel.closeReaderText()
+            else -> viewModel.setSessionStep(SessionStep.REVIEWS)
+        }
     }
 
     // The reader word card stays pinned to the bottom while the story scrolls.
@@ -163,6 +206,7 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
             SessionStep.RULE -> StudySessionScreen(
                 state = state,
                 typedAnswer = viewModel.typedAnswer,
+                correctionAnswer = viewModel.correctionAnswer,
                 onAnswerChanged = viewModel::setTypedAnswer,
                 onChoice = viewModel::chooseAnswer,
                 onReveal = viewModel::reveal,
@@ -212,6 +256,7 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
                 onMarkVisible = viewModel::markVisibleWords,
                 onProgress = viewModel::recordReaderProgress,
                 onCheckpointAnswer = viewModel::answerReaderCheckpoint,
+                onSetGoal = viewModel::setReaderGoal,
                 onAddText = {
                     settingsArea = SettingsArea.READER
                     viewModel.setSessionStep(SessionStep.IMPORT)
@@ -231,8 +276,11 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
                 },
                 onLoadLeeches = viewModel::loadLeeches,
                 onReleaseLeech = viewModel::releaseLeech,
-                onSaveLeechEdit = viewModel::editLeech
+                onSaveLeechEdit = viewModel::editLeech,
+                onApplyDoctrineNudge = viewModel::applyDoctrineNudge,
+                onDismissDoctrineNudge = viewModel::dismissDoctrineNudge
             )
+            SessionStep.LAB -> LabPanel(state)
             SessionStep.IMPORT -> ImportExportPanel(
                 state = state,
                 selectedArea = settingsArea,
@@ -241,6 +289,7 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
                 onImport = viewModel::importJsonLines,
                 onExport = viewModel::exportJsonLines,
                 onFullBackup = viewModel::exportFullState,
+                onBackupTree = viewModel::setBackupTreeUri,
                 onTitle = viewModel::setReaderTitle,
                 onBody = viewModel::setReaderBody,
                 onAdd = viewModel::addReaderText,
@@ -264,7 +313,10 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
                 },
                 onFontScale = viewModel::setReaderFontScale,
                 onSearch = viewModel::setSearchQuery,
-                onSpeakRussian = tts::speak
+                onSpeakRussian = tts::speak,
+                onDebugStartCardType = { cardType ->
+                    viewModel.debugStartSessionWithCardType(cardType) { studyActive = true }
+                }
             )
             else -> PracticeScreen(
                 state = state,
@@ -343,6 +395,13 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
             }
         }
     ) { padding ->
+        // Hoisted once and invoked at the top of whichever branch below is active, so the
+        // call (and its args) has a single source of truth instead of two copies that could
+        // drift. In-flow (not a floating overlay) so it pushes content down instead of
+        // hiding whatever is drawn underneath it.
+        val achievementOverlay: @Composable () -> Unit = {
+            AchievementUnlockOverlay(achievements = state.newlyUnlocked, onDismiss = viewModel::dismissNewlyUnlocked)
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -357,6 +416,7 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
                         .fillMaxSize()
                         .background(MaterialTheme.colorScheme.background)
                 ) {
+                    achievementOverlay()
                     AnimatedMainTab(modifier = Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 12.dp))
                     state.statusMessage?.let {
                         Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -365,18 +425,23 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
                     }
                 }
             } else {
+                val mainScrollState = key(pageKey) { rememberScrollState() }
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(MaterialTheme.colorScheme.background)
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                        .verticalScroll(mainScrollState)
                 ) {
-                    AnimatedMainTab()
-                    state.statusMessage?.let { StatusBanner(it, onDismiss = viewModel::dismissStatusMessage) }
-                    // Leave room so the story doesn't hide behind the pinned word card.
-                    Spacer(Modifier.height(if (showWordCard) 300.dp else 8.dp))
+                    achievementOverlay()
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        AnimatedMainTab()
+                        state.statusMessage?.let { StatusBanner(it, onDismiss = viewModel::dismissStatusMessage) }
+                        // Leave room so the story doesn't hide behind the pinned word card.
+                        Spacer(Modifier.height(if (showWordCard) 300.dp else 8.dp))
+                    }
                 }
             }
             AnimatedVisibility(
@@ -398,11 +463,6 @@ internal fun ReviewScreen(viewModel: ReviewViewModel) {
                     }
                 }
             }
-            AchievementUnlockOverlay(
-                achievements = state.newlyUnlocked,
-                onDismiss = viewModel::dismissNewlyUnlocked,
-                modifier = Modifier.align(Alignment.TopCenter)
-            )
             // Grammar reference overlay (drawn on top of the active tab).
             if (showReference && !studyActive) {
                 GrammarReferenceScreen(
@@ -482,6 +542,14 @@ internal fun MainBottomBar(selected: SessionStep, onSelect: (SessionStep) -> Uni
         MainTabs.forEach { tab ->
             val isSelected = selected == tab
             NavigationBarItem(
+                modifier = Modifier.testTag(
+                    when (tab) {
+                        SessionStep.REVIEWS -> TestTags.NAV_PRACTICE
+                        SessionStep.DASHBOARD -> TestTags.NAV_PROGRESS
+                        SessionStep.LAB -> TestTags.NAV_LAB
+                        else -> TestTags.NAV_SETTINGS
+                    }
+                ),
                 selected = isSelected,
                 onClick = { onSelect(tab) },
                 icon = {

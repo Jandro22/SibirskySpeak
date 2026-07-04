@@ -53,5 +53,19 @@ data class Note(
     // course (tier 0). Null for the general/domain tiers. Drives the level label in
     // the UI; sequencing is by [unit], which is monotonic across levels.
     val cefrLevel: String? = null,
-    val mnemonic: String? = null
+    val mnemonic: String? = null,
+    // A second, unrelated dictionary sense for genuinely polysemous words (e.g.
+    // "мир" = world/peace, not near-synonyms) — distinct from exampleSentence2/3,
+    // which rotate through *additional context for the same sense*. Null for the
+    // vast majority of notes; only populated where a second sense is curated and
+    // worth its own retrieval practice. See ReviewPrompt.secondSenseExposure.
+    val secondSense: String? = null,
+    val secondSenseExample: String? = null,
+    val secondSenseExampleTranslation: String? = null,
+    // Set only on chunk notes (partOfSpeech = "chunk", generated at runtime from the
+    // on-device collocation table — see LearningRepository.syncMissingChunkCards, P4.4
+    // L1). Points back at the vocabulary note this collocation was mined for, so the
+    // chunk's CHUNK card can gate on that parent's recognition maturity rather than
+    // its own (a fresh chunk note has no review history of its own to judge).
+    val chunkParentNoteId: Long? = null
 )

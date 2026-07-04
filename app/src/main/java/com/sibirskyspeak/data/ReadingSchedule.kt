@@ -28,5 +28,23 @@ data class ReadingSchedule(
 data class ReadingAssignment(
     val recommendation: ReaderRecommendation,
     val schedule: ReadingSchedule,
-    val insertionIndex: Int
+    val insertionIndex: Int,
+    // P5.3: which modality this rep uses. Built so a future build-time audio pack
+    // is a pure asset swap — see ReadingMode.forRep.
+    val mode: ReadingMode = ReadingMode.READING
 )
+
+/**
+ * P5.3 listening mode: a scheduled reading "jumbo card" alternates modality on
+ * each rep, sharing the same ReadingSchedule SRS as plain reading. LISTENING reps
+ * gate the text reveal behind TTS playback (tap-to-reveal early counts as a
+ * listening miss) instead of showing it immediately.
+ */
+enum class ReadingMode {
+    READING,
+    LISTENING;
+
+    companion object {
+        fun forRep(reps: Int): ReadingMode = if (reps % 2 == 1) LISTENING else READING
+    }
+}

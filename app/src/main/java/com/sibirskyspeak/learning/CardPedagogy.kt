@@ -60,7 +60,25 @@ object CardPedagogy {
         CardType.GENDER_ID to CardPedagogyProfile(LearningFacet.MORPHOLOGY, EvidenceStrength.MODERATE, 0.45, weights(0.55, 0.75, 0.50, 0.30), "apply noun gender in agreement"),
         CardType.ASPECT_SELECT to CardPedagogyProfile(LearningFacet.SYNTAX, EvidenceStrength.MODERATE, 0.85, weights(0.15, 0.55, 1.00, 1.35), "choose aspect in a novel, verb-appropriate context"),
         CardType.CONCEPT_DRILL to CardPedagogyProfile(LearningFacet.SYNTAX, EvidenceStrength.STRONG, 1.10, weights(0.25, 1.00, 1.30, 1.45), "apply an authored grammar concept to a new example"),
-        CardType.LESSON to CardPedagogyProfile(LearningFacet.INSTRUCTION, EvidenceStrength.INSTRUCTION, 0.65, weights(1.50, 0.50, 0.20, 0.10), "complete guided practice after explanation")
+        CardType.LESSON to CardPedagogyProfile(LearningFacet.INSTRUCTION, EvidenceStrength.INSTRUCTION, 0.65, weights(1.50, 0.50, 0.20, 0.10), "complete guided practice after explanation"),
+        // Transfer-heaviest profile in the deck: the carrier sentence is freshly
+        // composed every rep (FrameRealizer), so success can only come from applying
+        // the rule, never from recognizing a memorized string. See CLAUDE.md P4.3.
+        CardType.CONCEPT_APPLY to CardPedagogyProfile(LearningFacet.SYNTAX, EvidenceStrength.STRONG, 1.15, weights(0.10, 0.60, 1.20, 1.60), "apply the concept's rule inside a sentence that has never been seen before"),
+        // Chunks are the unit of fluent speech, not a grammar drill — closer in cost
+        // to plain production than to a morphology drill.
+        CardType.CHUNK to CardPedagogyProfile(LearningFacet.CONTEXT, EvidenceStrength.STRONG, 1.05, weights(0.20, 0.75, 1.15, 1.30), "produce a natural multi-word chunk, not just the bare word"),
+        // Infinite, novel carriers with zero authored content — re-inflecting a held
+        // sentence is exactly the skill fluent production requires.
+        CardType.TRANSFORM to CardPedagogyProfile(LearningFacet.SYNTAX, EvidenceStrength.STRONG, 1.30, weights(0.15, 0.55, 1.15, 1.50), "re-inflect a real sentence under a novel instruction"),
+        // The ladder's payoff: producing a sentence that has never existed before.
+        // Grading is lexical/word-order-free (see AnswerNormalizer), not a full
+        // morphological check, so evidence is PRACTICE despite the high cost/value —
+        // per CLAUDE.md principle 2, grade weaker when uncertain about the retrieval.
+        CardType.NOVEL_PRODUCE to CardPedagogyProfile(LearningFacet.SYNTAX, EvidenceStrength.PRACTICE, 1.60, weights(0.10, 0.35, 0.90, 1.60), "produce a wholly novel sentence from an English cue alone"),
+        // ASR noise plus the ceiling-probe nature of imitation ("you cannot repeat
+        // above your competence") both argue for PRACTICE, not STRONG, evidence.
+        CardType.SPEAK_SENTENCE to CardPedagogyProfile(LearningFacet.PRONUNCIATION, EvidenceStrength.PRACTICE, 1.45, weights(0.20, 0.60, 1.05, 1.25), "repeat a full sentence from memory, proving you parsed it")
     )
 
     fun profile(type: CardType): CardPedagogyProfile = profiles.getValue(type)

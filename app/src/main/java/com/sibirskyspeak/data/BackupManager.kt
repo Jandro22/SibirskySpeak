@@ -1,6 +1,8 @@
 package com.sibirskyspeak.data
 
 import android.content.Context
+import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
 import org.json.JSONObject
 import java.io.File
 
@@ -15,6 +17,8 @@ import java.io.File
  * + rename so a crash mid-write can never leave us with a truncated backup.
  */
 class BackupManager(context: Context) {
+    private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences("sibirsky_settings", Context.MODE_PRIVATE)
     private val dir = File(context.filesDir, "backups")
     private val latest = File(dir, "full_state_latest.jsonl")
     private val previous = File(dir, "full_state_previous.jsonl")
@@ -41,6 +45,37 @@ class BackupManager(context: Context) {
             // Rename can fail across some filesystems; fall back to a copy.
             tmp.copyTo(latest, overwrite = true)
             if (!tmp.delete()) tmp.deleteOnExit()
+        }
+        mirrorToSaf(content)
+    }
+
+    fun setTreeUri(uri: Uri) {
+        appContext.contentResolver.takePersistableUriPermission(
+            uri,
+            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        )
+        prefs.edit().putString("backup_tree_uri", uri.toString()).apply()
+    }
+
+    private fun mirrorToSaf(content: String) {
+        val raw = prefs.getString("backup_tree_uri", null)?.takeIf(String::isNotBlank) ?: return
+        val root = DocumentFile.fromTreeUri(appContext, Uri.parse(raw)) ?: return
+        val stamp = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
+            .withZone(java.time.ZoneOffset.UTC).format(java.time.Instant.now())
+        val target = root.createFile("application/json", "sibirskyspeak-$stamp.jsonl") ?: return
+        appContext.contentResolver.openOutputStream(target.uri, "w")?.use { it.write(content.toByteArray()) }
+        thin(root)
+    }
+
+    private fun thin(root: DocumentFile) {
+        val files = root.listFiles().filter { it.name?.startsWith("sibirskyspeak-") == true }
+            .sortedByDescending(DocumentFile::lastModified)
+        val weeks = mutableSetOf<String>()
+        files.forEachIndexed { index, file ->
+            if (index < 14) return@forEachIndexed
+            val date = java.time.Instant.ofEpochMilli(file.lastModified()).atZone(java.time.ZoneOffset.UTC)
+            val week = "${date.get(java.time.temporal.IsoFields.WEEK_BASED_YEAR)}-${date.get(java.time.temporal.IsoFields.WEEK_OF_WEEK_BASED_YEAR)}"
+            if (!weeks.add(week)) file.delete()
         }
     }
 

@@ -18,7 +18,12 @@ internal class FakeSettingsStore : SettingsStore {
     override var reminderHour: Int = SettingsStore.DEFAULT_REMINDER_HOUR
     override var readerFontScale: Float = 1.0f
     override var lastBackupAt: Long = 0L
+    override var backupTreeUri: String = ""
+    override var restDayCredits: Int = 0
+    override var lastRestCreditAwardDay: Long = Long.MIN_VALUE
+    override var planSkeletonCardIds: String = ""
     override var lastAdaptiveLoadDay: Long = Long.MIN_VALUE
+    override var dismissedDoctrineNudge: String = ""
     override val learningExperimentVariant: String = "A"
     override var unlockedAchievementIds: Set<String> = emptySet()
 

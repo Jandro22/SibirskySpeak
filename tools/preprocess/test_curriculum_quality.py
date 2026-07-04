@@ -12,6 +12,7 @@ from b1_starter import b1_rows, b1_reader_texts
 from b2_starter import b2_rows, b2_reader_texts
 from c1_starter import c1_rows, c1_reader_texts
 from c2_starter import c2_rows, c2_reader_texts
+from curriculum_common import CONCEPT_TITLES
 
 STRESS = "́"
 VOWELS = set("аеёиоуыэюяАЕЁИОУЫЭЮЯ")
@@ -116,6 +117,23 @@ def test_lesson_concepts_exist_in_app():
     lesson_ids = {n["conceptId"] for n in all_rows() if n["pos"] == "lesson"}
     missing = lesson_ids - app_ids
     assert not missing, f"lesson concepts not in GrammarConcepts.kt: {missing}"
+
+
+def test_concept_titles_match_grammar_concepts_kt():
+    """CONCEPT_TITLES is the Python-side canonical concept id list (its own
+    docstring says "Keys/ids must match GrammarConcepts.kt") — check that claim
+    directly and symmetrically, not just indirectly via whichever concepts happen
+    to have an authored unit today. Catches drift in either direction: a Kotlin
+    concept added with no Python entry (its drills can never be authored) or a
+    Python entry added with no Kotlin GrammarConcept (its lesson can never render,
+    since GrammarConcepts.byId() falls through to null)."""
+    kt = GRAMMAR_CONCEPTS_KT.read_text(encoding="utf-8")
+    app_ids = set(re.findall(r'id = "([A-Za-z0-9_]+)"', kt))
+    python_ids = set(CONCEPT_TITLES.keys())
+    only_in_python = python_ids - app_ids
+    only_in_kotlin = app_ids - python_ids
+    assert not only_in_python, f"CONCEPT_TITLES ids missing from GrammarConcepts.kt: {only_in_python}"
+    assert not only_in_kotlin, f"GrammarConcepts.kt ids missing from CONCEPT_TITLES: {only_in_kotlin}"
 
 
 def test_every_concept_taught_is_also_reinforced():

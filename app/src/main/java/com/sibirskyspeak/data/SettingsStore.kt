@@ -27,7 +27,15 @@ interface SettingsStore {
     var reminderHour: Int
     var readerFontScale: Float
     var lastBackupAt: Long
+    var backupTreeUri: String
+    var restDayCredits: Int
+    var lastRestCreditAwardDay: Long
+    var planSkeletonCardIds: String
     var lastAdaptiveLoadDay: Long
+    /** Doctrine name (e.g. "RECOVERY") the learner last dismissed a pacing nudge
+     * for. Suppresses re-showing that exact suggestion; a nudge in a different
+     * direction still surfaces. Empty string = nothing dismissed. */
+    var dismissedDoctrineNudge: String
     val learningExperimentVariant: String
     var unlockedAchievementIds: Set<String>
     fun newlyUnlocked(currentUnlocked: Set<String>): Set<String>
@@ -142,10 +150,28 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         get() = prefs.getLong(KEY_LAST_BACKUP_AT, 0L)
         set(value) = prefs.edit().putLong(KEY_LAST_BACKUP_AT, value).apply()
 
+    override var backupTreeUri: String
+        get() = prefs.getString(KEY_BACKUP_TREE_URI, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_BACKUP_TREE_URI, value).apply()
+
+    override var restDayCredits: Int
+        get() = prefs.getInt(KEY_REST_DAY_CREDITS, 0).coerceIn(0, 2)
+        set(value) = prefs.edit().putInt(KEY_REST_DAY_CREDITS, value.coerceIn(0, 2)).apply()
+    override var lastRestCreditAwardDay: Long
+        get() = prefs.getLong(KEY_LAST_REST_AWARD_DAY, Long.MIN_VALUE)
+        set(value) = prefs.edit().putLong(KEY_LAST_REST_AWARD_DAY, value).apply()
+    override var planSkeletonCardIds: String
+        get() = prefs.getString(KEY_PLAN_SKELETON, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_PLAN_SKELETON, value).apply()
+
     /** Local epoch-day on which automatic workload tuning last ran. */
     override var lastAdaptiveLoadDay: Long
         get() = prefs.getLong(KEY_LAST_ADAPTIVE_LOAD_DAY, Long.MIN_VALUE)
         set(value) = prefs.edit().putLong(KEY_LAST_ADAPTIVE_LOAD_DAY, value).apply()
+
+    override var dismissedDoctrineNudge: String
+        get() = prefs.getString(KEY_DISMISSED_DOCTRINE_NUDGE, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_DISMISSED_DOCTRINE_NUDGE, value).apply()
 
     /** Stable, installation-local learning experiment. Never changes mid-course. */
     override val learningExperimentVariant: String
@@ -198,10 +224,15 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         private const val KEY_UNLOCKED_ACHIEVEMENTS = "unlocked_achievements"
         private const val KEY_ACH_SEEDED = "achievements_seeded"
         private const val KEY_LAST_BACKUP_AT = "last_backup_at"
+        private const val KEY_BACKUP_TREE_URI = "backup_tree_uri"
+        private const val KEY_REST_DAY_CREDITS = "rest_day_credits"
+        private const val KEY_LAST_REST_AWARD_DAY = "last_rest_award_day"
+        private const val KEY_PLAN_SKELETON = "plan_skeleton_card_ids"
         private const val KEY_INTERVAL_MODIFIER = "interval_modifier"
         private const val KEY_FSRS_WEIGHTS = "fsrs_weights_v1"
         private const val KEY_LAST_WEIGHT_FIT_DAY = "last_weight_fit_day"
         private const val KEY_LAST_ADAPTIVE_LOAD_DAY = "last_adaptive_load_day"
+        private const val KEY_DISMISSED_DOCTRINE_NUDGE = "dismissed_doctrine_nudge"
         private const val KEY_LEARNING_EXPERIMENT = "learning_experiment_v1"
     }
 }

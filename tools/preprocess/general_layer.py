@@ -20,6 +20,7 @@ list when the lemma appears there (so function words sort first).
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from russian_morph import decline_adjective, decline_noun, strip_stress
@@ -27,11 +28,46 @@ from russian_morph import decline_adjective, decline_noun, strip_stress
 HERE = Path(__file__).resolve().parent
 SOURCE = HERE / "general_source.jsonl"
 
+# A handful of general_source.jsonl's scraped "example" fields are mojibake:
+# genuine CP1251 Russian text that got decoded as Mac Cyrillic somewhere
+# upstream, landing on Cyrillic Supplement code points (the Macedonian/Serbian
+# letters, U+0400-U+045F minus the legitimate "Ё"/"ё") that never appear in
+# real Russian. The corruption is a clean single-hop mis-decode — re-encoding
+# as mac_cyrillic to recover the original bytes and decoding those as cp1251
+# reverses it losslessly (verified against every affected row in the source
+# file), so examples are repaired rather than dropped: finalize_notes() in
+# build_bootstrap.py drops any non-lesson note that ends up without an
+# example, and there's no reason to lose real vocabulary over a fixable
+# encoding bug.
+_MOJIBAKE_CYRILLIC = re.compile("[ѐђ-џЀЂ-Џ]")
+
+
+def _repair_mojibake(text: str) -> str:
+    if not _MOJIBAKE_CYRILLIC.search(text):
+        return text
+    try:
+        return text.encode("mac_cyrillic").decode("cp1251")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+
 POS_MAP = {
     "noun": "noun", "adj.": "adjective", "adjs": "adjective", "prtf": "adjective",
     "verb": "verb", "adv.": "adverb", "conj.": "conjunction", "prep.": "preposition",
     "num.": "numeral", "prcl.": "particle", "intj.": "interjection",
     "pron.": "pronoun", "pred.": "predicative", "nonpro.": "other",
+}
+
+# general_source.jsonl's "definition" field packs a genuinely polysemous word's
+# unrelated senses into one comma list (e.g. "world, peace") with a single
+# example anchoring only the first — the app never gives the second sense its
+# own retrieval practice or context (see ReviewPrompt.secondSenseExposure,
+# which reads these fields once the card is well-established). Deliberately
+# small and hand-curated rather than derived: verifying that two senses are
+# genuinely *unrelated* (not near-synonyms) and authoring a correct example
+# for the overlooked one takes a human, one word at a time.
+SECOND_SENSE_OVERRIDES = {
+    "мир": ("peace", "Он хочет мира.", "He wants peace."),
+    "лук": ("onion", "Мама режет лук для супа.", "Mom is cutting an onion for the soup."),
 }
 GENDER_MAP = {"masc": "M", "femn": "F", "neut": "N"}
 
@@ -395,6 +431,10 @@ def general_rows(domain_lemmas: set[str]) -> list[dict]:
         }
         curated_count += 1
 
+        second_sense = SECOND_SENSE_OVERRIDES.get(lemma)
+        if second_sense:
+            note["secondSense"], note["secondSenseExample"], note["secondSenseExampleTranslation"] = second_sense
+
         example = e.get("example", "").strip()
         if example:
             # Deck examples are "Russian - English". Split into sentence + gloss; only
@@ -408,9 +448,16 @@ def general_rows(domain_lemmas: set[str]) -> list[dict]:
                     head, _, tail = example.partition(sep)
                     ru, en = head.strip(), tail.strip()
                     break
+            # Repair each half independently, not the joined string — an isolated
+            # mojibake character in one half (e.g. a single scrambled proper noun in
+            # the English gloss) must not have the mac_cyrillic/cp1251 transform
+            # applied to the OTHER, already-clean half, which would corrupt it fresh.
+            ru = _repair_mojibake(ru)
+            en = _repair_mojibake(en)
             has_cyrillic = any("а" <= ch.lower() <= "я" or ch == "ё" for ch in ru)
             has_latin = any("a" <= ch.lower() <= "z" for ch in en)
-            if ru and en and has_cyrillic and has_latin:
+            is_mojibake = bool(_MOJIBAKE_CYRILLIC.search(ru)) or bool(_MOJIBAKE_CYRILLIC.search(en))
+            if ru and en and has_cyrillic and has_latin and not is_mojibake:
                 note["exampleSentence"] = ru
                 note["exampleTranslation"] = en
 

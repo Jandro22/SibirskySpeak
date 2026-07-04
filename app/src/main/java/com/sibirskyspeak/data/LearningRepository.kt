@@ -4,6 +4,9 @@ import com.sibirskyspeak.review.ReviewPrompt
 import com.sibirskyspeak.review.AnswerMode
 import com.sibirskyspeak.review.LessonContent
 import com.sibirskyspeak.review.buildPrompt
+import com.sibirskyspeak.review.meaningLine
+import com.sibirskyspeak.review.mnemonicLine
+import com.sibirskyspeak.review.isEnglishAnswerCorrect
 import com.sibirskyspeak.scheduler.FsrsScheduler
 import com.sibirskyspeak.scheduler.Scheduler
 import com.sibirskyspeak.learning.AbilitySkill
@@ -19,6 +22,7 @@ import com.sibirskyspeak.learning.NextCardSelector
 import com.sibirskyspeak.learning.SessionMode
 import com.sibirskyspeak.learning.NarrowReadingGenerator
 import com.sibirskyspeak.learning.CapacityBelief
+import com.sibirskyspeak.learning.DoctrineAdvisor
 import com.sibirskyspeak.learning.PaceController
 import com.sibirskyspeak.learning.PaceInputs
 import com.sibirskyspeak.learning.Pace
@@ -39,6 +43,12 @@ import com.sibirskyspeak.learning.PromotionSeries
 import com.sibirskyspeak.learning.TrueSkill
 import com.sibirskyspeak.learning.WorldModel
 import com.sibirskyspeak.learning.SuccessCalibrationFitter
+import com.sibirskyspeak.learning.EvidenceEvent
+import com.sibirskyspeak.learning.EvidenceStrength
+import com.sibirskyspeak.morph.MorphologyEngine
+import com.sibirskyspeak.generation.FrameInventory
+import com.sibirskyspeak.generation.FrameRealizer
+import com.sibirskyspeak.transform.Transformer
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -82,6 +92,9 @@ class LearningRepository(
     // migration, corruption, reinstall). Null in tests that don't exercise it.
     private val restoreBackup: (suspend () -> String?)? = null,
     private val writeBackup: (suspend (String) -> Unit)? = null,
+    private val weeklyReportDao: WeeklyReportDao? = null,
+    private val confusionEventDao: ConfusionEventDao? = null,
+    private val checkpointResultDao: CheckpointResultDao? = null,
     private val telemetryDao: TelemetryDao? = null,
     private val readingScheduleDao: ReadingScheduleDao? = null,
     private val readerEncounterDao: ReaderEncounterDao? = null,
@@ -89,6 +102,8 @@ class LearningRepository(
     private val minedExampleDao: MinedExampleDao? = null,
     private val learningModelDao: LearningModelDao? = null,
     private val contentDao: ContentDao? = null,
+    private val morphologyEngine: MorphologyEngine? = null,
+    private val frameRealizer: FrameRealizer? = null,
     // Normalized-surface -> base-lemma map (deck_lemma.json), built offline with the
     // same pymorphy lemmatizer that indexed the corpus. Lets the miner resolve a note's
     // real base lemma when note.lemma is a namespaced/inflected pseudo-lemma (e.g.
@@ -115,6 +130,7 @@ class LearningRepository(
     @Volatile private var notesCache: List<Note>? = null
     @Volatile private var formIndexCache: Map<String, Note>? = null
     @Volatile private var knownIdsCache: Set<Long>? = null
+    @Volatile private var frameInventoryCache: FrameInventory? = null
     private val modelTuningMutex = Mutex()
     @Volatile private var lastGraduationReviewCount: Int? = null
     @Volatile private var accuracyCacheReviewCount: Int? = null
@@ -147,6 +163,7 @@ class LearningRepository(
         notesCache = null
         formIndexCache = null
         knownIdsCache = null
+        frameInventoryCache = null
         lastGraduationReviewCount = null
         accuracyCacheReviewCount = null
         accuracyCache = null
@@ -166,6 +183,16 @@ class LearningRepository(
 
     private suspend fun allNotesCached(): List<Note> =
         notesCache ?: noteDao.getAll().also { notesCache = it }
+
+    /** Known-inventory fillers for FrameRealizer (P4.3), pre-partitioned by POS. */
+    private suspend fun frameInventory(): FrameInventory = frameInventoryCache ?: run {
+        val notes = allNotesCached().filter { it.tier == 0 }
+        FrameInventory(
+            nouns = notes.filter { it.partOfSpeech == "noun" },
+            verbs = notes.filter { it.partOfSpeech == "verb" },
+            adjectives = notes.filter { it.partOfSpeech == "adjective" }
+        ).also { frameInventoryCache = it }
+    }
 
     private suspend fun formIndex(): Map<String, Note> =
         formIndexCache ?: run {
@@ -311,6 +338,11 @@ class LearningRepository(
         runCatching { cardDao.suspendDeprecatedAspectCueCards() }
         runCatching { syncPedagogicalFacets() }
         syncMissingConceptDrillCards()
+        runCatching { syncMissingConceptApplyCards() }
+        runCatching { syncMissingNovelProduceCards() }
+        runCatching { syncMissingChunkCards() }
+        runCatching { syncMissingTransformCards() }
+        runCatching { syncMissingSpeakSentenceCards() }
         runCatching { repairConcatenatedExamples() }
         runCatching { syncBootstrapTextbookNotes() }
         runCatching { retireRejectedBootstrapNotes() }
@@ -331,7 +363,7 @@ class LearningRepository(
         val missing = buildList {
             notes.forEach { note ->
                 val present = existing[note.id].orEmpty().mapTo(HashSet()) { it.variantKey() }
-                cardsFor(note).forEach { candidate ->
+                CardFactory.cardsFor(note).forEach { candidate ->
                     if (candidate.variantKey() !in present) add(candidate)
                 }
             }
@@ -350,7 +382,7 @@ class LearningRepository(
         var noteId = 0L
         runInTransaction {
             noteId = noteDao.insert(clean)
-            cardDao.insertAll(cardsFor(clean.copy(id = noteId)))
+            cardDao.insertAll(CardFactory.cardsFor(clean.copy(id = noteId)))
         }
         invalidateNoteStructure()
         return noteId
@@ -363,6 +395,7 @@ class LearningRepository(
         val restoredLogs = mutableListOf<ReviewLog>()
         val readerPayloads = mutableListOf<JSONObject>()
         val pairPayloads = mutableListOf<JSONObject>()
+        val modelPayloads = mutableListOf<JSONObject>()
         runInTransaction {
             jsonLines.lineSequence()
                 .map { it.trim() }
@@ -384,6 +417,7 @@ class LearningRepository(
                         pairPayloads += json
                         return@forEach
                     }
+                    if (json.optBoolean("_model", false)) { modelPayloads += json; return@forEach }
                     val partnerLemma = json.optString("aspectPartner").takeIf { it.isNotBlank() && it != "null" }
                     val note = Note(
                         russian = json.getString("russian"),
@@ -411,7 +445,10 @@ class LearningRepository(
                         unit = json.optIntOrNull("unit"),
                         conceptId = json.optCleanString("conceptId"),
                         cefrLevel = json.optCleanString("cefrLevel"),
-                        mnemonic = json.optCleanString("mnemonic")
+                        mnemonic = json.optCleanString("mnemonic"),
+                        secondSense = json.optCleanString("secondSense"),
+                        secondSenseExample = json.optCleanString("secondSenseExample"),
+                        secondSenseExampleTranslation = json.optCleanString("secondSenseExampleTranslation")
                     )
                     val noteId = addNote(note)
                     if (partnerLemma != null) pendingPartners += noteId to partnerLemma
@@ -460,7 +497,8 @@ class LearningRepository(
                                             scheduledDays = rj.getInt("scheduledDays"),
                                             elapsedDays = rj.getInt("elapsedDays"),
                                             source = ReviewSource.valueOf(rj.getString("source")),
-                                            stabilityBefore = rj.optDouble("stabilityBefore", 0.0)
+                                            stabilityBefore = rj.optDouble("stabilityBefore", 0.0),
+                                            evidenceStrength = rj.optCleanString("evidenceStrength")?.let(EvidenceStrength::valueOf)
                                         )
                                     }
                                 }
@@ -567,6 +605,25 @@ class LearningRepository(
                 }
                 telemetryDao?.insertAll(events)
             }
+            val modelDao = learningModelDao
+            if (modelDao != null) modelPayloads.forEach { j ->
+                when (j.getString("kind")) {
+                    "difficulty" -> {
+                        val note = noteDao.getByLemma(j.getString("noteLemma")) ?: return@forEach
+                        val card = cardDao.getCardsForNote(note.id).firstOrNull { it.srsVariantKey() == j.getString("cardVariant") } ?: return@forEach
+                        modelDao.upsertDifficulty(ItemDifficulty(card.id, j.getDouble("elo"), j.optDouble("sigma", TrueSkill.SIGMA0), j.getInt("observations"), j.getLong("updatedAt")))
+                    }
+                    "mastery" -> modelDao.upsertMastery(ConceptMastery(j.getString("concept"), j.getDouble("probability"), j.getInt("observations"), j.getLong("updatedAt")))
+                    "parameter" -> modelDao.upsertParameter(OptimizerParameter(j.getString("key"), j.getDouble("value"), j.getInt("observations"), j.getLong("updatedAt")))
+                    "skill" -> modelDao.upsertSkillRating(SkillRating(j.getString("skill"), j.getDouble("muGlobalShare"), j.getDouble("mu"), j.getDouble("sigma"), j.getInt("observations"), j.getLong("updatedAt")))
+                    "capacity" -> modelDao.upsertCapacityState(CapacityState(mu=j.getDouble("mu"), sigma=j.getDouble("sigma"), updatedAt=j.getLong("updatedAt")))
+                    "willingness" -> modelDao.upsertWillingnessState(WillingnessState(habit=j.getDouble("habit"), coeffsJson=j.getString("coeffsJson"), updatedAt=j.getLong("updatedAt")))
+                    "rival" -> modelDao.upsertRivalState(RivalState(mu=j.getDouble("mu"), sigma=j.getDouble("sigma"), handicap=j.getDouble("handicap"), winStreak=j.getInt("winStreak"), persona=j.getString("persona"), updatedAt=j.getLong("updatedAt")))
+                    "ghost" -> modelDao.insertGhostSnapshot(GhostSnapshot(j.getLong("takenAt"),j.getDouble("muGlobal"),j.getDouble("sigma")))
+                    "pace" -> modelDao.upsertPaceLog(PaceLog(j.getLong("at"),j.getDouble("T"),j.getInt("N"),j.getDouble("rho"),j.getDouble("debtRatio"),j.getDouble("pReturn"),j.getString("doctrine"),j.getString("modeChosen")))
+                    "banditArm" -> modelDao.upsertBanditArmState(BanditArmState(j.getString("action"),j.getString("rewardJson"),j.getString("precisionJson"),j.getInt("pulls"),j.getLong("updatedAt")))
+                }
+            }
         }
         invalidateNoteStructure()
         return imported
@@ -577,7 +634,7 @@ class LearningRepository(
             .filter { it.cardType == CardType.ASPECT_SELECT }
             .mapNotNull { it.gramContextCue }
             .toSet()
-        val missing = cardsFor(noteDao.getById(noteId) ?: return)
+        val missing = CardFactory.cardsFor(noteDao.getById(noteId) ?: return)
             .filter { it.cardType == CardType.ASPECT_SELECT && it.gramContextCue !in existingAspectCues }
         if (missing.isNotEmpty()) cardDao.insertAll(missing)
     }
@@ -688,6 +745,147 @@ class LearningRepository(
         if (missing.isNotEmpty()) cardDao.insertAll(missing)
     }
 
+    /**
+     * One CONCEPT_APPLY card per grammar concept that the content pipeline has
+     * shipped frames for (tools/preprocess/frames.json), attached to that concept's
+     * LESSON note so teach-before-test gating applies unchanged. Additive and
+     * idempotent, like [syncMissingConceptDrillCards] — safe to call on every launch.
+     */
+    private suspend fun syncMissingConceptApplyCards() {
+        val dao = contentDao ?: return
+        val lessonNotesByConcept = allNotesCached()
+            .filter { it.partOfSpeech.equals("lesson", ignoreCase = true) && it.conceptId != null }
+            .associateBy { it.conceptId }
+        val missing = mutableListOf<Card>()
+        for (concept in GrammarConcepts.ALL) {
+            val note = lessonNotesByConcept[concept.id] ?: continue
+            val hasCard = cardDao.getCardsForNote(note.id).any { it.cardType == CardType.CONCEPT_APPLY }
+            if (hasCard) continue
+            if (dao.framesForConcept(concept.id).isEmpty()) continue
+            missing += Card(noteId = note.id, cardType = CardType.CONCEPT_APPLY, queue = Queue.GRAMMAR, due = 0L, gramConcept = concept.id)
+        }
+        if (missing.isNotEmpty()) cardDao.insertAll(missing)
+    }
+
+    /**
+     * One NOVEL_PRODUCE card per concept (P4.4 L3), gated on that concept's
+     * CONCEPT_APPLY already having a couple of reps — the ladder's payoff comes
+     * after guided application has started, not instead of it. Additive and
+     * idempotent, like the other concept-card syncs.
+     */
+    private suspend fun syncMissingNovelProduceCards() {
+        val dao = contentDao ?: return
+        val lessonNotesByConcept = allNotesCached()
+            .filter { it.partOfSpeech.equals("lesson", ignoreCase = true) && it.conceptId != null }
+            .associateBy { it.conceptId }
+        val missing = mutableListOf<Card>()
+        for (concept in GrammarConcepts.ALL) {
+            val note = lessonNotesByConcept[concept.id] ?: continue
+            val cards = cardDao.getCardsForNote(note.id)
+            if (cards.any { it.cardType == CardType.NOVEL_PRODUCE }) continue
+            val applyCard = cards.firstOrNull { it.cardType == CardType.CONCEPT_APPLY } ?: continue
+            if (applyCard.reps < 2) continue
+            if (dao.framesForConcept(concept.id).isEmpty()) continue
+            missing += Card(noteId = note.id, cardType = CardType.NOVEL_PRODUCE, queue = Queue.GRAMMAR, due = 0L, gramConcept = concept.id)
+        }
+        if (missing.isNotEmpty()) cardDao.insertAll(missing)
+    }
+
+    /**
+     * Mints a small batch of CHUNK notes/cards (P4.4 L1) for tier-0 vocabulary whose
+     * recognition has matured, from the on-device collocation table — real
+     * collocations ("на диване", not just "диван"), no authored content required
+     * ("index and compose"). Idempotent and additive, like the concept-card syncs;
+     * bounded per call so a first sync of a mature deck can't mint thousands at once.
+     */
+    private suspend fun syncMissingChunkCards(limit: Int = 24) {
+        val dao = contentDao ?: return
+        val notes = allNotesCached()
+        val alreadyChunked = notes.mapNotNull { it.chunkParentNoteId }.toHashSet()
+        val candidates = notes.filter {
+            it.tier == 0 && it.chunkParentNoteId == null && it.id !in alreadyChunked &&
+                it.partOfSpeech in setOf("noun", "verb", "adjective")
+        }
+        if (candidates.isEmpty()) return
+        val recognitionByNote = cardDao.getCardsForNotes(candidates.map { it.id })
+            .filter { it.cardType == CardType.RU_TO_MEANING }
+            .associateBy { it.noteId }
+        var minted = 0
+        for (parent in candidates) {
+            if (minted >= limit) break
+            val recognition = recognitionByNote[parent.id] ?: continue
+            val mature = recognition.reps >= 3 && recognition.consecutiveCorrect >= 2 &&
+                recognition.state in setOf(CardState.REVIEW, CardState.GRADUATED)
+            if (!mature) continue
+            for (chunk in dao.chunksForLemma(parent.lemma, limit = 2)) {
+                if (minted >= limit) break
+                val noteId = noteDao.insert(
+                    Note(
+                        russian = chunk.chunk,
+                        translation = "",
+                        partOfSpeech = "chunk",
+                        lemma = chunk.chunk,
+                        tier = parent.tier,
+                        chunkParentNoteId = parent.id
+                    )
+                )
+                cardDao.insert(Card(noteId = noteId, cardType = CardType.CHUNK, queue = Queue.VOCAB, due = 0L))
+                minted++
+            }
+        }
+        if (minted > 0) invalidateNoteStructure()
+    }
+
+    /**
+     * Mints a TRANSFORM card (P4.4 L2) directly onto tier-0 verb notes whose
+     * recognition has matured — the card's actual sentence and rewrite are computed
+     * fresh at review time from the sentence bank (see [transformRealization]), so
+     * seeding here doesn't need to pre-validate that a negatable sentence exists.
+     */
+    private suspend fun syncMissingTransformCards(limit: Int = 24) {
+        val notes = allNotesCached()
+        val candidates = notes.filter { it.tier == 0 && it.partOfSpeech == "verb" }
+        if (candidates.isEmpty()) return
+        val existingByNote = cardDao.getCardsForNotes(candidates.map { it.id }).groupBy { it.noteId }
+        var minted = 0
+        for (verb in candidates) {
+            if (minted >= limit) break
+            val cards = existingByNote[verb.id].orEmpty()
+            if (cards.any { it.cardType == CardType.TRANSFORM }) continue
+            val recognition = cards.firstOrNull { it.cardType == CardType.RU_TO_MEANING } ?: continue
+            val mature = recognition.reps >= 3 && recognition.consecutiveCorrect >= 2 &&
+                recognition.state in setOf(CardState.REVIEW, CardState.GRADUATED)
+            if (!mature) continue
+            cardDao.insert(Card(noteId = verb.id, cardType = CardType.TRANSFORM, queue = Queue.VOCAB, due = 0L))
+            minted++
+        }
+    }
+
+    /**
+     * Mints a SPEAK_SENTENCE card (P6.1 elicited imitation) directly onto tier-0
+     * notes whose recognition has matured, any part of speech — the actual
+     * sentence is picked fresh from the sentence bank at review time (see
+     * [speakSentenceRealization]), so seeding here doesn't need to pre-validate
+     * that a suitable sentence exists.
+     */
+    private suspend fun syncMissingSpeakSentenceCards(limit: Int = 24) {
+        val candidates = allNotesCached().filter { it.tier == 0 }
+        if (candidates.isEmpty()) return
+        val existingByNote = cardDao.getCardsForNotes(candidates.map { it.id }).groupBy { it.noteId }
+        var minted = 0
+        for (note in candidates) {
+            if (minted >= limit) break
+            val cards = existingByNote[note.id].orEmpty()
+            if (cards.any { it.cardType == CardType.SPEAK_SENTENCE }) continue
+            val recognition = cards.firstOrNull { it.cardType == CardType.RU_TO_MEANING } ?: continue
+            val mature = recognition.reps >= 3 && recognition.consecutiveCorrect >= 2 &&
+                recognition.state in setOf(CardState.REVIEW, CardState.GRADUATED)
+            if (!mature) continue
+            cardDao.insert(Card(noteId = note.id, cardType = CardType.SPEAK_SENTENCE, queue = Queue.VOCAB, due = 0L))
+            minted++
+        }
+    }
+
     suspend fun exportJsonLines(): String = exportLines(includeSrs = false)
 
     suspend fun exportFullState(): String = exportLines(includeSrs = true)
@@ -702,6 +900,7 @@ class LearningRepository(
         var activitiesSnapshot: List<ReadingActivity> = emptyList()
         var pairsSnapshot: List<ConfusablePair> = emptyList()
         var telemetrySnapshot: List<TelemetryEvent> = emptyList()
+        var modelLinesSnapshot: List<String> = emptyList()
         // Room guarantees every DAO read in this block observes the same database
         // snapshot. Serialization happens afterwards so the write lock stays short.
         runInTransaction {
@@ -715,6 +914,21 @@ class LearningRepository(
                 activitiesSnapshot = readingActivityDao?.getAll().orEmpty()
                 pairsSnapshot = confusablePairDao.getAll()
                 telemetrySnapshot = telemetryDao?.getAll().orEmpty()
+                learningModelDao?.let { dao ->
+                    val lines = mutableListOf<String>()
+                    fun line(kind: String, block: JSONObject.() -> Unit) { lines += JSONObject().put("_model",true).put("kind",kind).apply(block).toString() }
+                    dao.difficulties().forEach { d -> cards.firstOrNull { it.id == d.cardId }?.let { card -> line("difficulty") { put("noteLemma", notes.firstOrNull { it.id == card.noteId }?.lemma); put("cardVariant",card.srsVariantKey()); put("elo",d.elo); put("sigma",d.sigma); put("observations",d.observations); put("updatedAt",d.updatedAt) } } }
+                    dao.masteries().forEach { v -> line("mastery") { put("concept",v.concept);put("probability",v.probability);put("observations",v.observations);put("updatedAt",v.updatedAt) } }
+                    dao.parameters().forEach { v -> line("parameter") { put("key",v.key);put("value",v.value);put("observations",v.observations);put("updatedAt",v.updatedAt) } }
+                    dao.skillRatings().forEach { v -> line("skill") { put("skill",v.skill);put("muGlobalShare",v.muGlobalShare);put("mu",v.mu);put("sigma",v.sigma);put("observations",v.observations);put("updatedAt",v.updatedAt) } }
+                    dao.capacityState()?.let { v -> line("capacity") { put("mu",v.mu);put("sigma",v.sigma);put("updatedAt",v.updatedAt) } }
+                    dao.willingnessState()?.let { v -> line("willingness") { put("habit",v.habit);put("coeffsJson",v.coeffsJson);put("updatedAt",v.updatedAt) } }
+                    dao.rivalState()?.let { v -> line("rival") { put("mu",v.mu);put("sigma",v.sigma);put("handicap",v.handicap);put("winStreak",v.winStreak);put("persona",v.persona);put("updatedAt",v.updatedAt) } }
+                    dao.ghostSnapshots().forEach { v -> line("ghost") { put("takenAt",v.takenAt);put("muGlobal",v.muGlobal);put("sigma",v.sigma) } }
+                    dao.allPaceLogs().forEach { v -> line("pace") { put("at",v.at);put("T",v.T);put("N",v.N);put("rho",v.rho);put("debtRatio",v.debtRatio);put("pReturn",v.pReturn);put("doctrine",v.doctrine);put("modeChosen",v.modeChosen) } }
+                    dao.banditArmStates().forEach { v -> line("banditArm") { put("action",v.action);put("rewardJson",v.rewardJson);put("precisionJson",v.precisionJson);put("pulls",v.pulls);put("updatedAt",v.updatedAt) } }
+                    modelLinesSnapshot = lines
+                }
             }
         }
         val noteById = notes.associateBy { it.id }
@@ -752,6 +966,9 @@ class LearningRepository(
                     put("conceptId", note.conceptId)
                     put("cefrLevel", note.cefrLevel)
                     put("mnemonic", note.mnemonic)
+                    put("secondSense", note.secondSense)
+                    put("secondSenseExample", note.secondSenseExample)
+                    put("secondSenseExampleTranslation", note.secondSenseExampleTranslation)
                     val noteCards = cardsByNoteId[note.id]
                     if (!noteCards.isNullOrEmpty()) {
                         put("_cards", org.json.JSONArray().apply {
@@ -785,6 +1002,7 @@ class LearningRepository(
                                                 put("elapsedDays", log.elapsedDays)
                                                 put("source", log.source.name)
                                                 put("stabilityBefore", log.stabilityBefore)
+                                                put("evidenceStrength", log.evidenceStrength?.name)
                                             }) }
                                         })
                                     }
@@ -863,7 +1081,7 @@ class LearningRepository(
                 put("_cardVariantKey", eventCard?.srsVariantKey())
             }.toString()
         }
-        return listOf(noteLines, readerLines, pairLines, telemetryLines).filter { it.isNotBlank() }.joinToString("\n")
+        return listOf(noteLines, readerLines, pairLines, telemetryLines, modelLinesSnapshot.joinToString("\n")).filter { it.isNotBlank() }.joinToString("\n")
     }
 
     suspend fun addReaderText(title: String, body: String, source: String = "local"): Long {
@@ -1267,7 +1485,7 @@ class LearningRepository(
                 }
             }
 
-            noteDao.getAll().filter(::isAmbiguousFunctionNote).forEach { note ->
+            noteDao.getAll().filter(CardFactory::isAmbiguousFunctionNote).forEach { note ->
                 changes += cardDao.suspendAmbiguousProduction(note.id)
             }
             // Repair notes graduated "already known" before graduateVocabKnown() also
@@ -1649,12 +1867,6 @@ class LearningRepository(
 
     private fun Long?.orZero(): Long = this ?: 0L
 
-    private fun isAmbiguousFunctionNote(note: Note): Boolean {
-        val pos = note.partOfSpeech.lowercase()
-        val functionWord = pos in setOf("preposition", "conjunction", "particle", "pronoun", "conj.", "prep.")
-        return functionWord && note.translation.split(',', ';', '/').count { it.isNotBlank() } > 1
-    }
-
     suspend fun importReaderTextsJsonLines(jsonLines: String): Int {
         val texts = jsonLines.lineSequence()
             .map { it.trim() }
@@ -1674,10 +1886,11 @@ class LearningRepository(
         return texts.size
     }
 
-    suspend fun readerTexts(): List<ReaderRecommendation> {
+    suspend fun readerTexts(now: Long = System.currentTimeMillis()): List<ReaderRecommendation> {
         val index = formIndex()
         val known = knownNoteIds()
-        val covered = readerTextDao.getAll().map { coverageFor(it, index, known) }
+        val dueSoon = cardDao.getDueSoonNoteIds(now + 2 * DAY_MILLIS).toHashSet()
+        val covered = readerTextDao.getAll().map { coverageFor(it, index, known, dueSoon) }
         val targetReady = covered.any { it.text.source.startsWith("target:", ignoreCase = true) && it.coverage >= AUTHENTIC_READY_COVERAGE }
         return covered.map { it.copy(authenticReady = targetReady) }
     }
@@ -1836,13 +2049,14 @@ class LearningRepository(
     private suspend fun dashboardStatsFrom(now: Long, recommendations: List<ReaderRecommendation>): DashboardStats {
         val notes = allNotesCached()
         val targetCoverages = recommendations.filter { it.text.source.startsWith("target:", ignoreCase = true) }.map { it.coverage }
-        val qualityReport = importQualityReport(notes, recommendations)
+        val qualityReport = ImportQualityReporter.report(notes, recommendations, AUTHENTIC_READY_COVERAGE)
         val retentionWindowStart = now - RETENTION_WINDOW_DAYS * DAY_MILLIS
         val matureReviews = reviewLogDao.matureReviewCount(retentionWindowStart)
         val matureRetained = reviewLogDao.matureRetainedCount(retentionWindowStart)
         val dueByDay = cardDao.countDueByDay(now, now + 7 * DAY_MILLIS, DAY_MILLIS)
             .associate { it.day to it.count }
         val forecast = List(7) { day -> dueByDay[day] ?: 0 }
+        val goal = recommendations.filter { it.text.source.startsWith("target:", true) }.maxByOrNull { it.coverage }
         return DashboardStats(
             noteCount = notes.size,
             vocabCards = cardDao.countByQueue(Queue.VOCAB),
@@ -1857,12 +2071,20 @@ class LearningRepository(
             matureRetention = if (matureReviews > 0) matureRetained.toDouble() / matureReviews else null,
             matureReviewSample = matureReviews,
             leechCount = cardDao.getLeechCards(LEECH_LAPSES).size,
-            dueForecast = forecast
+            dueForecast = forecast,
+            goalProgress = goal?.let { GoalProgress(it.text.id, it.text.title, (it.coverage * 100).toInt(), (it.totalTokens - it.knownTokens).coerceAtLeast(0)) }
         )
     }
 
+    suspend fun setReaderGoal(textId: Long): Boolean {
+        val text = readerTextDao.getById(textId) ?: return false
+        val changed = readerTextDao.updateSource(textId, "target:${text.title}") > 0
+        if (changed) invalidateNoteState()
+        return changed
+    }
+
     suspend fun importQualityReport(): ImportQualityReport =
-        importQualityReport(allNotesCached(), readerTexts())
+        ImportQualityReporter.report(allNotesCached(), readerTexts(), AUTHENTIC_READY_COVERAGE)
 
     suspend fun dailyPlan(now: Long = System.currentTimeMillis()): DailyPlan {
         val categories = accuracyCategoriesCached()
@@ -1903,7 +2125,7 @@ class LearningRepository(
         // Compute once; reuse for both readerRecommendation and dashboardStats.
         // Reader coverage requires a morphology index over the whole deck and a scan
         // of every text. Startup can publish a useful plan first and enrich it later.
-        val allTexts = if (includeReaderInsights) readerTexts() else emptyList()
+        val allTexts = if (includeReaderInsights) readerTexts(now) else emptyList()
         val reviewedNoteIds = reviewLogDao.getReviewedCardsSince(startOfLocalDay(now)).mapTo(HashSet()) { it.noteId }
         val consolidationReader = consolidationReader(allTexts, reviewedNoteIds)
         val mastery = unitMastery()
@@ -1913,9 +2135,10 @@ class LearningRepository(
         val gamification = gamificationStats(now)
         val recentTelemetry = recentTelemetry(200)
         val estimatedFatigue = estimatedSessionFatigue(recentTelemetry)
-        val recentPace = modelDao?.paceLogs(2).orEmpty()
+        val recentPace = modelDao?.paceLogs(5).orEmpty()
         val lastPace = recentPace.firstOrNull()
         val priorPace = recentPace.getOrNull(1)
+        val doctrineNudge = DoctrineAdvisor.suggest(recentPace, config().doctrine)
         val sessionsPerDayExpected = expectedSessionsPerDay(recentTelemetry)
         val medianReviewMinutes = medianReviewMinutes(recentTelemetry)
         val parameters = modelDao?.parameters().orEmpty()
@@ -1975,7 +2198,7 @@ class LearningRepository(
         val generatedNewBudget = adoptedPace.newBudget
         val generatedRetention = adoptedPace.retention
         val sessionMode = adoptedPace.mode
-        val cards = sessionCards(now, generatedCapacity, daily, mastery, generatedNewBudget)
+        val cards = applyContrastivePairing(sessionCards(now, generatedCapacity, daily, mastery, generatedNewBudget), now)
         // Difficulty is only consumed for cards in today's bounded plan. Loading the
         // entire historical table made startup scale with lifetime deck size.
         val itemDifficultyMap = if (cards.isEmpty()) emptyMap() else {
@@ -2037,7 +2260,7 @@ class LearningRepository(
             blockedGrammar = blocked,
             interleavedGrammar = interleavedGrammarPrompts(blocked.map { it.card.id }.toSet(), now, notesById),
             readerRecommendation = consolidationReader
-                ?: allTexts.minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTarget(it.coverage) }.thenByDescending { it.coverage }),
+                ?: allTexts.minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTarget(it.coverage) }.thenByDescending { it.dueOverlap }.thenByDescending { it.coverage }),
             dashboardStats = dashboardStatsFrom(now, allTexts),
             skillRatings = skillRatings,
             rivalState = rivalState,
@@ -2054,7 +2277,8 @@ class LearningRepository(
             readingAssignment = readingAssignment,
             blueprint = blueprint,
             pace = pace,
-            confusablePairs = confusablePairs
+            confusablePairs = confusablePairs,
+            doctrineNudge = doctrineNudge
         )
     }
 
@@ -2127,7 +2351,7 @@ class LearningRepository(
         if (due.isEmpty()) return null
         val readable = texts.filter { it.text.id in due && it.coverage >= MIN_READER_COVERAGE }
         val recommendation = consolidation?.takeIf { it.text.id in due && it.coverage >= MIN_READER_COVERAGE }
-            ?: readable.minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTarget(it.coverage) }.thenBy { due[it.text.id]?.reps ?: 0 })
+            ?: readable.minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTarget(it.coverage) }.thenByDescending { it.dueOverlap }.thenBy { due[it.text.id]?.reps ?: 0 })
             ?: return null
         val insertion = forcedInsertion?.coerceIn(0, cardCount.coerceAtLeast(0))
             ?: when {
@@ -2135,7 +2359,8 @@ class LearningRepository(
                 cardCount <= 4 -> 1
                 else -> (cardCount / 3).coerceIn(3, cardCount - 1)
             }
-        return ReadingAssignment(recommendation, due.getValue(recommendation.text.id), insertion)
+        val schedule = due.getValue(recommendation.text.id)
+        return ReadingAssignment(recommendation, schedule, insertion, mode = ReadingMode.forRep(schedule.reps))
     }
 
     /** Grade the connected-text checkpoint and set the next distributed reading. */
@@ -2189,6 +2414,41 @@ class LearningRepository(
                 ))
             }
         }
+        if (!abandoned) runCatching { creditReadingEvidence(readerTextId, now) }
+    }
+
+    /**
+     * Passive reading evidence (P5.4, closes the input loop): for every note in
+     * this text whose card is due within a week, nudge it via the P0.2 evidence bus
+     * — a word never looked up during this reading is weak positive evidence it's
+     * holding; a word that WAS tapped for its meaning is weak negative (the lookup
+     * itself is never evidence — see EvidenceEvent's guard — but needing it is).
+     * recordEvidence enforces the cap (≤1/card/day) and never changes card state,
+     * so this can only ever nudge an interval, never graduate or fail a card.
+     */
+    private suspend fun creditReadingEvidence(readerTextId: Long, now: Long) {
+        val text = readerTextDao.getById(readerTextId) ?: return
+        val index = formIndex()
+        val noteIds = readerWordOccurrences(text.body)
+            .mapNotNull { index[normalizeToken(it.surface)]?.id }
+            .distinct()
+        if (noteIds.isEmpty()) return
+        val dueSoonNoteIds = cardDao.getCardsForNotes(noteIds)
+            .filter { !it.suspended && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && it.due <= now + 7 * DAY_MILLIS }
+            .map { it.noteId }
+            .toSet()
+        if (dueSoonNoteIds.isEmpty()) return
+        val lookedUp = readerEncounterDao?.getForText(readerTextId)?.mapTo(HashSet()) { it.noteId }.orEmpty()
+        for (noteId in dueSoonNoteIds) {
+            recordEvidence(EvidenceEvent(
+                noteId = noteId,
+                facet = com.sibirskyspeak.learning.LearningFacet.CONTEXT,
+                strength = EvidenceStrength.PRACTICE,
+                correct = noteId !in lookedUp,
+                source = ReviewSource.READING,
+                at = now
+            ))
+        }
     }
 
     private suspend fun problemCardAudit(notesById: Map<Long, Note>): List<ProblemCardSummary> =
@@ -2227,6 +2487,16 @@ class LearningRepository(
             ?.first
     }
 
+    /**
+     * P6.5 (curriculum DAG, scoped): strict-linear "every prior unit 100% first"
+     * gating is replaced by a sliding window off the current frontier unit — once
+     * the learner has genuinely started that unit (not just arrived at it), the
+     * next [UNIT_SLIDING_WINDOW] units open too, instead of staying hard-blocked
+     * behind full mastery of everything before them. A fully authored per-unit
+     * prerequisite-concept graph (tools/preprocess/units.yaml) is a further
+     * extension; this generalizes the existing single-unit preview peek using the
+     * same progress signal the old linear chain already computed.
+     */
     private suspend fun unitMastery(): List<UnitMastery> {
         val notes = allNotesCached().filter { it.tier == 0 && it.unit != null && it.status != WordStatus.IGNORED }
         val byId = notes.associateBy { it.id }
@@ -2239,12 +2509,11 @@ class LearningRepository(
         val grammar = cardDao.getAllGrammarCards().filter {
             it.noteId in byId && it.cardType != CardType.LESSON && !it.suspended && byId[it.noteId]?.status != WordStatus.KNOWN
         }
-        var priorComplete = true
-        return notes.groupBy { it.unit!! }.toSortedMap().map { (unit, unitNotes) ->
+        val raw = notes.groupBy { it.unit!! }.toSortedMap().map { (unit, unitNotes) ->
             val ids = unitNotes.mapTo(HashSet()) { it.id }
             val unitVocab = vocab.filter { it.noteId in ids }
             val unitGrammar = grammar.filter { it.noteId in ids }
-            val result = UnitMastery(
+            UnitMastery(
                 unit = unit,
                 vocabularyMastered = unitVocab.count {
                     it.state == CardState.GRADUATED || (it.reps >= 2 && it.consecutiveCorrect >= 2)
@@ -2252,10 +2521,14 @@ class LearningRepository(
                 vocabularyTotal = unitVocab.size,
                 grammarMastered = unitGrammar.count { it.reps >= 2 && it.consecutiveCorrect >= 2 },
                 grammarTotal = unitGrammar.size,
-                unlocked = priorComplete
+                unlocked = false
             )
-            priorComplete = priorComplete && result.progress >= UNIT_MASTERY_THRESHOLD
-            result
+        }
+        val frontierIndex = raw.indexOfFirst { it.progress < UNIT_MASTERY_THRESHOLD }.let { if (it < 0) raw.size else it }
+        val frontierStarted = raw.getOrNull(frontierIndex)?.let { it.vocabularyMastered > 0 || it.grammarMastered > 0 } ?: false
+        return raw.mapIndexed { index, mastery ->
+            val unlocked = index <= frontierIndex || (frontierStarted && index <= frontierIndex + UNIT_SLIDING_WINDOW)
+            mastery.copy(unlocked = unlocked)
         }
     }
 
@@ -2272,8 +2545,9 @@ class LearningRepository(
         var currentStreak = 0
         if (todayBucket in daySet || (todayBucket - 1) in daySet) {
             var day = if (todayBucket in daySet) todayBucket else todayBucket - 1
-            while (day in daySet) {
-                currentStreak += 1
+            var insuredGap = config().restDayCredits > 0
+            while (day in daySet || (insuredGap && (day - 1) in daySet)) {
+                if (day in daySet) currentStreak += 1 else { currentStreak += 1; insuredGap = false }
                 day -= 1
             }
         }
@@ -2411,7 +2685,8 @@ class LearningRepository(
             dailyGoal = dailyGoal,
             activeDays = days.size,
             last7Days = last7,
-            achievements = achievements
+            achievements = achievements,
+            restDayCredits = config().restDayCredits
         )
     }
 
@@ -2429,15 +2704,154 @@ class LearningRepository(
             var day = if (todayBucket in daySet) todayBucket else todayBucket - 1
             while (day in daySet) { streak += 1; day -= 1 }
         }
+        val hours = reviewLogDao.recentReviewTimes().map {
+            java.util.Calendar.getInstance().apply { timeInMillis = it }.get(java.util.Calendar.HOUR_OF_DAY)
+        }.sorted()
+        val due = cardDao.countDue(now) + if (readingScheduleDao?.nextDue(now) != null) 1 else 0
         return ReminderInfo(
             currentStreak = streak,
             studiedToday = todayBucket in daySet,
-            dueToday = cardDao.countDue(now) + if (readingScheduleDao?.nextDue(now) != null) 1 else 0
+            dueToday = due,
+            estimatedMinutes = kotlin.math.ceil(due * 0.35).toInt(),
+            preferredHour = hours.getOrNull(hours.size / 2) ?: SettingsStore.DEFAULT_REMINDER_HOUR
         )
+    }
+
+    suspend fun createWeeklyReport(now: Long = System.currentTimeMillis()): WeeklyReport? {
+        val dao = weeklyReportDao ?: return null
+        val stats = gamificationStats(now)
+        val retention = retentionByCardType(now - 7 * DAY_MILLIS)
+        val worst = retention.filter { it.total >= 3 }.minByOrNull { it.retained.toDouble()/it.total }
+        val confusion = topConfusionPair(now)
+        val body = JSONObject().put("reviews",stats.reviewedToday).put("activeDays",stats.last7Days.count { it })
+            .put("retention", if (retention.sumOf { it.total } == 0) JSONObject.NULL else retention.sumOf { it.retained }.toDouble()/retention.sumOf { it.total })
+            .put("attention",worst?.cardType?.name ?: "Keep the current rhythm")
+            .put("recommendation", if (stats.last7Days.count { it } >= 5) "Keep the contract steady." else "Lower the activation floor with one micro-session.")
+            .put("topConfusion", confusion?.let { "${it.expectedKey} vs ${it.producedKey} (${it.cardType.name}, ${it.count}x)" } ?: JSONObject.NULL)
+            .toString()
+        val report=WeeklyReport(generatedAt=now,periodStart=now-7*DAY_MILLIS,bodyJson=body)
+        return report.copy(id=dao.insert(report))
+    }
+    suspend fun weeklyReports(): List<WeeklyReport> = weeklyReportDao?.recent().orEmpty()
+
+    /** Persists a confusion classification (P4.5, review/AnswerDiagnosis.kt). */
+    suspend fun recordConfusionEvent(diagnosis: com.sibirskyspeak.review.Diagnosis, cardType: CardType, now: Long = System.currentTimeMillis()) {
+        confusionEventDao?.insert(ConfusionEvent(expectedKey = diagnosis.expectedKey, producedKey = diagnosis.producedKey, cardType = cardType, at = now))
+    }
+
+    /** The most-recurring (expectedKey, producedKey, cardType) confusion in the
+     * trailing window, or null if none recurred enough to be worth reporting. */
+    suspend fun topConfusionPair(now: Long = System.currentTimeMillis(), windowDays: Long = CONFUSION_WINDOW_DAYS, minCount: Int = CONFUSION_MIN_EVENTS): ConfusionPairCount? =
+        confusionEventDao?.topPairSince(now - windowDays * DAY_MILLIS)?.takeIf { it.count >= minCount }
+
+    /** Same key space review/AnswerDiagnosis.kt classifies against, read back off a
+     * scheduled card so a recurring confusion pair can be paired for contrastive
+     * back-to-back practice (P4.5) using cards already in today's plan — no new
+     * content generation needed. */
+    private fun confusionKeyFor(card: Card): String? = when (card.cardType) {
+        CardType.CASE_FILL -> listOfNotNull(card.gramCase, card.gramNumber ?: "SG").joinToString("_").uppercase()
+        CardType.VERB_FORM -> card.gramContextCue
+        CardType.ADJ_AGREE -> when (card.gramContextCue) {
+            "FEM" -> "FEM_NOM"
+            "NEUT" -> "NEUT_NOM"
+            "PL" -> "PL_NOM"
+            else -> "NOM_SG"
+        }
+        else -> null
+    }
+
+    /** If a confusion pair recurred enough in the trailing window and today's plan
+     * already contains a card for each side of it, moves the "produced" (wrongly
+     * given) card to sit immediately after the "expected" (correct) card so the
+     * learner drills the contrast back-to-back. Leaves [cards] unchanged otherwise —
+     * this never fabricates a card, only reorders ones already selected. */
+    private suspend fun applyContrastivePairing(cards: List<Card>, now: Long): List<Card> {
+        val pair = topConfusionPair(now) ?: return cards
+        val expected = cards.firstOrNull { it.cardType == pair.cardType && confusionKeyFor(it) == pair.expectedKey }
+        val produced = cards.firstOrNull { it.cardType == pair.cardType && confusionKeyFor(it) == pair.producedKey }
+        if (expected == null || produced == null || expected.id == produced.id) return cards
+        val without = cards.filterNot { it.id == produced.id }
+        val insertAt = without.indexOfFirst { it.id == expected.id } + 1
+        return without.toMutableList().apply { add(insertAt, produced) }
+    }
+
+    /**
+     * Assembles the monthly checkpoint (P6.4): the app's only independent, unbiased
+     * assessment. Ordinary evidence all comes from scheduler-chosen moments, which
+     * biases everything optimistic — this session writes no FSRS state at all (no
+     * card here is ever reviewed by [recordCheckpointResult]; only [checkpointResultDao]
+     * is written), so it's the sole honest measure of whether "known" is real.
+     */
+    suspend fun buildCheckpointSession(now: Long = System.currentTimeMillis(), graduatedSampleSize: Int = 20, novelFrameSampleSize: Int = 10): CheckpointSession {
+        val items = graduatedRecallCheckpointItems(now, graduatedSampleSize) + novelFrameCheckpointItems(now, novelFrameSampleSize)
+        return CheckpointSession(items = items, generatedAt = now)
+    }
+
+    /** 20 graduated notes sampled uniformly over graduation age (stratified across
+     * the full oldest-to-newest range, not just the most recent), each paired with
+     * the scheduler's own predicted retrievability for later calibration. */
+    private suspend fun graduatedRecallCheckpointItems(now: Long, sampleSize: Int): List<CheckpointItem> {
+        if (sampleSize <= 0) return emptyList()
+        val sorted = cardDao.getGraduatedRecognitionCards()
+        if (sorted.isEmpty()) return emptyList()
+        val picks = if (sorted.size <= sampleSize) sorted else {
+            val span = (sorted.size - 1).coerceAtLeast(1)
+            (0 until sampleSize).map { i -> sorted[i * span / (sampleSize - 1).coerceAtLeast(1)] }.distinct()
+        }
+        val decay = decayProvider()
+        return picks.mapNotNull { card ->
+            val note = noteDao.getById(card.noteId) ?: return@mapNotNull null
+            val elapsedDays = ((now - (card.lastReview ?: now)).coerceAtLeast(0) / DAY_MILLIS.toDouble())
+            val predicted = FsrsScheduler.retrievabilityOf(elapsedDays, card.stability, decay)
+            CheckpointItem(itemKey = "note:${note.id}", kind = "graduated_recall", prompt = note.russian, expectedAnswer = note.translation, predictedP = predicted)
+        }
+    }
+
+    /** 10 sentences realized over the learner's own known inventory (same
+     * FrameRealizer as CONCEPT_APPLY/NOVEL_PRODUCE) but seeded independently of any
+     * card id, so this can never coincide with — or be gamed by — a regular review. */
+    private suspend fun novelFrameCheckpointItems(now: Long, sampleSize: Int): List<CheckpointItem> {
+        if (sampleSize <= 0) return emptyList()
+        val dao = contentDao ?: return emptyList()
+        val realizer = frameRealizer ?: return emptyList()
+        val frames = dao.allFrames()
+        if (frames.isEmpty()) return emptyList()
+        val inventory = frameInventory()
+        val epochDay = now / DAY_MILLIS
+        return frames.shuffled(kotlin.random.Random(now)).take(sampleSize).mapIndexedNotNull { index, frame ->
+            val realized = realizer.realize(frame, inventory, epochDay, cardId = -(index + 1L)) ?: return@mapIndexedNotNull null
+            CheckpointItem(itemKey = "frame:${frame.id}:$index", kind = "novel_frame", prompt = realized.en, expectedAnswer = realized.ru, predictedP = null)
+        }
+    }
+
+    /** Persists one checkpoint answer. Deliberately writes nothing but
+     * [checkpointResultDao] — no card, no review log, no FSRS state of any kind. */
+    suspend fun recordCheckpointResult(item: CheckpointItem, correct: Boolean, now: Long = System.currentTimeMillis()) {
+        checkpointResultDao?.insert(CheckpointResult(at = now, itemKey = item.itemKey, kind = item.kind, predictedP = item.predictedP, correct = correct))
+    }
+
+    /** Predicted-vs-observed retrievability, bucketed in deciles — the calibration
+     * curve the weekly/Lab report surfaces. Only "graduated_recall" results carry a
+     * predictedP (novel-frame items have no prior FSRS estimate to compare against). */
+    suspend fun checkpointCalibration(now: Long = System.currentTimeMillis(), windowDays: Long = 180L): List<CalibrationBucket> {
+        val dao = checkpointResultDao ?: return emptyList()
+        val results = dao.since(now - windowDays * DAY_MILLIS).filter { it.predictedP != null }
+        return results.groupBy { (((it.predictedP ?: 0.0) * 10).toInt().coerceIn(0, 9)) / 10.0 }
+            .map { (bucket, rows) -> CalibrationBucket(bucket, rows.count { it.correct }.toDouble() / rows.size, rows.size) }
+            .sortedBy { it.predictedBucket }
     }
 
     suspend fun nextPrompt(now: Long = System.currentTimeMillis()): ReviewPrompt? =
         sessionPlan(now).reviewQueue.firstOrNull()
+
+    suspend fun gradeInlineEnglish(cardId: Long, answer: String, now: Long = System.currentTimeMillis()): Boolean? {
+        val card = cardDao.getByIds(listOf(cardId)).firstOrNull() ?: return null
+        val prompt = promptForCard(card, now) ?: return null
+        if (prompt.answerMode != AnswerMode.ENGLISH) return null
+        val correct = isEnglishAnswerCorrect(prompt.expectedAnswer, answer)
+        review(card, if (correct) Rating.GOOD else Rating.AGAIN, now, objectiveCorrect = correct)
+        return correct
+    }
 
     /** Build a review prompt for a specific card (used to re-present after undo). */
     suspend fun promptForCard(card: Card, now: Long = System.currentTimeMillis()): ReviewPrompt? =
@@ -2458,10 +2872,24 @@ class LearningRepository(
         }
     }
 
+    suspend fun promptsForCardIds(cardIds: List<Long>, now: Long = System.currentTimeMillis()): List<ReviewPrompt> =
+        promptsForCards(cardDao.getByIds(cardIds), now)
+
     /** Build a non-scheduling acquisition recall while rotating through examples. */
     suspend fun practicePromptFor(card: Card, round: Int, now: Long = System.currentTimeMillis()): ReviewPrompt? {
         val live = cardDao.getCardsForNote(card.noteId).firstOrNull { it.id == card.id } ?: card
         return promptFor(live.copy(reps = live.reps + round.coerceAtLeast(1)), now)?.copy(practiceOnly = true)
+    }
+
+    /**
+     * Debug-only: a prompt for an existing card of [cardType], if any exists in the
+     * current database, so a debug build's card gallery can jump straight to a card
+     * type. Manually reaching a rare type (a specific grammar drill, say) can otherwise
+     * take dozens of turns through the adaptive session before it's naturally selected.
+     */
+    suspend fun debugPromptForCardType(cardType: CardType, now: Long = System.currentTimeMillis()): ReviewPrompt? {
+        val candidate = cardDao.getSampleCardsOfType(cardType, limit = 1).firstOrNull() ?: return null
+        return promptFor(candidate, now)
     }
 
     /** Production failures step back to recognition; other misses repeat the
@@ -2484,19 +2912,19 @@ class LearningRepository(
         val exampleRu = note.exampleSentence.orEmpty()
         val exampleEn = note.exampleTranslation.orEmpty()
         val mnemonic = note.mnemonic?.takeIf { it.isNotBlank() }
+        val supportLine = when (supportLevel) {
+            2 -> "First-letter cue: ${note.russian.firstOrNull() ?: '—'}…"
+            3 -> "Word skeleton: ${note.russian.map { if (it in "аеёиоуыэюяАЕЁИОУЫЭЮЯ") it else '·' }.joinToString("")}"
+            else -> "Full form: ${note.russian}"
+        }
         val content = LessonContent(
             title = "Reset and reconnect: ${note.russian}",
-            body = buildString {
-                append("Meaning here: $meaning")
-                if (mnemonic != null) append("\n\nMemory hook: $mnemonic")
-                append("\n\n")
-                when (supportLevel) {
-                    2 -> append("First-letter cue: ${note.russian.firstOrNull() ?: '—'}…")
-                    3 -> append("Word skeleton: ${note.russian.map { if (it in "аеёиоуыэюяАЕЁИОУЫЭЮЯ") it else '·' }.joinToString("")}")
-                    else -> append("Full form: ${note.russian}")
-                }
-                append("\nRead the example, then retrieve it again after a short gap.")
-            },
+            body = listOfNotNull(
+                meaningLine(meaning),
+                mnemonicLine(mnemonic),
+                supportLine,
+                "Read the example, then retrieve it again after a short gap."
+            ),
             exampleRu = exampleRu,
             exampleEn = exampleEn
         )
@@ -2571,7 +2999,10 @@ class LearningRepository(
             val days = maxOf(scheduledCard.scheduledDays + 1, (scheduledCard.scheduledDays * 1.35).toInt())
             scheduledCard.copy(scheduledDays = days, due = now + days * DAY_MILLIS)
         } else scheduledCard
-        val log = rawLog.copy(scheduledDays = updatedCard.scheduledDays)
+        val log = rawLog.copy(
+            scheduledDays = updatedCard.scheduledDays,
+            evidenceStrength = CardPedagogy.profile(live.cardType).evidence
+        )
         // Leech guard: if this card has lapsed too many times it's burning the
         // learner's time, so park it (suspend) rather than let it recur forever.
         becameLeech = !updatedCard.suspended &&
@@ -2588,6 +3019,48 @@ class LearningRepository(
             updateLearnerModels(card, objectiveCorrect, now)
         }
         return becameLeech
+    }
+
+    /** Records passive observations from reading/listening/production without
+     * pretending they were full reviews. At most one event can affect a card per
+     * UTC day; NEW and GRADUATED cards are immutable on this path. */
+    suspend fun recordEvidence(event: EvidenceEvent): Int {
+        require(event.source in setOf(ReviewSource.READING, ReviewSource.LISTENING, ReviewSource.PRODUCTION)) {
+            "Direct reviews must use review(); passive evidence requires an activity source"
+        }
+        require(event.strength != EvidenceStrength.STRONG) {
+            "Strong retrieval must carry an explicit rating through review()"
+        }
+        val candidates = when {
+            event.noteId != null -> cardDao.getCardsForNote(event.noteId)
+            else -> cardDao.getAllGrammarCards().filter { it.gramConcept == event.conceptId }
+        }
+        val engine = scheduler as? FsrsScheduler ?: return 0
+        val dayStart = event.at - Math.floorMod(event.at, DAY_MILLIS)
+        var applied = 0
+        runInTransaction {
+            candidates.filter { !it.suspended && it.state != CardState.NEW && it.state != CardState.GRADUATED }
+                .forEach { card ->
+                    if (reviewLogDao.passiveEvidenceCountSince(card.id, dayStart) > 0) return@forEach
+                    val updated = engine.applyPassiveEvidence(card, if (event.correct) 1.15 else 0.90)
+                    if (updated == card) return@forEach
+                    cardDao.update(updated)
+                    reviewLogDao.insert(ReviewLog(
+                        cardId = card.id,
+                        reviewDatetime = event.at,
+                        rating = if (event.correct) Rating.GOOD else Rating.AGAIN,
+                        stateBefore = card.state,
+                        scheduledDays = card.scheduledDays,
+                        elapsedDays = 0,
+                        source = event.source,
+                        stabilityBefore = card.stability,
+                        evidenceStrength = event.strength
+                    ))
+                    applied++
+                }
+        }
+        if (applied > 0) invalidateNoteState()
+        return applied
     }
 
     private suspend fun updateLearnerModels(card: Card, success: Boolean, now: Long) {
@@ -3055,7 +3528,7 @@ class LearningRepository(
     }
 
     private suspend fun ensureReadableExampleCards(note: Note) {
-        if (hasReadableExample(note) && cardDao.getByNoteAndType(note.id, CardType.CLOZE) == null) {
+        if (CardFactory.hasReadableExample(note) && cardDao.getByNoteAndType(note.id, CardType.CLOZE) == null) {
             cardDao.insert(Card(noteId = note.id, cardType = CardType.CLOZE, queue = Queue.VOCAB, due = 0L))
             invalidateNoteStructure()
         }
@@ -3107,7 +3580,7 @@ class LearningRepository(
     }
 
     suspend fun readerRecommendation(): ReaderRecommendation? =
-        readerTexts().minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTarget(it.coverage) }.thenByDescending { it.coverage })
+        readerTexts().minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTarget(it.coverage) }.thenByDescending { it.dueOverlap }.thenByDescending { it.coverage })
 
     @Suppress("UNUSED_PARAMETER")
     suspend fun readerLookup(token: String, text: ReaderText, now: Long = System.currentTimeMillis()): Note? {
@@ -3218,7 +3691,7 @@ class LearningRepository(
         val target = kotlin.math.ceil(minOf(cards.size, limit) * 0.16).toInt().coerceAtLeast(1)
         val existingGrammar = cards.count { it.queue == Queue.GRAMMAR }
         if (existingGrammar >= target) return cards
-        val locked = lockedConceptIds()
+        val gate = conceptGate()
         val notesById = allNotesCached().associateBy { it.id }
         val existingIds = cards.mapTo(HashSet()) { it.id }
         val grammarPool = cardDao.getGrammarDrillCards(250)
@@ -3227,7 +3700,7 @@ class LearningRepository(
         val candidates = grammarPool.filter { card ->
             card.id !in existingIds && !card.suspended &&
                 card.state != CardState.GRADUATED && (card.state == CardState.NEW || card.due <= now) &&
-                !isConceptLocked(card, locked) && !isNewGrammarBeforeFirstEncounter(card, notesById) &&
+                !isConceptLocked(card, gate) && !isNewGrammarBeforeFirstEncounter(card, notesById) &&
                 !isAdvancedFacetBeforeRecognitionMatures(card, cardsByNote)
         }.take(target - existingGrammar)
         if (candidates.isEmpty()) return cards
@@ -3374,7 +3847,7 @@ class LearningRepository(
         // Pull a generous pool, already in curriculum order (A1 tier first, by unit,
         // then by frequency rank). Drop grammar drills whose teaching lesson the
         // learner hasn't seen yet — concept gating keeps "teach before test" true.
-        val locked = lockedConceptIds()
+        val gate = conceptGate()
         val notesById = allNotesCached().associateBy { it.id }
         // Curriculum order sorts every tier-0 unit before tier 1+ (the uncapped
         // reading-matrix layer), including units the learner hasn't unlocked yet. A
@@ -3396,9 +3869,11 @@ class LearningRepository(
                 // Bury same-day siblings, except the authored drills deliberately
                 // unlocked by a lesson the learner just completed.
                 if (card.noteId in dayReviewedNotes && card.queue == Queue.VOCAB) continue
-                if (isConceptLocked(card, locked)) continue
+                if (isConceptLocked(card, gate)) continue
+                if (isTaperedSiblingDrill(card, gate)) continue
                 if (isNewGrammarBeforeFirstEncounter(card, notesById)) continue
                 if (isAdvancedFacetBeforeRecognitionMatures(card, cardsByNote)) continue
+                if (isChunkBeforeParentRecognitionMatures(card, notesById)) continue
                 val unit = notesById[card.noteId]?.takeIf { it.tier == 0 }?.unit
                 if (unit != null && firstLockedUnit != null && unit > firstLockedUnit) continue
                 pool += card
@@ -3514,32 +3989,105 @@ class LearningRepository(
             recognition.state !in setOf(CardState.REVIEW, CardState.GRADUATED)
     }
 
+    private data class ConceptGate(
+        val locked: Set<String>,
+        // concept id -> the one drill card id still allowed to surface while that
+        // concept is on probation (see probationaryConceptCards below).
+        val probationCard: Map<String, Long>,
+        // Concepts whose CONCEPT_APPLY card has proven transfer (P4.3): new per-note
+        // sibling drills for these concepts stop being introduced going forward.
+        val tapered: Set<String> = emptySet()
+    )
+
     /**
-     * Grammar concepts the learner has not been taught yet: concepts that have a
-     * LESSON card which hasn't been reviewed. Drills on these stay dormant until the
-     * lesson is seen. Concepts with no lesson at all (e.g. legacy/migrated decks)
-     * are never locked, so existing study is never blocked.
+     * Grammar concepts the learner has not been taught yet (a LESSON card that
+     * hasn't been reviewed) are hard-locked, plus a lighter "probation" gate on top:
+     * a concept whose LESSON has been seen still only admits ONE of its drill cards
+     * until that card's first attempt succeeds — the rest of its drills stay gated
+     * until then. This is what stops "tapped Got it without reading" from being
+     * functionally identical to "understood it." A miss on the probation card
+     * doesn't need special handling here: ReviewViewModel's existing repair/scaffold
+     * retry loop already reteaches any missed card in place, so once the learner
+     * gets it right (on that attempt or a later retry of the same card), the concept
+     * opens up for its other drills on the next query. Concepts with no lesson at
+     * all (e.g. legacy/migrated decks) are never gated, so existing study is never
+     * blocked by this.
      */
-    private suspend fun lockedConceptIds(): Set<String> {
+    private suspend fun conceptGate(): ConceptGate {
+        val tapered = cardDao.getTaperedConceptIds().toHashSet()
         val withLessons = cardDao.getConceptIdsWithLessons().toHashSet()
-        if (withLessons.isEmpty()) return emptySet()
+        if (withLessons.isEmpty()) return ConceptGate(emptySet(), emptyMap(), tapered)
         val introduced = cardDao.getIntroducedConceptIds().toHashSet()
-        return (withLessons - introduced)
+        val locked = withLessons - introduced
+        if (introduced.isEmpty()) return ConceptGate(locked, emptyMap(), tapered)
+        return ConceptGate(locked, probationaryConceptCards(), tapered)
     }
 
-    /** True if [card] is a grammar drill whose teaching concept is still locked. */
-    private fun isConceptLocked(card: Card, locked: Set<String>): Boolean {
-        if (locked.isEmpty()) return false
+    /** For every introduced concept with no drill card that has ever succeeded, the
+     * lowest-id drill card for that concept — the single attempt currently allowed
+     * to prove it (repeat misses on it just keep it in probation; it doesn't need
+     * to succeed on the very first try, only eventually). Concepts already proven
+     * (or with no drill history yet to judge) are simply absent from the result. */
+    private suspend fun probationaryConceptCards(): Map<String, Long> {
+        val rows = cardDao.getGrammarDrillOutcomes()
+        if (rows.isEmpty()) return emptyMap()
+        val byConcept = rows.groupBy { row ->
+            GrammarConcepts.forCard(
+                Card(
+                    noteId = 0,
+                    cardType = row.cardType,
+                    queue = Queue.GRAMMAR,
+                    gramCase = row.gramCase,
+                    gramContextCue = row.gramContextCue,
+                    gramConcept = row.gramConcept
+                )
+            )?.id ?: row.gramConcept
+        }
+        return buildMap {
+            for ((concept, drills) in byConcept) {
+                if (concept == null) continue
+                val provenSuccess = drills.any { it.everSucceeded }
+                if (!provenSuccess) put(concept, drills.minOf { it.cardId })
+            }
+        }
+    }
+
+    /** True if [card] is a grammar drill whose teaching concept is still locked, or
+     * whose concept is on probation and this isn't the one card admitted to prove it. */
+    private fun isConceptLocked(card: Card, gate: ConceptGate): Boolean {
         if (card.cardType == CardType.LESSON) return false
         if (card.queue != Queue.GRAMMAR) return false
         val concept = GrammarConcepts.forCard(card)?.id ?: card.gramConcept ?: return false
-        return concept in locked
+        if (concept in gate.locked) return true
+        val probationCardId = gate.probationCard[concept] ?: return false
+        return card.id != probationCardId
+    }
+
+    /** True for a not-yet-introduced per-note grammar drill whose concept has already
+     * proven transfer via CONCEPT_APPLY (P4.3 taper). LESSON, CONCEPT_APPLY, and
+     * NOVEL_PRODUCE are never tapered — taper only affects their per-note siblings
+     * (CASE_FILL, VERB_FORM, etc); the concept-level ladder cards keep going. */
+    private fun isTaperedSiblingDrill(card: Card, gate: ConceptGate): Boolean {
+        if (card.cardType in setOf(CardType.LESSON, CardType.CONCEPT_APPLY, CardType.NOVEL_PRODUCE)) return false
+        if (card.queue != Queue.GRAMMAR) return false
+        val concept = GrammarConcepts.forCard(card)?.id ?: card.gramConcept ?: return false
+        return concept in gate.tapered
     }
 
     private fun isNewGrammarBeforeFirstEncounter(card: Card, notesById: Map<Long, Note>): Boolean {
         if (card.queue != Queue.GRAMMAR || card.cardType == CardType.LESSON) return false
         val note = notesById[card.noteId] ?: return false
         return note.encounterCount == 0
+    }
+
+    /** A CHUNK card's own note has no review history to judge (it's freshly minted) —
+     * maturity is judged on the *parent* word's RU_TO_MEANING card instead (P4.4 L1). */
+    private suspend fun isChunkBeforeParentRecognitionMatures(card: Card, notesById: Map<Long, Note>): Boolean {
+        if (card.cardType != CardType.CHUNK) return false
+        val parentId = notesById[card.noteId]?.chunkParentNoteId ?: return true
+        val recognition = cardDao.getCardsForNote(parentId).firstOrNull { it.cardType == CardType.RU_TO_MEANING } ?: return true
+        return recognition.reps < 3 || recognition.consecutiveCorrect < 2 ||
+            recognition.state !in setOf(CardState.REVIEW, CardState.GRADUATED)
     }
 
     /** Coarse introduction tier: lesson (0) → receptive (1) → productive (2) → grammar (3). */
@@ -3577,11 +4125,150 @@ class LearningRepository(
             optCleanString("gramContextCue")
         ).joinToString(":") { it ?: "" }
 
+    /**
+     * Picks a concept's frame deterministically by day (so a rescheduled review
+     * within the same day doesn't reshuffle the carrier) and realizes it against the
+     * learner's own known-inventory words. Returns null if the content pipeline
+     * hasn't shipped frames for this concept yet or the dependencies aren't wired
+     * (e.g. tests without a real ContentDatabase) — callers keep the static fallback.
+     */
+    private suspend fun conceptApplyRealization(card: Card, now: Long): com.sibirskyspeak.generation.RealizedFrame? {
+        val dao = contentDao ?: return null
+        val realizer = frameRealizer ?: return null
+        val conceptId = card.gramConcept ?: return null
+        val frames = dao.framesForConcept(conceptId)
+        if (frames.isEmpty()) return null
+        val epochDay = now / DAY_MILLIS
+        val frame = frames[Math.floorMod(epochDay + card.id, frames.size.toLong()).toInt()]
+        return realizer.realize(frame, frameInventory(), epochDay, card.id)
+    }
+
+    private data class ChunkRealization(val blankedRu: String, val translation: String)
+
+    /**
+     * Finds a real corpus sentence containing this exact chunk phrase and blanks
+     * just the chunk (P4.4 L1) — no authored translation needed, the sentence's own
+     * English gloss already translates the chunk in context. Returns null if the
+     * chunk can't be located verbatim (rare: collocation surfaces are mined from the
+     * same corpus, but rating-based LIMIT can occasionally miss it) or dependencies
+     * aren't wired; callers keep the static fallback.
+     */
+    private suspend fun chunkRealization(note: Note): ChunkRealization? {
+        val dao = contentDao ?: return null
+        val chunk = note.russian.takeIf { it.isNotBlank() } ?: return null
+        val sentence = dao.sentencesContaining(chunk, limit = 3).firstOrNull() ?: return null
+        val blanked = sentence.ruPlain.replaceFirst(chunk, "___", ignoreCase = true)
+        if (blanked == sentence.ruPlain) return null
+        return ChunkRealization(blanked, sentence.en)
+    }
+
+    /**
+     * Finds a real sentence-bank sentence containing this verb and negates it
+     * (P4.4 L2, transform/Transformer.kt) — infinite, novel carriers with zero
+     * authored content. Tries several candidate sentences (rotated deterministically
+     * by day for novelty) since not every sentence containing the lemma has it as a
+     * negatable finite/non-imperative reading. Returns null if none work or
+     * dependencies aren't wired; the caller keeps the static fallback.
+     */
+    private suspend fun transformRealization(note: Note, epochDay: Long): Transformer.Transformed? {
+        val dao = contentDao ?: return null
+        val morph = morphologyEngine ?: return null
+        val unitMax = note.unit?.takeIf { note.tier == 0 } ?: Int.MAX_VALUE
+        val sentences = dao.sentencesFor(unitMax, requiredLemma = note.lemma, limit = 10)
+        if (sentences.isEmpty()) return null
+        val offset = Math.floorMod(epochDay, sentences.size.toLong()).toInt()
+        for (i in sentences.indices) {
+            val candidate = sentences[(offset + i) % sentences.size]
+            Transformer.negate(candidate.ruPlain, note.lemma, morph)?.let { return it }
+        }
+        return null
+    }
+
+    /**
+     * Picks a real, unit-appropriate 5-9 token sentence containing this note's
+     * lemma for elicited imitation (P6.1). Rotated deterministically by day for
+     * novelty. Returns (ru, en) or null if no fitting sentence exists yet.
+     */
+    private suspend fun speakSentenceRealization(note: Note, epochDay: Long): Pair<String, String>? {
+        val dao = contentDao ?: return null
+        val unitMax = note.unit?.takeIf { note.tier == 0 } ?: Int.MAX_VALUE
+        val sentences = dao.sentencesFor(unitMax, requiredLemma = note.lemma, limit = 20)
+            .filter { it.tokenCount in 5..9 }
+        if (sentences.isEmpty()) return null
+        val offset = Math.floorMod(epochDay, sentences.size.toLong()).toInt()
+        val chosen = sentences[offset]
+        return chosen.ruStressed to chosen.en
+    }
+
     private suspend fun promptFor(card: Card, now: Long, notesById: Map<Long, Note>? = null): ReviewPrompt? {
         val rawNote = notesById?.get(card.noteId) ?: noteDao.getById(card.noteId) ?: return null
         val (note, mined) = promptNote(rawNote)
         val partner = rawNote.aspectPartner?.let { notesById?.get(it) ?: noteDao.getById(it) }
         var prompt = buildPrompt(card, note, scheduler.preview(card, now), partner, mined?.targetPos?.takeIf { it >= 0 })
+        val morphologyKey = when (card.cardType) {
+            CardType.CASE_FILL -> listOfNotNull(card.gramCase, card.gramNumber ?: "SG").joinToString("_")
+            CardType.VERB_FORM -> card.gramContextCue
+            else -> null
+        }
+        if (morphologyKey != null) morphologyEngine?.inflect(note.lemma, morphologyKey)?.let { authoritative ->
+            prompt = prompt.copy(expectedAnswer = authoritative)
+        }
+        if (card.cardType == CardType.CONCEPT_APPLY) {
+            conceptApplyRealization(card, now)?.let { realized ->
+                prompt = prompt.copy(
+                    prompt = realized.ruBlanked,
+                    expectedAnswer = realized.targetAnswer,
+                    answerMode = AnswerMode.RUSSIAN_TYPED,
+                    exampleTranslation = realized.en,
+                    explanation = prompt.explanation
+                )
+            }
+        }
+        if (card.cardType == CardType.NOVEL_PRODUCE) {
+            // Reuses the same per-concept frames as CONCEPT_APPLY, but the prompt
+            // shows only the English cue (no Russian at all) and the full sentence
+            // is the expected answer — the ladder's payoff (P4.4 L3). A distinct
+            // card.id from the sibling CONCEPT_APPLY card already gives this its own
+            // realize() seed, so no carrier collision between the two card types.
+            conceptApplyRealization(card, now)?.let { realized ->
+                prompt = prompt.copy(
+                    prompt = realized.en,
+                    expectedAnswer = realized.ru,
+                    answerMode = AnswerMode.RUSSIAN_TYPED,
+                    explanation = prompt.explanation
+                )
+            }
+        }
+        if (card.cardType == CardType.CHUNK) {
+            chunkRealization(note)?.let { realized ->
+                prompt = prompt.copy(
+                    prompt = realized.blankedRu,
+                    expectedAnswer = note.russian,
+                    answerMode = AnswerMode.RUSSIAN_TYPED,
+                    exampleTranslation = realized.translation
+                )
+            }
+        }
+        if (card.cardType == CardType.TRANSFORM) {
+            transformRealization(note, now / DAY_MILLIS)?.let { realized ->
+                prompt = prompt.copy(
+                    prompt = "${realized.instruction}\n${realized.original}",
+                    expectedAnswer = realized.result,
+                    answerMode = AnswerMode.RUSSIAN_TYPED,
+                    explanation = "Add «не» directly before the verb."
+                )
+            }
+        }
+        if (card.cardType == CardType.SPEAK_SENTENCE) {
+            speakSentenceRealization(note, now / DAY_MILLIS)?.let { (ru, en) ->
+                prompt = prompt.copy(
+                    prompt = "",
+                    expectedAnswer = ru,
+                    answerMode = AnswerMode.SPEAK,
+                    explanation = en
+                )
+            }
+        }
         if (card.state == CardState.NEW && card.reps == 0 && prompt.lesson != null) {
             val enrichment = enrichmentFor(rawNote)
             val additions = buildList {
@@ -3596,7 +4283,7 @@ class LearningRepository(
             }
             val lesson = prompt.lesson
             if (additions.isNotEmpty() && lesson != null) prompt = prompt.copy(lesson = lesson.copy(
-                body = lesson.body + "\n\n" + additions.joinToString("\n")
+                body = lesson.body + additions
             ))
         }
         if (mined != null) prompt = prompt.copy(
@@ -3607,7 +4294,7 @@ class LearningRepository(
 
     private suspend fun blockedGrammarPrompts(plan: DailyPlan, now: Long, notesById: Map<Long, Note>): List<ReviewPrompt> {
         val category = plan.openBlockedWith ?: return emptyList()
-        val locked = lockedConceptIds()
+        val gate = conceptGate()
         val cards = when (category.kind) {
             "case" -> cardDao.getCaseDrillCards(category.gramCase.orEmpty(), category.gramGender.orEmpty(), category.gramNumber.orEmpty(), 5)
             "verb_form" -> cardDao.getVerbFormCards(category.contextCue.orEmpty(), 5)
@@ -3616,228 +4303,17 @@ class LearningRepository(
                     note?.aktionsart == category.aktionsart && note?.aspect == category.aspect && card.gramContextCue == category.contextCue
                 }.take(5)
         }
-        return cards.filterNot { isConceptLocked(it, locked) }.mapNotNull { promptFor(it, now, notesById) }
+        return cards.filterNot { isConceptLocked(it, gate) }.mapNotNull { promptFor(it, now, notesById) }
     }
 
     private suspend fun interleavedGrammarPrompts(excludeIds: Set<Long>, now: Long, notesById: Map<Long, Note>): List<ReviewPrompt> {
-        val locked = lockedConceptIds()
+        val gate = conceptGate()
         return cardDao.getGrammarDrillCards(40)
             .filter { it.id !in excludeIds && it.cardType != CardType.LESSON }
-            .filterNot { isConceptLocked(it, locked) }
+            .filterNot { isConceptLocked(it, gate) }
             .take(10)
             .mapNotNull { promptFor(it, now, notesById) }
     }
-
-    private fun cardsFor(note: Note): List<Card> = buildList {
-        // A lesson note (pos = "lesson") teaches one grammar concept and produces a
-        // single LESSON card — no vocab/drill cards. Seeing it is what unlocks the
-        // concept's drills (concept gating).
-        if (note.partOfSpeech.equals("lesson", ignoreCase = true)) {
-            add(Card(noteId = note.id, cardType = CardType.LESSON, queue = Queue.GRAMMAR, due = 0L, gramConcept = note.conceptId))
-            ConceptDrills.forConcept(note.conceptId).forEach { drill ->
-                add(
-                    Card(
-                        noteId = note.id,
-                        cardType = CardType.CONCEPT_DRILL,
-                        queue = Queue.GRAMMAR,
-                        due = 0L,
-                        gramContextCue = drill.id,
-                        gramConcept = drill.conceptId
-                    )
-                )
-            }
-            return@buildList
-        }
-        // The frequency "reading-matrix" layer (tag contains "matrix") gets rich vocab
-        // and comprehension study cards AND keeps its declension tables — but ONLY to
-        // feed the reader coverage index, never to generate morphology drills. Its
-        // tables are rule-engine output (decline_noun(animate=False), oblique cases
-        // unvalidated against the deck), so case/gender/agreement/aspect drills built
-        // from them would teach wrong forms. Morphology drilling stays restricted to
-        // the verified curated course (tier 0) and the domain corpus. We key on the
-        // "matrix" tag, not tier, because the default tier (1) also covers imported /
-        // test notes that legitimately need grammar drills.
-        val isReadingMatrix = note.tags.contains("matrix")
-        // A "recognition_only" note (e.g. a textbook word recovered in an oblique
-        // form — "университе́та = university (gen.)") is honest for *recognition* and
-        // reader coverage, but reverse-production would wrongly ask the learner to
-        // type that exact inflected form. Such notes get recognition + listening only.
-        val recognitionOnly = note.tags.contains("recognition_only")
-        add(Card(noteId = note.id, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB))
-        if (!isAmbiguousFunctionNote(note) && !recognitionOnly) {
-            add(Card(noteId = note.id, cardType = CardType.MEANING_TO_RU, queue = Queue.VOCAB))
-        }
-        // Cloze blanks a word inside the example sentence — only useful if the learner
-        // can read that sentence, i.e. it ships with a real sentence-level translation.
-        if (hasReadableExample(note) && !isAmbiguousFunctionNote(note) && !recognitionOnly) {
-            add(Card(noteId = note.id, cardType = CardType.CLOZE, queue = Queue.VOCAB))
-            // SENTENCE_BUILD and DICTATION make the learner handle a whole sentence.
-            // Keep them to the hand-authored spine with SHORT, controlled sentences —
-            // not the promoted/reading-matrix layer's arbitrary (often long, hard)
-            // deck sentences, which would be a brutal typing grind.
-            if (!isReadingMatrix && note.hasShortExample()) {
-                add(Card(noteId = note.id, cardType = CardType.SENTENCE_BUILD, queue = Queue.GRAMMAR, gramConcept = note.conceptId))
-                add(Card(noteId = note.id, cardType = CardType.DICTATION, queue = Queue.VOCAB))
-            }
-        }
-        // Word dictation is useful phonological decoding, but making it a universal
-        // facet for a 40k-word reading lexicon creates enormous low-semantic review
-        // debt. Keep it for the active course, recognition-only forms, and the most
-        // frequent reading vocabulary; recognition cards still auto-play audio.
-        val frequencyRank = listOfNotNull(note.domainFreqRank, note.generalFreqRank).minOrNull()
-        if (note.tier == 0 || recognitionOnly || (frequencyRank != null && frequencyRank <= 3_000)) {
-            add(Card(noteId = note.id, cardType = CardType.AUDIO_TO_RU, queue = Queue.VOCAB))
-        }
-        // Speaking: the learner says the word aloud and on-device speech recognition
-        // checks it — the only card that trains production/pronunciation. Restricted to
-        // the curated course (tier 0) so it stays focused on active study vocabulary.
-        if (note.tier == 0 && !recognitionOnly) {
-            add(Card(noteId = note.id, cardType = CardType.SPEAK, queue = Queue.VOCAB))
-        }
-        // Stress choice is reserved for genuinely contrastive, explicitly accented
-        // active-course words. Single-vowel and unmarked words teach nothing here.
-        if (note.tier == 0 && !recognitionOnly && needsStressPractice(note.russian)) {
-            add(Card(noteId = note.id, cardType = CardType.STRESS_MARK, queue = Queue.VOCAB))
-        }
-        if (!isReadingMatrix) caseCards(note).forEach(::add)
-        if (!isReadingMatrix) verbFormCards(note).forEach(::add)
-        if (!isReadingMatrix) adjectiveAgreementCards(note).forEach(::add)
-        if (!isReadingMatrix) genderCard(note)?.let(::add)
-        // ASPECT_SELECT requires a verified Aktionsart (design F8): the drill's
-        // whole point is reasoning from inherent temporal structure, so a verb
-        // without Aktionsart never produces a half-formed aspect card.
-        val isAspectDrillable = !isReadingMatrix &&
-            note.aspect != "BI" &&
-            !note.tags.contains("no_aspect_pair") &&
-            !note.aktionsart.isNullOrBlank() &&
-            note.aspectPartner != null &&
-            !note.aspect.isNullOrBlank()
-        if (isAspectDrillable) {
-            ASPECT_CONTEXT_CUES.forEach { cue ->
-                add(Card(noteId = note.id, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, due = 0L, gramContextCue = cue, gramConcept = GrammarConcepts.ASPECT.id))
-            }
-        }
-    }
-
-    /**
-     * True when the note ships an example sentence the learner can actually read: a
-     * sentence plus a real sentence-level translation (more than one word, and not
-     * just the headword gloss). Gates comprehension-dependent cards like CLOZE.
-     */
-    private fun hasReadableExample(note: Note): Boolean {
-        val sentence = note.exampleSentence?.trim().orEmpty()
-        val gloss = note.exampleTranslation?.trim().orEmpty()
-        if (sentence.isBlank() || gloss.isBlank()) return false
-        if (gloss.equals(note.translation.trim(), ignoreCase = true)) return false
-        // A real translation of a sentence has multiple words.
-        return gloss.split(Regex("\\s+")).size >= 2
-    }
-
-    /** True when the note's example is a short (2-7 word) sentence, suitable for
-     *  sentence-building / dictation without becoming a typing grind. */
-    private fun Note.hasShortExample(): Boolean {
-        val s = exampleSentence ?: return false
-        val words = Regex("""\p{IsCyrillic}+""").findAll(s).count()
-        return words in 2..7
-    }
-
-    // Adjective–noun agreement: produce the feminine, neuter, and plural nominative
-    // forms (the masculine is the citation form). Russian agreement is one of the
-    // highest-frequency grammar skills and the forms already ship in the data, but
-    // they were previously only used for reader matching, never drilled.
-    private fun adjectiveAgreementCards(note: Note): List<Card> {
-        if (!note.partOfSpeech.equals("adjective", ignoreCase = true)) return emptyList()
-        val json = note.declensionJson ?: return emptyList()
-        val table = runCatching { JSONObject(json) }.getOrNull() ?: return emptyList()
-        val source = if (table.has("cases")) table.getJSONObject("cases") else table
-        val masc = RussianForms.normalize(source.optString("NOM_SG").ifBlank { note.lemma })
-        return listOf("FEM" to "FEM_NOM", "NEUT" to "NEUT_NOM", "PL" to "PL_NOM").mapNotNull { (cue, key) ->
-            val form = source.optString(key)
-            if (form.isBlank() || RussianForms.normalize(form) == masc) return@mapNotNull null
-            Card(noteId = note.id, cardType = CardType.ADJ_AGREE, queue = Queue.GRAMMAR, gramContextCue = cue, gramConcept = GrammarConcepts.ADJ_AGREE.id)
-        }
-    }
-
-    // Noun gender recall. Gender drives every agreement choice but was stored and
-    // never tested; one fast card per noun makes the pattern explicit.
-    private fun genderCard(note: Note): Card? {
-        if (!note.partOfSpeech.equals("noun", ignoreCase = true)) return null
-        val gender = note.gender?.uppercase(Locale.ROOT) ?: return null
-        if (gender !in NOUN_GENDERS) return null
-        return Card(noteId = note.id, cardType = CardType.GENDER_ID, queue = Queue.GRAMMAR, gramGender = gender, gramConcept = GrammarConcepts.GENDER.id)
-    }
-
-    private fun needsStressPractice(word: String): Boolean {
-        val vowels = word.count { it.lowercaseChar() in "аеёиоуыэюя" }
-        return vowels >= 2 && '\u0301' in word
-    }
-
-    private fun caseCards(note: Note): List<Card> {
-        val json = note.declensionJson ?: return emptyList()
-        val gender = note.gender ?: return emptyList()
-        val table = runCatching { JSONObject(json) }.getOrNull() ?: return emptyList()
-        val source = if (table.has("cases")) table.getJSONObject("cases") else table
-        val nominativeByNumber = mapOf(
-            "SG" to source.optString("NOM_SG"),
-            "PL" to source.optString("NOM_PL")
-        )
-        return source.keys().asSequence()
-            .map { key -> key.uppercase(Locale.ROOT) }
-            .mapNotNull { key ->
-                val parts = key.split("_")
-                val gramCase = parts.getOrNull(0)?.takeIf { it in CASES } ?: return@mapNotNull null
-                if (gramCase == "NOM") return@mapNotNull null
-                val gramNumber = parts.getOrNull(1)?.takeIf { it in NUMBERS } ?: if (gender == "PL") "PL" else "SG"
-                val answer = source.optString(key)
-                val nominative = nominativeByNumber[gramNumber].orEmpty()
-                if (answer.isBlank() || RussianForms.normalize(answer) == RussianForms.normalize(nominative)) return@mapNotNull null
-                // Legacy rule-generated tables contain known bad forms. Only turn a
-                // form into a graded card when it is attested in one of this note's
-                // curated Russian examples; the sentence then acts as both evidence
-                // and a meaningful carrier for the exercise.
-                val examples = listOfNotNull(note.exampleSentence, note.exampleSentence2, note.exampleSentence3)
-                val answerPattern = Regex(
-                    "(?<![\\p{L}\\p{N}])${Regex.escape(answer)}(?![\\p{L}\\p{N}])",
-                    RegexOption.IGNORE_CASE
-                )
-                if (examples.none { answerPattern.containsMatchIn(it) }) return@mapNotNull null
-                Card(
-                    noteId = note.id,
-                    cardType = CardType.CASE_FILL,
-                    queue = Queue.GRAMMAR,
-                    gramCase = gramCase,
-                    gramGender = gender,
-                    gramNumber = gramNumber,
-                    gramConcept = gramCase
-                )
-            }
-            .toList()
-    }
-
-    // Past tense can be derived safely; present/future conjugations appear only
-    // when the note ships an explicit verified table in declensionJson. This
-    // keeps productive practice for пишу/люблю/вижу without teaching guesses.
-    private fun verbFormCards(note: Note): List<Card> {
-        if (!note.partOfSpeech.equals("verb", ignoreCase = true)) return emptyList()
-        return RussianForms.verbForms(note).keys
-            .filter { key -> key in VERB_FORM_KEYS }
-            .map { key ->
-                Card(
-                    noteId = note.id,
-                    cardType = CardType.VERB_FORM,
-                    queue = Queue.GRAMMAR,
-                    gramContextCue = key,
-                    gramConcept = verbFormConcept(note, key)
-                )
-            }
-    }
-
-    private fun verbFormConcept(note: Note, key: String): String =
-        when {
-            key.startsWith("PRES_") && note.aspect == "PF" -> GrammarConcepts.FUTURE.id
-            key.startsWith("PRES_") -> GrammarConcepts.PRESENT.id
-            else -> GrammarConcepts.PAST.id
-        }
 
     private suspend fun accuracyCategoriesCached(): List<CategoryKey> {
         val reviewCount = reviewLogDao.countAll()
@@ -3918,12 +4394,10 @@ class LearningRepository(
     }
 
 
-    private fun coverageFor(text: ReaderText, index: Map<String, Note>, knownIds: Set<Long>): ReaderRecommendation {
+    private fun coverageFor(text: ReaderText, index: Map<String, Note>, knownIds: Set<Long>, dueSoonNoteIds: Set<Long> = emptySet()): ReaderRecommendation {
         val tokens = readerWordOccurrences(text.body)
-        val knownCount = tokens.count { token ->
-            val note = index[normalizeToken(token.surface)]
-            note != null && note.id in knownIds
-        }
+        val noteIds = tokens.mapNotNull { index[normalizeToken(it.surface)]?.id }
+        val knownCount = noteIds.count { it in knownIds }
         val coverage = if (tokens.isEmpty()) 0.0 else knownCount.toDouble() / tokens.size
         return ReaderRecommendation(
             text = text,
@@ -3931,7 +4405,8 @@ class LearningRepository(
             knownTokens = knownCount,
             totalTokens = tokens.size,
             status = statusForCoverage(coverage),
-            authenticReady = false
+            authenticReady = false,
+            dueOverlap = noteIds.distinct().count { it in dueSoonNoteIds }
         )
     }
 
@@ -3972,51 +4447,6 @@ class LearningRepository(
             else -> ReaderStatus.EASY
         }
 
-    private fun importQualityReport(notes: List<Note>, recommendations: List<ReaderRecommendation>): ImportQualityReport {
-        val readyNominals = notes.count { it.isNominalReady() }
-        val aspectReadyVerbs = notes.count { it.isAspectReadyVerb() }
-        val verifiedAktionsartVerbs = notes.count { it.isAspectReadyVerb() && it.hasVerifiedAktionsart() }
-        val domainRanked = notes.count { it.domainFreqRank != null }
-        val examples = notes.count { hasReadableExample(it) }
-        val targetReady = recommendations.count { it.text.source.startsWith("target:", ignoreCase = true) && it.coverage >= AUTHENTIC_READY_COVERAGE }
-        val warnings = buildList {
-            if (readyNominals < DESIGN_DOC_MIN_NOMINAL_ROWS) add("Need $DESIGN_DOC_MIN_NOMINAL_ROWS noun/adjective rows with declension, gender, domain rank, and example.")
-            if (aspectReadyVerbs < DESIGN_DOC_MIN_VERB_ROWS) add("Need $DESIGN_DOC_MIN_VERB_ROWS verb rows with aspect partner, Aktionsart, domain rank, and example.")
-            if (verifiedAktionsartVerbs < DESIGN_DOC_MIN_VERB_ROWS) add("Need $DESIGN_DOC_MIN_VERB_ROWS aspect-ready verbs with high/manual Aktionsart verification.")
-            if (targetReady == 0) add("Need at least one target-source reader text at 90%+ coverage.")
-        }
-        return ImportQualityReport(
-            totalNotes = notes.size,
-            readyNominalRows = readyNominals,
-            aspectReadyVerbRows = aspectReadyVerbs,
-            verifiedAktionsartVerbRows = verifiedAktionsartVerbs,
-            domainRankedRows = domainRanked,
-            exampleRows = examples,
-            targetTextsAtOrAbove90 = targetReady,
-            minNominalRows = DESIGN_DOC_MIN_NOMINAL_ROWS,
-            minVerbRows = DESIGN_DOC_MIN_VERB_ROWS,
-            meetsDesignDocMinimum = warnings.isEmpty(),
-            warnings = warnings
-        )
-    }
-
-    private fun Note.isNominalReady(): Boolean =
-        partOfSpeech.lowercase(Locale.ROOT) in setOf("noun", "adjective") &&
-            !declensionJson.isNullOrBlank() &&
-            !gender.isNullOrBlank() &&
-            domainFreqRank != null &&
-            hasReadableExample(this)
-
-    private fun Note.isAspectReadyVerb(): Boolean =
-        partOfSpeech.lowercase(Locale.ROOT) == "verb" &&
-            aspectPartner != null &&
-            !aspect.isNullOrBlank() &&
-            !aktionsart.isNullOrBlank() &&
-            domainFreqRank != null &&
-            hasReadableExample(this)
-
-    private fun Note.hasVerifiedAktionsart(): Boolean =
-        aktionsartConfidence?.lowercase(Locale.ROOT) in setOf("high", "manual", "verified")
 
     private fun parseToken(token: String, note: Note): String? {
         val declension = note.declensionJson ?: return note.partOfSpeech
@@ -4051,6 +4481,10 @@ class LearningRepository(
         // actually moves the number (so interval-modifier and load adaptation keep
         // responding instead of freezing on a lifetime average).
         private const val RETENTION_WINDOW_DAYS = 90L
+        // P4.5 contrastive-pair threshold: a confusion recurring this many times in
+        // this many days is worth interrupting the queue for.
+        private const val CONFUSION_WINDOW_DAYS = 14L
+        private const val CONFUSION_MIN_EVENTS = 4
         // Half-saturation sample count for ColdStartModel.blend on item difficulty:
         // at this many observed reviews, the item's own fitted elo and the
         // cognitive-cost prior are weighted equally.
@@ -4073,13 +4507,14 @@ class LearningRepository(
         private const val READING_XP = 30
         private const val PRODUCTIVE_COVERAGE_MAX = 0.96
         private const val AUTHENTIC_READY_COVERAGE = 0.90
-        private const val DESIGN_DOC_MIN_NOMINAL_ROWS = 200
-        private const val DESIGN_DOC_MIN_VERB_ROWS = 100
         private const val DAILY_GOAL = 20
         private const val XP_PER_REVIEW = 10
         private const val XP_PER_LEVEL_STEP = 100
         private const val TELEMETRY_RETENTION_MILLIS = 180L * 24 * 60 * 60 * 1000
         private const val UNIT_MASTERY_THRESHOLD = 0.80
+        // P6.5: how many units beyond the current (started) frontier stay open at
+        // once — the DAG-flavored relaxation of the old fully-linear chain.
+        private const val UNIT_SLIDING_WINDOW = 2
         // Facets deferred until a word's RU→meaning recognition is stable: every
         // productive skill (typing/speaking/building) AND listen-and-produce audio.
         // First contact is therefore a single clean recognition card — the word's
@@ -4087,21 +4522,15 @@ class LearningRepository(
         // maximizes new-word breadth per day and keeps the lexeme budget exact.
         private val ADVANCED_FACETS = setOf(
             CardType.MEANING_TO_RU, CardType.CLOZE, CardType.SPEAK, CardType.AUDIO_TO_RU,
-            CardType.DICTATION, CardType.SENTENCE_BUILD
+            CardType.DICTATION, CardType.SENTENCE_BUILD,
+            // TRANSFORM (P4.4 L2) is minted directly onto the verb note by
+            // syncMissingTransformCards only once recognition is already mature, but
+            // this is kept as the same defense-in-depth re-check the other advanced
+            // facets get (e.g. after a relapse drags recognition back below threshold).
+            CardType.TRANSFORM, CardType.SPEAK_SENTENCE
             // STRESS_MARK retired: no longer generated and the legacy cards are purged
             // by MIGRATION_14_15, so it must not resurface as a deferred facet.
         )
-        private val CASES = setOf("NOM", "ACC", "GEN", "DAT", "INS", "PREP")
-        private val NUMBERS = setOf("SG", "PL")
-        private val NOUN_GENDERS = setOf("M", "F", "N", "PL")
         private val CEFR_LEVELS = listOf("A1", "A2", "B1", "B2", "C1", "C2")
-        // Only cues with a defensible default bias. RESULT/SINGLE_EVENT used generic
-        // carriers that were often semantically invalid and taught "быстро = PF" as
-        // a false deterministic rule.
-        private val ASPECT_CONTEXT_CUES = listOf("PROCESS", "HABITUAL", "COMPLETED")
-        private val VERB_FORM_KEYS = setOf(
-            "PAST_M", "PAST_F", "PAST_N", "PAST_PL",
-            "PRES_1SG", "PRES_2SG", "PRES_3SG", "PRES_1PL", "PRES_2PL", "PRES_3PL"
-        )
     }
 }

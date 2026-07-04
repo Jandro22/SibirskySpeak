@@ -91,12 +91,13 @@ internal fun ReaderPanel(
     onMarkVisible: (List<String>, WordStatus) -> Unit,
     onProgress: (Int) -> Unit,
     onCheckpointAnswer: (String) -> Unit,
+    onSetGoal: (Long) -> Unit,
     onAddText: () -> Unit,
     onSpeakRussian: (String) -> Unit
 ) {
     val selected = state.selectedReaderTextId?.let { id -> state.allReaderTexts.firstOrNull { it.text.id == id } }
     if (selected == null) {
-        ReaderBookshelf(state, onOpen, onAddText, onSpeakRussian)
+        ReaderBookshelf(state, onOpen, onAddText, onSpeakRussian, onSetGoal)
     } else {
         ReaderTextScreen(state, selected, onLookup, onClose, onMarkVisible, onProgress, onSpeakRussian, onCheckpointAnswer)
     }
@@ -109,6 +110,7 @@ internal fun ReaderBookshelf(
     onOpen: (Long) -> Unit,
     onAddText: () -> Unit,
     onSpeakRussian: (String) -> Unit
+    , onSetGoal: (Long) -> Unit
 ) {
     val texts = state.allReaderTexts.sortedWith(compareByDescending<ReaderRecommendation> { it.coverage }.thenBy { it.text.title })
     val recommended = state.readerRecommendation
@@ -137,7 +139,7 @@ internal fun ReaderBookshelf(
             }
             if (recommended != null) {
                 Spacer(Modifier.height(14.dp))
-                ReaderRecommendationCard(recommended, onOpen, onSpeakRussian)
+                ReaderRecommendationCard(recommended, onOpen, onSpeakRussian, onSetGoal)
             }
         }
         if (texts.isEmpty()) {
@@ -188,7 +190,8 @@ internal fun ReaderBookshelf(
                             index = index,
                             recommended = item.text.id == state.readerRecommendation?.text?.id,
                             progressIndex = state.readerProgressByText[item.text.id] ?: -1,
-                            onOpen = onOpen
+                            onOpen = onOpen,
+                            onSetGoal = onSetGoal
                         )
                     }
                 }
@@ -204,7 +207,7 @@ internal fun ReaderBookshelf(
 }
 
 @Composable
-internal fun ReaderRecommendationCard(item: ReaderRecommendation, onOpen: (Long) -> Unit, onSpeakRussian: (String) -> Unit) {
+internal fun ReaderRecommendationCard(item: ReaderRecommendation, onOpen: (Long) -> Unit, onSpeakRussian: (String) -> Unit, onSetGoal: (Long) -> Unit) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -239,6 +242,7 @@ internal fun ReaderRecommendationCard(item: ReaderRecommendation, onOpen: (Long)
             IconButton(onClick = { onSpeakRussian(item.text.body) }) {
                 Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Preview recommended text")
             }
+            TextButton(onClick = { onSetGoal(item.text.id) }) { Text(if (item.text.source.startsWith("target:")) "Goal" else "Set goal") }
         }
     }
 }
@@ -261,6 +265,7 @@ internal fun BookCover(
     recommended: Boolean,
     progressIndex: Int,
     onOpen: (Long) -> Unit
+    , onSetGoal: (Long) -> Unit
 ) {
     val base = BookPalette[index % BookPalette.size]
     val deep = lerp(base, Color.Black, 0.28f)
@@ -340,6 +345,9 @@ internal fun BookCover(
             Text(progressLabel, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.92f), fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(2.dp))
             Text(statusLabel, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.82f), fontWeight = FontWeight.SemiBold)
+        }
+        TextButton(onClick = { onSetGoal(item.text.id) }, modifier = Modifier.align(Alignment.BottomCenter)) {
+            Text(if (item.text.source.startsWith("target:")) "Goal set" else "Set goal", color = Color.White)
         }
         if (recommended) {
             Box(
@@ -479,7 +487,7 @@ internal fun ReaderTextScreen(
                         )
                     }
                 }
-                LinearProgressIndicator(
+                AppLinearProgressIndicator(
                     progress = { animatedProgress },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1052,4 +1060,3 @@ internal fun WordStatusChip(
         )
     }
 }
-

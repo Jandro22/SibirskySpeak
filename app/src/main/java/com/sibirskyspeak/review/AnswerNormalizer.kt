@@ -88,6 +88,79 @@ fun evaluateRussianAnswer(
     return AnswerEvaluation(AnswerMatch.WRONG, expected)
 }
 
+/**
+ * Word-order-free grading for CardType.NOVEL_PRODUCE (P4.4 L3): the learner
+ * produces a novel sentence from an English cue, and Russian word order is
+ * genuinely freer than English, so scoring must not penalize a legitimate
+ * reordering. Each expected word is matched against the answer (exact first,
+ * then within typo tolerance) regardless of position; at most one unmatched
+ * word is tolerated as CLOSE. This is deliberately lexical, not morphological —
+ * grade CardType.NOVEL_PRODUCE as EvidenceStrength.PRACTICE, not STRONG.
+ */
+fun evaluateWordOrderFreeRussianAnswer(expected: String, actual: String): AnswerEvaluation {
+    val expectedWords = normalizeRussian(expected).split(" ").filter { it.isNotBlank() }
+    val actualWords = normalizeRussian(actual).split(" ").filter { it.isNotBlank() }
+    if (actualWords.isEmpty()) return AnswerEvaluation(AnswerMatch.WRONG, expected)
+    if (expectedWords.sorted() == actualWords.sorted()) return AnswerEvaluation(AnswerMatch.EXACT, expected)
+    if (expectedWords.size != actualWords.size) return AnswerEvaluation(AnswerMatch.WRONG, expected)
+    val remaining = actualWords.toMutableList()
+    var mismatches = 0
+    var approximate = false
+    for (word in expectedWords) {
+        val exactIndex = remaining.indexOf(word)
+        if (exactIndex >= 0) {
+            remaining.removeAt(exactIndex)
+            continue
+        }
+        val closestIndex = remaining.indices.minByOrNull { levenshteinDistance(word, remaining[it]) }
+        if (closestIndex != null && levenshteinDistance(word, remaining[closestIndex]) <= allowedTypoDistance(remaining[closestIndex], word)) {
+            remaining.removeAt(closestIndex)
+            approximate = true
+            continue
+        }
+        mismatches++
+    }
+    return when {
+        mismatches == 0 -> AnswerEvaluation(if (approximate) AnswerMatch.CLOSE else AnswerMatch.EXACT, expected)
+        mismatches == 1 -> AnswerEvaluation(AnswerMatch.CLOSE, expected, message = "One word doesn't match. Expected: $expected")
+        else -> AnswerEvaluation(AnswerMatch.WRONG, expected)
+    }
+}
+
+/**
+ * Order-aware, per-token grading for CardType.SPEAK_SENTENCE (elicited imitation,
+ * P6.1). Unlike [evaluateWordOrderFreeRussianAnswer], word order here IS the
+ * signal — imitation means reproducing the target's sequence, not just its
+ * vocabulary. Each expected word is matched, in order, against the next
+ * ASR-transcribed word within typo tolerance (ASR noise, not spelling); a
+ * transcript passes at 80%+ of words matched, matching the plan's ASR
+ * elicited-imitation threshold.
+ */
+fun evaluateElicitedImitation(expected: String, actual: String): AnswerEvaluation {
+    val expectedWords = normalizeRussian(expected).split(" ").filter { it.isNotBlank() }
+    val actualWords = normalizeRussian(actual).split(" ").filter { it.isNotBlank() }
+    if (expectedWords.isEmpty() || actualWords.isEmpty()) return AnswerEvaluation(AnswerMatch.WRONG, expected)
+    var searchFrom = 0
+    var matched = 0
+    for (word in expectedWords) {
+        var scan = searchFrom
+        while (scan < actualWords.size) {
+            if (levenshteinDistance(word, actualWords[scan]) <= allowedTypoDistance(actualWords[scan], word)) {
+                matched++
+                searchFrom = scan + 1
+                break
+            }
+            scan++
+        }
+    }
+    val ratio = matched.toDouble() / expectedWords.size
+    return when {
+        ratio >= 0.95 -> AnswerEvaluation(AnswerMatch.EXACT, expected)
+        ratio >= 0.80 -> AnswerEvaluation(AnswerMatch.CLOSE, expected, message = "Close repetition (${(ratio * 100).toInt()}% of words matched).")
+        else -> AnswerEvaluation(AnswerMatch.WRONG, expected, message = "Only ${(ratio * 100).toInt()}% of words matched. Target: $expected")
+    }
+}
+
 fun isEnglishAnswerCorrect(expected: String, actual: String): Boolean =
     evaluateEnglishAnswer(expected, actual).accepted
 

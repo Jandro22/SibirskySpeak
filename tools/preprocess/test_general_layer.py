@@ -32,6 +32,35 @@ def test_examples_are_aligned_pairs():
                 f"{r['lemma']} example not Cyrillic: {r['exampleSentence']!r}"
 
 
+def test_examples_are_not_mojibake():
+    """A slice of general_source.jsonl's scraped examples are CP1251-derived
+    mojibake landing on Cyrillic Supplement code points (Macedonian/Serbian
+    letters like ѕ/ќ/ћ that never appear in real Russian). general_layer.py's
+    _repair_mojibake reverses the mac_cyrillic/cp1251 mis-decode rather than
+    dropping the example — dropping it would drop the whole note, since
+    finalize_notes() requires every non-lesson note to have an example."""
+    from general_layer import _MOJIBAKE_CYRILLIC
+    bad = [r["lemma"] for r in ROWS
+           if r.get("exampleSentence") and _MOJIBAKE_CYRILLIC.search(r["exampleSentence"])]
+    assert not bad, f"{len(bad)} notes ship a mojibake-corrupted example: {bad[:15]}"
+
+
+def test_curated_second_senses_are_present_and_complete():
+    """A small hand-curated set of genuinely polysemous words (see
+    SECOND_SENSE_OVERRIDES) ship a second sense with its own anchoring example
+    — never just a bare gloss with no context, and never a partial pair."""
+    by_lemma = {r["lemma"]: r for r in ROWS}
+    from general_layer import SECOND_SENSE_OVERRIDES
+    for lemma, (sense, example, translation) in SECOND_SENSE_OVERRIDES.items():
+        row = by_lemma.get(lemma)
+        assert row is not None, f"{lemma}: curated for a second sense but missing from the layer"
+        assert row.get("secondSense") == sense
+        assert row.get("secondSenseExample") == example
+        assert row.get("secondSenseExampleTranslation") == translation
+        assert any("а" <= ch.lower() <= "я" or ch == "ё" for ch in example), \
+            f"{lemma}: secondSenseExample not Cyrillic: {example!r}"
+
+
 def test_all_notes_tagged_reading_matrix():
     """The app keys morphology-drill suppression on the 'matrix' tag (see cardsFor).
     Every frequency note must carry it, or it would wrongly get grammar drills built

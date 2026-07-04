@@ -24,7 +24,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -36,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sibirskyspeak.data.DailyPlan
@@ -125,7 +125,7 @@ internal fun UnitMasteryPanel(sessionPlan: SessionPlan?) {
                     Text("Unit ${unit.unit}${if (!unit.unlocked) " · locked" else ""}", fontWeight = FontWeight.SemiBold)
                     Text("${(unit.progress * 100).toInt()}%", color = MaterialTheme.colorScheme.primary)
                 }
-                LinearProgressIndicator(
+                AppLinearProgressIndicator(
                     progress = { unit.progress.toFloat().coerceIn(0f, 1f) },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).height(7.dp).clip(RoundedCornerShape(99.dp))
                 )
@@ -202,7 +202,7 @@ internal fun DailyPlanPanel(dailyPlan: DailyPlan?, sessionPlan: SessionPlan?, on
                 // reader leaves the assignment due forever.
                 if (sessionSize > 0 || reader != null) onStart(SessionMode.FULL) else onRead()
             },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.DASHBOARD_STUDY_BUTTON),
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.onPrimary,
                 contentColor = MaterialTheme.colorScheme.primary
@@ -345,7 +345,7 @@ internal fun ReadingSuggestion(sessionPlan: SessionPlan?, onOpenReader: (Long) -
             }
         }
         Spacer(Modifier.height(12.dp))
-        LinearProgressIndicator(
+        AppLinearProgressIndicator(
             progress = { reader.coverage.toFloat().coerceIn(0f, 1f) },
             modifier = Modifier
                 .fillMaxWidth()
@@ -379,4 +379,3 @@ internal fun ReaderStatusChip(status: ReaderStatus) {
         )
     }
 }
-

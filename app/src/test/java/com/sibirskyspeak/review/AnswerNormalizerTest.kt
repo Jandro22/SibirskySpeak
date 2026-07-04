@@ -126,4 +126,49 @@ class AnswerNormalizerTest {
         assertTrue("lexical recall may treat a one-letter slip as close", lexical.accepted)
         assertEquals(AnswerMatch.WRONG, inflection.match)
     }
+
+    @Test
+    fun wordOrderFreeGradingAcceptsAnyPermutation() {
+        val evaluation = evaluateWordOrderFreeRussianAnswer("вчера я читал книгу", "я книгу читал вчера")
+        assertEquals(AnswerMatch.EXACT, evaluation.match)
+    }
+
+    @Test
+    fun wordOrderFreeGradingToleratesOneNearMissWord() {
+        val evaluation = evaluateWordOrderFreeRussianAnswer("вчера я читал книгу", "я книгу вчера читал")
+        assertEquals(AnswerMatch.EXACT, evaluation.match)
+        val withTypo = evaluateWordOrderFreeRussianAnswer("вчера я читал книгу", "я книгу вчера читаю")
+        assertEquals(AnswerMatch.CLOSE, withTypo.match)
+    }
+
+    @Test
+    fun wordOrderFreeGradingRejectsMissingOrExtraWords() {
+        assertEquals(AnswerMatch.WRONG, evaluateWordOrderFreeRussianAnswer("вчера я читал книгу", "я читал книгу").match)
+        assertEquals(AnswerMatch.WRONG, evaluateWordOrderFreeRussianAnswer("вчера я читал книгу", "").match)
+        assertEquals(AnswerMatch.WRONG, evaluateWordOrderFreeRussianAnswer("я читаю книгу", "я смотрю фильм").match)
+    }
+
+    @Test
+    fun elicitedImitationAcceptsAnExactRepetition() {
+        val evaluation = evaluateElicitedImitation("вчера я читал интересную книгу", "вчера я читал интересную книгу")
+        assertEquals(AnswerMatch.EXACT, evaluation.match)
+    }
+
+    @Test
+    fun elicitedImitationIsOrderAwareUnlikeWordOrderFreeGrading() {
+        // Same words, reordered: word-order-free accepts it, imitation must not —
+        // imitation specifically tests reproducing the target's sequence.
+        val reordered = evaluateElicitedImitation("вчера я читал книгу", "я книгу читал вчера")
+        assertTrue(reordered.match != AnswerMatch.EXACT)
+    }
+
+    @Test
+    fun elicitedImitationTakesAsrTypoNoiseButRejectsWrongWords() {
+        val closeAsr = evaluateElicitedImitation("вчера я читал книгу", "вчера я читал книгу")
+        assertEquals(AnswerMatch.EXACT, closeAsr.match)
+        val oneWordOff = evaluateElicitedImitation("вчера я читал интересную книгу", "вчера я читал книгу")
+        assertTrue("dropping one of five words should still pass at 80%", oneWordOff.accepted)
+        val mostlyWrong = evaluateElicitedImitation("вчера я читал интересную книгу", "сегодня он смотрит фильм")
+        assertEquals(AnswerMatch.WRONG, mostlyWrong.match)
+    }
 }

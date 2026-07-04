@@ -57,8 +57,11 @@ class ModelRecoveryInstrumentedTest {
             val db = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
             try {
                 db.learningModelDao().upsertParameters(listOf(
-                    OptimizerParameter("global_skill_mu", Double.NaN),
-                    OptimizerParameter("global_skill_sigma", Double.POSITIVE_INFINITY)
+                    // Android's SQLite binding converts NaN to NULL, which the
+                    // NOT NULL schema correctly rejects. Use invalid values that
+                    // can genuinely survive a database round-trip instead.
+                    OptimizerParameter("global_skill_mu", Double.MAX_VALUE),
+                    OptimizerParameter("global_skill_sigma", -1.0)
                 ))
             } finally { db.close() }
             val reopened = Room.databaseBuilder(context, AppDatabase::class.java, name).build()

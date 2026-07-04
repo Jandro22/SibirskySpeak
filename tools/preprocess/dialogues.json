@@ -1,0 +1,57 @@
+{
+  "dialogues": [
+    {
+      "id": "greeting_how_are_you",
+      "unitMin": 5,
+      "function": "greeting and small talk",
+      "title": "How are you?",
+      "nodes": [
+        {
+          "id": "greeting_how_are_you:1",
+          "speaker": "npc",
+          "ru": "Привет! Как дела?",
+          "en": "Hi! How are you?",
+          "nextIds": ["greeting_how_are_you:2"]
+        },
+        {
+          "id": "greeting_how_are_you:2",
+          "speaker": "learner",
+          "ru": "Хорошо, а у тебя?",
+          "en": "Good, and you?",
+          "acceptable": ["хорошо, а у тебя?", "хорошо а у тебя", "нормально, а у тебя?", "нормально а у тебя"],
+          "nextIds": ["greeting_how_are_you:3"]
+        },
+        {
+          "id": "greeting_how_are_you:3",
+          "speaker": "npc",
+          "ru": "Тоже хорошо, спасибо. Откуда ты?",
+          "en": "Also good, thanks. Where are you from?",
+          "nextIds": ["greeting_how_are_you:4"]
+        },
+        {
+          "id": "greeting_how_are_you:4",
+          "speaker": "learner",
+          "ru": "Я из Америки.",
+          "en": "I'm from America.",
+          "acceptable": ["я из америки", "я из америки.", "я из сша", "я из сша."],
+          "nextIds": ["greeting_how_are_you:5"]
+        },
+        {
+          "id": "greeting_how_are_you:5",
+          "speaker": "npc",
+          "ru": "Приятно познакомиться!",
+          "en": "Nice to meet you!",
+          "nextIds": ["greeting_how_are_you:6"]
+        },
+        {
+          "id": "greeting_how_are_you:6",
+          "speaker": "learner",
+          "ru": "Мне тоже приятно познакомиться.",
+          "en": "Nice to meet you too.",
+          "acceptable": ["мне тоже приятно познакомиться", "и мне приятно познакомиться", "мне тоже приятно"],
+          "nextIds": []
+        }
+      ]
+    }
+  ]
+}

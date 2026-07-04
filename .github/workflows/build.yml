@@ -39,11 +39,31 @@ jobs:
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest
 
+      - name: Run pedagogy simulation
+        run: ./gradlew simCheck
+
+      - name: Run Android Lint
+        run: ./gradlew lint
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install preprocess test dependencies
+        run: pip install -r tools/preprocess/requirements.txt
+
+      - name: Run content-pipeline tests
+        run: python -m pytest -q tools/preprocess
+
       - name: Build debug APK
         env:
           VERSION_CODE: ${{ github.run_number }}
           VERSION_NAME: "0.1.${{ github.run_number }}"
         run: ./gradlew assembleDebug
+
+      - name: Enforce asset and APK budgets
+        run: python tools/verify_budgets.py
 
       - name: Stage APK with a stable name
         run: cp app/build/outputs/apk/debug/app-debug.apk SibirskySpeak.apk

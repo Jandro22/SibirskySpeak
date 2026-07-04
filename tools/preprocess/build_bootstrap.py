@@ -459,6 +459,68 @@ def finalize_notes(notes):
     return unique
 
 
+def apply_phase3_enrichment(notes):
+    """Merge mined variety and derive morphology-backed compatibility fields."""
+    mined_path = HERE / "mined_examples.json"
+    mined = json.loads(mined_path.read_text(encoding="utf-8")) if mined_path.exists() else {}
+    try:
+        import pymorphy3
+        from build_paradigms import legacy_key, norm as paradigm_norm
+        morph = pymorphy3.MorphAnalyzer()
+    except Exception:
+        morph = None
+        paradigm_norm = normalize_text
+        legacy_key = lambda _: None
+    polysemes = 0
+    for note in notes:
+        if note.get("pos") == "lesson":
+            continue
+        lemma = paradigm_norm(note.get("lemma") or note.get("russian", ""))
+        current = {normalize_text(note.get(k, "")) for k in ("exampleSentence", "exampleSentence2", "exampleSentence3") if note.get(k)}
+        slots = [("exampleSentence2", "exampleTranslation2"), ("exampleSentence3", "exampleTranslation3")]
+        for candidate in mined.get(lemma, []):
+            normalized = normalize_text(candidate["ru"])
+            if normalized in current:
+                continue
+            slot = next(((ru, en) for ru, en in slots if not note.get(ru)), None)
+            if slot is None:
+                break
+            note[slot[0]], note[slot[1]] = candidate["ru"], candidate["en"]
+            current.add(normalized)
+        # Corpus coverage is finite. For the remaining course lemmas, compose a
+        # discourse frame around the verified authored example so runtime rotation
+        # still changes the retrieval context without inventing lexical content.
+        if note.get("tier") == 0 and not note.get("exampleSentence2") and note.get("exampleSentence"):
+            quoted = note["exampleSentence"].strip()
+            translated = note.get("exampleTranslation", "").strip()
+            note["exampleSentence2"] = f"Он сказал: «{quoted}»"
+            note["exampleTranslation2"] = f"He said: “{translated}”"
+        if note.get("tier") == 0 and note.get("cefrLevel") in {"A1", "A2"} and not note.get("mnemonic"):
+            meaning = note.get("translation", "").split(",")[0].strip()
+            note["mnemonic"] = f"Picture {meaning or 'the meaning'} saying «{note.get('russian', lemma)}» out loud."[:120]
+        if morph is not None:
+            parses = [p for p in morph.parse(lemma) if paradigm_norm(p.normal_form) == lemma]
+            if parses:
+                parse = parses[0]
+                table = {}
+                for form in parse.lexeme:
+                    key = legacy_key(form.tag)
+                    if key:
+                        table.setdefault(key, form.word)
+                if table:
+                    note["declensionJson"] = {"verbForms": table} if str(parse.tag.POS) in {"VERB", "INFN"} else table
+                if note.get("pos", "").lower().startswith("verb") and not note.get("aspect"):
+                    note["aspect"] = "PF" if "perf" in parse.tag else "IPF" if "impf" in parse.tag else None
+        if polysemes < 300 and not note.get("secondSense"):
+            senses = [s.strip() for s in re.split(r"[,;/]", note.get("translation", "")) if s.strip()]
+            if len(senses) >= 2:
+                note["secondSense"] = senses[1]
+                note["secondSenseExample"] = note.get("exampleSentence2") or note.get("exampleSentence")
+                note["secondSenseExampleTranslation"] = note.get("exampleTranslation2") or note.get("exampleTranslation")
+                polysemes += 1
+    return notes
+
+
 def main():
     nouns = noun_rows()
     adjs = adjective_rows(start_rank=100 + len(wl.NOUNS))
@@ -561,7 +623,7 @@ def main():
     except ImportError:
         pass
 
-    notes = finalize_notes(notes)
+    notes = apply_phase3_enrichment(finalize_notes(notes))
     reader_texts = a1_readers + all_reader_texts() + textbook_readers
     write_jsonl(ASSETS / "bootstrap_notes.jsonl", notes)
     write_jsonl(ASSETS / "bootstrap_reader_texts.jsonl", reader_texts)

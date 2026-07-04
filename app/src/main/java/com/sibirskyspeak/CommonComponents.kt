@@ -40,14 +40,18 @@ import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ProgressIndicatorDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -84,6 +88,7 @@ import com.sibirskyspeak.data.ReaderStatus
 import com.sibirskyspeak.review.AnswerMode
 import com.sibirskyspeak.review.ReviewPrompt
 import com.sibirskyspeak.review.SessionStep
+import com.sibirskyspeak.review.meaningLine
 import com.sibirskyspeak.learning.MatchOutcome
 import com.sibirskyspeak.learning.MatchReport
 
@@ -99,6 +104,8 @@ internal fun SessionCompleteCard(
     stoppedEarly: Boolean = false,
     deferredPrompts: Int = 0,
     matchReport: MatchReport? = null,
+    tomorrowReviews: Int = 0,
+    tomorrowMinutes: Int = 0,
     onReadNext: () -> Unit = {}
 ) {
     val sessionAccuracy = if (sessionReviewed > 0) sessionCorrect.toDouble() / sessionReviewed else null
@@ -130,6 +137,12 @@ internal fun SessionCompleteCard(
                 color = MaterialTheme.colorScheme.onPrimary
             )
             Text(
+                "Tomorrow: $tomorrowReviews reviews, ~$tomorrowMinutes min",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimary,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
                 if (stoppedEarly)
                     "$deferredPrompts prompts deferred; scheduled work may still remain."
                 else if (sessionReviewed > 0)
@@ -146,10 +159,16 @@ internal fun SessionCompleteCard(
                 HeroPill("Lvl ${game.level}", "level")
             }
             matchReport?.let { report ->
+                // "Rival wins" read as a flat defeat headline right next to "Protected
+                // stop" and a streak/level celebration — tonally it looked like the app
+                // was praising and scolding the same session in the same breath. Match
+                // the softer, competitive framing already used for WIN/DRAW, and when
+                // the rating dip is a direct consequence of the (correct) protected
+                // stop, say so instead of leaving it unexplained.
                 val result = when (report.outcome) {
                     MatchOutcome.WIN -> "Rival defeated"
                     MatchOutcome.DRAW -> "Rival draw"
-                    MatchOutcome.LOSS -> "Rival wins"
+                    MatchOutcome.LOSS -> "Rival ahead"
                 }
                 Text(
                     "$result · rating ${"%.1f".format(report.before.conservativeRating)} → ${"%.1f".format(report.after.conservativeRating)}",
@@ -157,6 +176,14 @@ internal fun SessionCompleteCard(
                     color = MaterialTheme.colorScheme.onPrimary,
                     fontWeight = FontWeight.SemiBold
                 )
+                if (stoppedEarly && report.outcome == MatchOutcome.LOSS) {
+                    Text(
+                        "A protected stop trades match rating for retention — that's the right call.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f),
+                        textAlign = TextAlign.Center
+                    )
+                }
                 report.ghostOutcome?.let { ghost ->
                     Text(
                         "21-day Ghost: ${ghost.name.lowercase().replaceFirstChar { it.uppercase() }} · ${report.tier}",
@@ -327,6 +354,30 @@ internal fun statusMessageAutoDismissMillis(message: String): Long? {
     }
 }
 
+/**
+ * Every determinate progress bar in the app should go through here, not through
+ * [LinearProgressIndicator] directly. The default M3 "stop indicator" — a dot drawn
+ * at the very end of the track — reads as a rendering glitch in a mastery/coverage
+ * bar rather than a deliberate range hint, so this bakes the suppression in once
+ * instead of relying on every call site to remember it.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun AppLinearProgressIndicator(
+    progress: () -> Float,
+    modifier: Modifier = Modifier,
+    color: Color = ProgressIndicatorDefaults.linearColor,
+    trackColor: Color = ProgressIndicatorDefaults.linearTrackColor
+) {
+    LinearProgressIndicator(
+        progress = progress,
+        modifier = modifier,
+        color = color,
+        trackColor = trackColor,
+        drawStopIndicator = {}
+    )
+}
+
 @Composable
 internal fun StatusTag(label: String) {
     Box(
@@ -343,9 +394,9 @@ internal fun StatusTag(label: String) {
  * Tap-to-build answer input (constructed response / "word bank"). Replaces free
  * typing: research on retrieval practice shows constructed responses retain
  * better than passive recognition, while tile assembly removes keyboard friction
- * (the approach Duolingo uses). Tiles are the answer's letters (or words, for
- * multi-word answers) plus a few decoys, shuffled. The assembled string feeds the
- * existing answer evaluation untouched.
+ * (the approach Duolingo uses). Short answers use letters, long single words use
+ * word parts, and phrases use whole words. The assembled string feeds the existing
+ * answer evaluation untouched.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -362,12 +413,40 @@ internal fun LetterTileBank(
         expected.split("/", ";", ",").firstOrNull()?.trim().orEmpty().replace("́", "")
     }
     val wordMode = answer.contains(' ')
+    val partMode = !wordMode && answer.length >= 7
     val cyrillic = answer.any { it in 'а'..'я' || it in 'А'..'Я' || it == 'ё' || it == 'Ё' }
     val tiles = remember(cardId, expected) {
         if (wordMode) {
             val words = answer.lowercase().split(Regex("\\s+")).filter { it.isNotBlank() }
             val decoyPool = if (cyrillic) listOf("и", "в", "не", "на", "с", "по") else listOf("the", "a", "to", "of", "is", "in")
             (words + decoyPool.filter { it !in words }.shuffled().take(2)).shuffled()
+        } else if (partMode) {
+            val normalized = answer.lowercase().filter { !it.isWhitespace() }
+            val endings = if (cyrillic) {
+                listOf("ыми", "ими", "ого", "ему", "ому", "ая", "яя", "ое", "ее", "ые", "ие", "ый", "ий", "ой", "ую", "юю")
+            } else emptyList()
+            val ending = endings.firstOrNull { normalized.endsWith(it) && normalized.length > it.length + 1 }
+            if (ending != null) {
+                val stem = normalized.dropLast(ending.length)
+                val decoys = listOf("ый", "ая", "ое", "ые", "ий", "яя", "ее", "ие")
+                    .filter { it != ending }
+                    .shuffled()
+                    .take(3)
+                (listOf(stem, ending) + decoys).shuffled()
+            } else {
+                // No recognized inflectional ending (a noun/verb, an already-inflected
+                // form, or a non-Cyrillic answer) — chunk arbitrarily, but still add a
+                // couple of decoy chunks so the exercise isn't a trivial single-order
+                // reassembly of exactly the right pieces.
+                val realChunks = normalized.chunked(3)
+                val pool = if (cyrillic) "абвгдеёжзийклмнопрстуфхцчшщъыьэюя" else "abcdefghijklmnopqrstuvwxyz"
+                val decoys = generateSequence { (1..3).map { pool.random() }.joinToString("") }
+                    .filterNot { it in realChunks }
+                    .distinct()
+                    .take(2)
+                    .toList()
+                (realChunks + decoys).shuffled()
+            }
         } else {
             val letters = answer.lowercase().filter { !it.isWhitespace() }.map { it.toString() }
             val pool = if (cyrillic) "абвгдеёжзийклмнопрстуфхцчшщъыьэюя" else "abcdefghijklmnopqrstuvwxyz"
@@ -433,7 +512,11 @@ internal fun LetterTileBank(
                 )
             }
         }
-        Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            if (partMode) "Build the word from meaningful parts. $hint" else hint,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -573,7 +656,8 @@ internal fun animatedInt(target: Int): Int {
 internal fun tabIndex(step: SessionStep): Int = when (step.mainTab()) {
     SessionStep.REVIEWS -> 0
     SessionStep.DASHBOARD -> 1
-    SessionStep.IMPORT -> 2
+    SessionStep.LAB -> 2
+    SessionStep.IMPORT -> 3
     else -> 0
 }
 
@@ -590,6 +674,7 @@ internal fun SessionStep.icon(): ImageVector =
         SessionStep.REVIEWS -> Icons.Filled.School
         SessionStep.READER -> Icons.Filled.AutoStories
         SessionStep.DASHBOARD -> Icons.Filled.Insights
+        SessionStep.LAB -> Icons.Filled.Science
         SessionStep.IMPORT -> Icons.Filled.Settings
         else -> Icons.Filled.School
     }
@@ -603,11 +688,13 @@ internal fun SessionStep.label(): String =
         SessionStep.READER -> "Read"
         SessionStep.IMPORT -> "Settings"
         SessionStep.DASHBOARD -> "Progress"
+        SessionStep.LAB -> "Lab"
     }
 
 internal fun SessionStep.mainTab(): SessionStep =
     when (this) {
         SessionStep.DASHBOARD -> SessionStep.DASHBOARD
+        SessionStep.LAB -> SessionStep.LAB
         // The reader is its own destination so it actually renders when selected;
         // it has no bottom-nav item (it's reached from the Practice/Dashboard
         // "Read" actions), which is why it isn't one of the MainTabs.
@@ -629,6 +716,11 @@ internal fun reviewTaskTitle(prompt: ReviewPrompt): String =
         CardType.GENDER_ID -> "Identify the noun gender"
         CardType.ASPECT_SELECT -> "Pick the verb form that fits"
         CardType.CONCEPT_DRILL -> "Practice the grammar concept"
+        CardType.CONCEPT_APPLY -> "Apply the rule in a new sentence"
+        CardType.CHUNK -> "Type this common Russian chunk"
+        CardType.TRANSFORM -> "Rewrite the sentence"
+        CardType.NOVEL_PRODUCE -> "Write a sentence of your own"
+        CardType.SPEAK_SENTENCE -> "Listen, then repeat the sentence"
         CardType.DICTATION -> "Dictation: listen and type"
         CardType.SENTENCE_BUILD -> "Build the Russian sentence"
         CardType.STRESS_MARK -> "Mark the stress"
@@ -640,7 +732,7 @@ internal fun reviewTaskHelp(prompt: ReviewPrompt): String =
         CardType.RU_TO_MEANING -> "Type the English meaning."
         CardType.MEANING_TO_RU -> "Type the Russian word for this English meaning."
         CardType.CLOZE -> "Use the sentence context and type the missing Russian word."
-        CardType.AUDIO_TO_RU -> "Audio plays automatically. Type what you hear."
+        CardType.AUDIO_TO_RU -> "Type the Russian you hear."
         CardType.SPEAK -> "Use the mic to say the Russian word or phrase aloud."
         CardType.CASE_FILL -> if (prompt.card.reps >= 2) {
             "Read the sentence cues, choose the required case, and type the inflected form."
@@ -663,6 +755,11 @@ internal fun reviewTaskHelp(prompt: ReviewPrompt): String =
         CardType.GENDER_ID -> "Choose the gender that fits this noun."
         CardType.ASPECT_SELECT -> "Choose the form that matches whether the action is bounded or ongoing."
         CardType.CONCEPT_DRILL -> "Use the rule from the lesson to answer this authored grammar prompt."
+        CardType.CONCEPT_APPLY -> "This is a brand-new sentence — apply the rule, don't recall a memorized one."
+        CardType.CHUNK -> "Type the whole chunk, not just the headword — word order and any preposition matter."
+        CardType.TRANSFORM -> "Type the whole rewritten sentence, following the instruction exactly."
+        CardType.NOVEL_PRODUCE -> "There's no Russian shown — compose your own sentence expressing the English cue."
+        CardType.SPEAK_SENTENCE -> "Listen to the sentence, then repeat it aloud from memory — word order matters."
         CardType.DICTATION -> "Listen to the Russian sentence and type what you hear."
         CardType.SENTENCE_BUILD -> "Build the Russian sentence from the meaning or word-bank cue."
         CardType.STRESS_MARK -> "Choose the spelling with the stressed vowel marked."
@@ -672,7 +769,17 @@ internal fun reviewTaskHelp(prompt: ReviewPrompt): String =
 internal fun answerHint(prompt: ReviewPrompt): String =
     when (prompt.answerMode) {
         AnswerMode.ENGLISH -> "Type the English meaning."
-        AnswerMode.RUSSIAN_TYPED -> "Type in Russian. Stress marks and small spelling slips are okay."
+        AnswerMode.RUSSIAN_TYPED -> if (prompt.card.cardType in setOf(
+                CardType.CASE_FILL,
+                CardType.ADJ_AGREE,
+                CardType.VERB_FORM,
+                CardType.CONCEPT_DRILL,
+                CardType.CONCEPT_APPLY
+            )) {
+                "Build the exact Russian form. Stress marks are optional."
+            } else {
+                "Type in Russian. Stress marks and small spelling slips are okay."
+            }
         AnswerMode.RUSSIAN_STRESS_TYPED -> "Type Russian with the stress mark."
         AnswerMode.AUDIO_ONLY -> "Type the Russian you heard. Small spelling slips are okay."
         AnswerMode.SPEAK -> "Tap the mic and say it aloud."
@@ -724,14 +831,29 @@ internal fun reviewContext(prompt: ReviewPrompt): String? =
         // helps comprehension without revealing the answer (an inflected FORM, not the
         // dictionary word the gloss names), so keep it.
         CardType.VERB_FORM, CardType.ASPECT_SELECT, CardType.CONCEPT_DRILL, CardType.STRESS_MARK ->
-            if (prompt.hasSentenceGloss()) "Meaning: ${prompt.exampleTranslation}" else null
+            if (prompt.hasSentenceGloss()) meaningLine(prompt.exampleTranslation.orEmpty()) else null
+        // The English cue is the realized frame's translation (LearningRepository
+        // overrides exampleTranslation with it) — always show it, since the Russian
+        // carrier has its target slot blanked and needs the English for context.
+        CardType.CONCEPT_APPLY -> prompt.exampleTranslation?.takeIf { it.isNotBlank() }?.let { meaningLine(it) }
+        // The prompt is the real sentence with the chunk blanked; the English
+        // translation of that same sentence is the context needed to produce it.
+        CardType.CHUNK -> prompt.exampleTranslation?.takeIf { it.isNotBlank() }?.let { meaningLine(it) }
+        // Russian-to-Russian rewrite: the instruction and original sentence are
+        // already the whole prompt; no separate English line applies.
+        CardType.TRANSFORM -> null
+        // The English cue IS prompt.prompt for this card type; no separate line.
+        CardType.NOVEL_PRODUCE -> null
+        // No translation before the attempt — imitation tests whether the learner
+        // can parse the Russian unaided; the gloss is shown on reveal instead.
+        CardType.SPEAK_SENTENCE -> null
         // Agreement drills use an intentionally simple carrier noun that usually differs
         // from the note's corpus example. Showing that example's English translation here
         // falsely implies that it translates the drill phrase (for example, "___ дома").
         CardType.CASE_FILL, CardType.ADJ_AGREE -> null
         CardType.GENDER_ID -> null
         CardType.AUDIO_TO_RU -> null
-        CardType.SPEAK -> prompt.exampleTranslation?.takeIf { it.isNotBlank() }?.let { "Meaning: $it" }
+        CardType.SPEAK -> prompt.exampleTranslation?.takeIf { it.isNotBlank() }?.let { meaningLine(it) }
         CardType.DICTATION -> null
         CardType.SENTENCE_BUILD -> null
         CardType.LESSON -> null
@@ -767,7 +889,7 @@ internal fun Rating.recallCaption(): String =
         Rating.AGAIN -> "Forgot"
         Rating.HARD -> "Slow"
         Rating.GOOD -> "Solid"
-        Rating.EASY -> "Instant / knew"
+        Rating.EASY -> "Instant"
     }
 
 internal fun ReaderStatus.label(): String =
@@ -785,4 +907,3 @@ internal fun splitIntoSentences(text: String): List<String> =
     text.split(Regex("(?<=[.!?…])\\s+"))
         .map { it.trim() }
         .filter { it.isNotBlank() }
-

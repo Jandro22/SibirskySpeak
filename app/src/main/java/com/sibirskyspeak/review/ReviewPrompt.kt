@@ -38,10 +38,20 @@ data class ReviewPrompt(
 
 data class LessonContent(
     val title: String,
-    val body: String,
+    // Paragraphs, rendered with consistent spacing by the UI layer. A list instead of
+    // a pre-joined string means callers can't get separator/spacing bugs wrong, and
+    // enrichment additions can just be appended (see LearningRepository.promptFor).
+    val body: List<String>,
     val exampleRu: String,
     val exampleEn: String
 )
+
+/** Shared microcopy for the "what does this word mean" line every new-word lesson opens with. */
+internal fun meaningLine(meaning: String): String = "Meaning: $meaning"
+
+/** Shared microcopy for the optional mnemonic line, or null if there is no mnemonic. */
+internal fun mnemonicLine(mnemonic: String?): String? =
+    mnemonic?.takeIf { it.isNotBlank() }?.let { "Memory hook: $it" }
 
 /** True only for the teaching screen that introduces a vocabulary note. */
 fun ReviewPrompt.isNewVocabularyIntroduction(): Boolean =
@@ -84,20 +94,18 @@ fun buildPrompt(
         CardType.RU_TO_MEANING -> {
             val meaning = note.contextualMeaning()
             if (card.state == com.sibirskyspeak.data.CardState.NEW && card.reps == 0) {
+                // Don't promise "its example" when the note has none — many tier-0/textbook
+                // words ship without one, and a dangling reference to an absent example
+                // reads like a missing card.
+                val hasExample = !example.sentence.isNullOrBlank()
                 val content = LessonContent(
                     title = "New word: ${note.russian}",
-                    body = buildString {
-                        append("Meaning here: $meaning")
-                        note.mnemonic?.takeIf { it.isNotBlank() }?.let { append("\n\nMemory hook: $it") }
-                        // Don't promise "its example" when the note has none — many
-                        // tier-0/textbook words ship without one, and a dangling
-                        // reference to an absent example reads like a missing card.
-                        val hasExample = !example.sentence.isNullOrBlank()
-                        append(
-                            if (hasExample) "\n\nStudy the word and its example first. Recall begins when it returns later."
-                            else "\n\nStudy the word first. Recall begins when it returns later."
-                        )
-                    },
+                    body = listOfNotNull(
+                        meaningLine(meaning),
+                        mnemonicLine(note.mnemonic),
+                        if (hasExample) "Study the word and its example first. Recall begins when it returns later."
+                        else "Study the word first. Recall begins when it returns later."
+                    ),
                     exampleRu = example.sentence.orEmpty(),
                     exampleEn = example.translation.orEmpty()
                 )
@@ -124,7 +132,10 @@ fun buildPrompt(
                 expectedAnswer = meaning,
                 answerMode = AnswerMode.ENGLISH,
                 intervalPreview = intervalPreview,
-                explanation = note.translation.takeIf { it != meaning }
+                explanation = listOfNotNull(
+                    note.translation.takeIf { it != meaning },
+                    secondSenseExposure(note, card)
+                ).joinToString("\n\n").ifBlank { null }
             )
         }
         CardType.MEANING_TO_RU -> ReviewPrompt(
@@ -158,7 +169,7 @@ fun buildPrompt(
             // Keep the prompt genuinely auditory, then reconnect the decoded sound
             // to meaning after commitment. Previously listening cards ended at
             // orthography and never displayed the English gloss.
-            explanation = "Meaning: ${note.translation}",
+            explanation = meaningLine(note.translation),
             exampleSentence = example.sentence,
             exampleTranslation = example.translation
         )
@@ -285,6 +296,11 @@ fun buildPrompt(
             val partnerForm = aspectPartner?.let { RussianForms.pastMasculine(it.lemma) ?: it.russian }
             val expectedForm = expectedAspectForm(cue, note, selfForm, aspectPartner, partnerForm)
             val drill = aspectDrill(cue, note, aspectPartner, expectedForm, listOfNotNull(selfForm, partnerForm), example.sentence)
+            // A missing aspect partner (e.g. its note was pruned after this card was
+            // created) collapses the choice set to just the correct answer, which
+            // isn't a decision anymore — fall back to typed recall rather than a
+            // single-button "choice" that auto-passes on tap.
+            val aspectChoices = listOfNotNull(selfForm, partnerForm).distinct().shuffled()
             ReviewPrompt(
                 card = card,
                 note = note,
@@ -294,9 +310,9 @@ fun buildPrompt(
                     append("\nContext clue: ${drill.cueLabel}")
                 },
                 expectedAnswer = expectedForm,
-                answerMode = AnswerMode.CHOICE,
+                answerMode = if (aspectChoices.size >= 2) AnswerMode.CHOICE else AnswerMode.RUSSIAN_TYPED,
                 intervalPreview = intervalPreview,
-                choices = listOfNotNull(selfForm, partnerForm).distinct().shuffled(),
+                choices = if (aspectChoices.size >= 2) aspectChoices else emptyList(),
                 explanation = drill.rationale
             )
         }
@@ -313,19 +329,95 @@ fun buildPrompt(
                 explanation = drill?.explanation
             )
         }
+        CardType.CONCEPT_APPLY -> {
+            // Overwritten by LearningRepository.promptFor with a freshly realized
+            // sentence from FrameRealizer (needs suspend DB access this pure function
+            // doesn't have). This fallback only fires if no frame could be realized.
+            val concept = GrammarConcepts.byId(card.gramConcept ?: note.conceptId)
+            ReviewPrompt(
+                card = card,
+                note = note,
+                prompt = concept?.let { "Apply: ${it.title}" } ?: note.exampleSentence ?: note.translation,
+                expectedAnswer = note.russian,
+                answerMode = AnswerMode.RUSSIAN_TYPED,
+                intervalPreview = intervalPreview,
+                explanation = concept?.hint
+            )
+        }
+        CardType.CHUNK -> {
+            // Overwritten by LearningRepository.promptFor with a real corpus sentence
+            // containing this exact collocation (needs suspend DB access this pure
+            // function doesn't have). This fallback only fires if no sentence could
+            // be found for the chunk.
+            ReviewPrompt(
+                card = card,
+                note = note,
+                prompt = note.translation.ifBlank { note.russian },
+                expectedAnswer = note.russian,
+                answerMode = AnswerMode.RUSSIAN_TYPED,
+                intervalPreview = intervalPreview,
+                explanation = "A common Russian chunk, not just a single word."
+            )
+        }
+        CardType.TRANSFORM -> {
+            // Overwritten by LearningRepository.promptFor with a real sentence-bank
+            // sentence transformed by transform/Transformer.kt (needs suspend DB
+            // access this pure function doesn't have). This fallback only fires if no
+            // sentence containing this verb could be found or transformed.
+            ReviewPrompt(
+                card = card,
+                note = note,
+                prompt = "Rewrite in the negative: ${note.exampleSentence ?: note.russian}",
+                expectedAnswer = note.russian,
+                answerMode = AnswerMode.RUSSIAN_TYPED,
+                intervalPreview = intervalPreview,
+                explanation = "Add «не» directly before the verb."
+            )
+        }
+        CardType.NOVEL_PRODUCE -> {
+            // Overwritten by LearningRepository.promptFor with a freshly realized
+            // English cue (needs suspend DB access this pure function doesn't have,
+            // same FrameRealizer as CONCEPT_APPLY). This fallback only fires if no
+            // frame could be realized for the concept.
+            val concept = GrammarConcepts.byId(card.gramConcept ?: note.conceptId)
+            ReviewPrompt(
+                card = card,
+                note = note,
+                prompt = concept?.let { "Write a sentence using: ${it.title}" } ?: note.translation,
+                expectedAnswer = note.russian,
+                answerMode = AnswerMode.RUSSIAN_TYPED,
+                intervalPreview = intervalPreview,
+                explanation = concept?.hint
+            )
+        }
+        CardType.SPEAK_SENTENCE -> {
+            // Overwritten by LearningRepository.promptFor with a real sentence-bank
+            // sentence (needs suspend DB access this pure function doesn't have).
+            // This fallback only fires if no unit-appropriate sentence was found.
+            ReviewPrompt(
+                card = card,
+                note = note,
+                prompt = "",
+                expectedAnswer = example.sentence ?: note.russian,
+                answerMode = AnswerMode.SPEAK,
+                intervalPreview = intervalPreview,
+                teachingHint = "Listen, then repeat the whole sentence from memory.",
+                explanation = example.translation
+            )
+        }
         CardType.LESSON -> {
             val concept = GrammarConcepts.byId(card.gramConcept ?: note.conceptId)
             val content = if (concept != null) {
                 LessonContent(
                     title = concept.title,
-                    body = concept.lesson,
+                    body = listOf(concept.lesson),
                     exampleRu = concept.exampleRu,
                     exampleEn = concept.exampleEn
                 )
             } else {
                 LessonContent(
                     title = note.translation.ifBlank { "New grammar" },
-                    body = note.exampleTranslation ?: note.translation,
+                    body = listOf(note.exampleTranslation ?: note.translation),
                     exampleRu = note.exampleSentence.orEmpty(),
                     exampleEn = note.exampleTranslation.orEmpty()
                 )
@@ -423,6 +515,28 @@ private fun Note.isContextBoundFunctionWord(): Boolean =
     partOfSpeech.lowercase() in setOf("preposition", "conjunction", "particle", "pronoun", "conj.", "prep.") ||
         translation.split(Regex("""\s*[,;/]\s*""")).count { it.isNotBlank() } > 2
 
+// A word with a *genuinely unrelated* second sense (мир = world/peace, not just a
+// synonym cluster) shows only in `translation`'s comma list today, where the RECALL
+// direction (contextualMeaning/productionCue) truncates to the first sense — the
+// second sense is never specifically retrieval-practiced or anchored in an example
+// of its own. Surfaced once the primary sense is solid, and exactly once (not every
+// review after) so it reads as a discovery, not clutter.
+private const val SECOND_SENSE_EXPOSURE_REPS = 3
+
+internal fun secondSenseExposure(note: Note, card: Card): String? {
+    if (card.reps != SECOND_SENSE_EXPOSURE_REPS) return null
+    val sense = note.secondSense?.takeIf { it.isNotBlank() } ?: return null
+    return buildString {
+        append("Also worth knowing: \"${note.russian.withoutStressMarks()}\" can also mean \"$sense\".")
+        note.secondSenseExample?.takeIf { it.isNotBlank() }?.let { example ->
+            append(" E.g. $example")
+            note.secondSenseExampleTranslation?.takeIf { it.isNotBlank() }?.let { translation ->
+                append(" ($translation)")
+            }
+        }
+    }
+}
+
 /** Production gets one retrieval target, not a multi-sense dictionary entry. */
 private fun Note.productionCue(): String =
     contextualMeaning()
@@ -484,8 +598,17 @@ private fun commonPrefix(values: List<String>): String {
     return prefix
 }
 
+/** Guided multiple-choice for the early formation/teaching phase — fades out once
+ * [card] has matured past [GUIDED_GRAMMAR_REPS], handing off to typed production. */
 private fun guidedGrammarChoices(card: Card, answer: String, forms: List<String>): GrammarChoices {
     if (card.reps >= GUIDED_GRAMMAR_REPS) return GrammarChoices()
+    return buildGrammarChoices(card, answer, forms)
+}
+
+/** Core choice-building shared by the guided-phase multiple choice above and by
+ * case-selection quizzes (which need choices regardless of rep count, since
+ * "which form fits this sentence" is a selection task by definition). */
+private fun buildGrammarChoices(card: Card, answer: String, forms: List<String>): GrammarChoices {
     val distinct = forms.filter { it.isNotBlank() }.distinctBy(::normalizeRussian)
     if (distinct.size < 2 || distinct.none { normalizeRussian(it) == normalizeRussian(answer) }) return GrammarChoices()
     val random = kotlin.random.Random(card.id xor card.noteId)
@@ -532,6 +655,28 @@ private fun possessiveIyForm(masculine: String, key: String): String? {
     return stem + ending
 }
 
+/**
+ * Small per-gender/number pools of simple, unambiguous A1 nouns to complete an
+ * adjective-agreement drill's carrier phrase. Deterministically picked per note
+ * (stable across one card's own repeat exposures — see [carrierNoun]'s seed) so
+ * different adjectives across the deck land on different carrier nouns instead of
+ * every drill in the app pairing the same gender with the same one noun forever;
+ * the point of the drill is generalizing the ending, not memorizing one
+ * noun+ending chunk. Also consulted by [adjectiveAgreementDiagnosticFeedback] so
+ * a miss's explanation always names the same noun the prompt actually showed.
+ */
+private val ADJ_CARRIER_NOUNS = mapOf(
+    "FEM" to listOf("книга", "мама", "школа"),
+    "NEUT" to listOf("окно", "письмо", "море"),
+    "PL" to listOf("дома", "друзья", "письма"),
+    "MASC" to listOf("дом", "стол", "город")
+)
+
+internal fun carrierNoun(cue: String, noteId: Long): String {
+    val pool = ADJ_CARRIER_NOUNS[cue] ?: ADJ_CARRIER_NOUNS.getValue("MASC")
+    return pool[noteId.mod(pool.size.toLong()).toInt()]
+}
+
 private fun adjAgreeDrill(card: Card, note: Note): AdjAgreeDrill {
     val cue = card.gramContextCue ?: "FEM"
     val table = note.declensionJson?.let { runCatching { JSONObject(it) }.getOrNull() }
@@ -546,12 +691,7 @@ private fun adjAgreeDrill(card: Card, note: Note): AdjAgreeDrill {
         "PL" -> "plural"
         else -> cue.lowercase()
     }
-    val carrierNoun = when (cue) {
-        "FEM" -> "книга"
-        "NEUT" -> "окно"
-        "PL" -> "дома"
-        else -> "дом"
-    }
+    val carrierNoun = carrierNoun(if (cue in ADJ_CARRIER_NOUNS) cue else "MASC", note.id)
     // Teach the full nominative agreement set so the learner sees the pattern.
     val paradigm = listOfNotNull(
         form("NOM_SG")?.let { "masculine: $it" },
@@ -859,7 +999,7 @@ private fun caseDrillFromJson(card: Card, note: Note, rawJson: String, exampleSe
         .map { cases.optString(it) }
         .filter { it.isNotBlank() }
         .toList()
-    val guided = guidedGrammarChoices(card, answer, sameNumberForms)
+    val guided = if (selectMode) buildGrammarChoices(card, answer, sameNumberForms) else guidedGrammarChoices(card, answer, sameNumberForms)
     CaseDrill(
         prompt = buildString {
             if (selectMode) {
@@ -910,7 +1050,7 @@ private fun String.humanCaseLabel(): String {
     return listOf(case, number).filter { it.isNotBlank() }.joinToString(" ")
 }
 
-private fun fallbackCaseKey(cases: JSONObject): String? {
+internal fun fallbackCaseKey(cases: JSONObject): String? {
     val keys = listOf("GEN_SG", "DAT_SG", "ACC_SG", "INS_SG", "PREP_SG", "GEN_PL", "DAT_PL", "ACC_PL", "INS_PL", "PREP_PL")
     return keys.firstOrNull { cases.optString(it).isNotBlank() }
 }
@@ -966,11 +1106,13 @@ private fun adjectiveAgreementDiagnosticFeedback(prompt: ReviewPrompt, actualAns
             "PL_NOM" to "plural"
         )
         val matched = labels.keys.firstOrNull { normalizeRussian(forms.optString(it)) == actual }
-        val cueReason = when (prompt.card.gramContextCue) {
-            "FEM" -> "The noun книга is feminine singular."
-            "NEUT" -> "The noun окно is neuter singular."
-            "PL" -> "The noun дома is plural."
-            else -> "The noun дом is masculine singular."
+        val cue = prompt.card.gramContextCue?.takeIf { it in ADJ_CARRIER_NOUNS } ?: "MASC"
+        val noun = carrierNoun(cue, prompt.note.id)
+        val cueReason = when (cue) {
+            "FEM" -> "The noun $noun is feminine singular."
+            "NEUT" -> "The noun $noun is neuter singular."
+            "PL" -> "The noun $noun is plural."
+            else -> "The noun $noun is masculine singular."
         }
         if (matched != null && labels[matched] != targetLabel) {
             "You chose ${labels[matched]}, but $cueReason The adjective must be $targetLabel: ${prompt.note.lemma} → ${prompt.expectedAnswer}."
@@ -997,7 +1139,7 @@ private fun verbFormDiagnosticFeedback(prompt: ReviewPrompt, actualAnswer: Strin
     }
 }
 
-private fun verbFormsFromJson(rawJson: String?): List<Pair<String, String>> = runCatching {
+internal fun verbFormsFromJson(rawJson: String?): List<Pair<String, String>> = runCatching {
     val raw = rawJson ?: return emptyList()
     val json = JSONObject(raw)
     val forms = json.optJSONObject("verbForms") ?: return emptyList()

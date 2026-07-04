@@ -1,54 +1,24 @@
 package com.sibirskyspeak
 
 import android.app.Application
-import androidx.room.withTransaction
-import com.sibirskyspeak.data.AppDatabase
-import com.sibirskyspeak.data.ContentDatabase
-import com.sibirskyspeak.data.AssetBootstrap
-import com.sibirskyspeak.data.BackupManager
-import com.sibirskyspeak.data.LearningConfig
-import com.sibirskyspeak.data.LearningRepository
-import com.sibirskyspeak.data.PrefsSettingsStore
-import com.sibirskyspeak.data.SettingsStore
-import com.sibirskyspeak.scheduler.FsrsScheduler
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Configuration
+import dagger.hilt.android.HiltAndroidApp
+import javax.inject.Inject
 
-class SibirskySpeakApp : Application() {
-    val settings: SettingsStore by lazy { PrefsSettingsStore(this) }
-    private val backup: BackupManager by lazy { BackupManager(this) }
+/**
+ * Dependency wiring itself now lives in di/AppModule.kt (Hilt) instead of the `by lazy`
+ * properties this class used to hold directly — see CLAUDE.md's DI note. Still needed as
+ * the @HiltAndroidApp entry point, and to hand WorkManager a Hilt-aware worker factory so
+ * DailyReminderWorker (notify/Reminders.kt) can be constructor-injected instead of reaching
+ * for a manual `(applicationContext as SibirskySpeakApp)` cast.
+ */
+@HiltAndroidApp
+class SibirskySpeakApp : Application(), Configuration.Provider {
+    @Inject lateinit var workerFactory: HiltWorkerFactory
 
-    val repository: LearningRepository by lazy {
-        val database = AppDatabase.get(this)
-        val contentDatabase = ContentDatabase.get(this)
-        val assets = AssetBootstrap(this)
-        LearningRepository(
-            noteDao = database.noteDao(),
-            cardDao = database.cardDao(),
-            reviewLogDao = database.reviewLogDao(),
-            confusablePairDao = database.confusablePairDao(),
-            readerTextDao = database.readerTextDao(),
-            readingScheduleDao = database.readingScheduleDao(),
-            readerEncounterDao = database.readerEncounterDao(),
-            readingActivityDao = database.readingActivityDao(),
-            telemetryDao = database.telemetryDao(),
-            minedExampleDao = database.minedExampleDao(),
-            learningModelDao = database.learningModelDao(),
-            contentDao = contentDatabase.contentDao(),
-            corpusLemmaProvider = { assets.readTextAsset("deck_lemma.json") },
-            scheduler = FsrsScheduler(
-                desiredRetentionProvider = { settings.desiredRetention },
-                intervalModifierProvider = { settings.intervalModifier },
-                weightsProvider = { settings.fsrsWeights },
-                enableFuzz = true
-            ),
-            bootstrapNotes = { assets.readTextAsset("bootstrap_notes.jsonl") },
-            bootstrapReaderTexts = { assets.readTextAsset("bootstrap_reader_texts.jsonl") },
-            transactionRunner = { block -> database.withTransaction(block) },
-            config = { LearningConfig(dailyGoal = settings.dailyGoal, sessionSize = settings.sessionSize, newCardsPerDay = settings.newCardsPerDay, desiredRetention = settings.desiredRetention, doctrine = settings.doctrine) },
-            decayProvider = { FsrsScheduler.decayOf(settings.fsrsWeights) },
-            restoreBackup = { withContext(Dispatchers.IO) { backup.read() } },
-            writeBackup = { content -> withContext(Dispatchers.IO) { backup.write(content) } }
-        )
-    }
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .build()
 }

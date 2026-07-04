@@ -16,17 +16,20 @@ internal class RepoFixture(
     restoreBackup: (suspend () -> String?)? = null,
     writeBackup: (suspend (String) -> Unit)? = null,
     config: () -> LearningConfig = { LearningConfig() },
-    withTelemetry: Boolean = false
+    withTelemetry: Boolean = false,
+    contentDao: ContentDao? = null
 ) {
     val notes = FakeNoteDao()
     val readerEncounters = FakeReaderEncounterDao()
     val cards = FakeCardDao(notes, readerEncounters)
-    val logs = FakeReviewLogDao(cards, notes)
+    val logs = FakeReviewLogDao(cards, notes).also { cards.reviewLogs = it }
     val pairs = FakeConfusablePairDao()
     val readers = FakeReaderTextDao()
     val readingSchedules = FakeReadingScheduleDao()
     val readingActivities = FakeReadingActivityDao()
     val telemetry = if (withTelemetry) FakeTelemetryDao() else null
+    val confusionEvents = FakeConfusionEventDao()
+    val checkpointResults = FakeCheckpointResultDao()
     val repository = LearningRepository(
         notes,
         cards,
@@ -43,6 +46,9 @@ internal class RepoFixture(
         readingScheduleDao = readingSchedules,
         readerEncounterDao = readerEncounters,
         readingActivityDao = readingActivities,
+        confusionEventDao = confusionEvents,
+        checkpointResultDao = checkpointResults,
+        contentDao = contentDao,
         // Unconfined runs the repository's withContext(compute) blocks inline on the
         // caller, so the deterministic test scheduler still controls all of its work.
         computeDispatcher = Dispatchers.Unconfined
@@ -113,6 +119,11 @@ internal class FakeCardDao(
 ) : CardDao {
     val cards = mutableListOf<Card>()
     private var nextId = 1L
+    // Set by RepoFixture right after constructing FakeReviewLogDao (which itself
+    // needs `cards` to already exist) — only getGrammarDrillFirstReviewOutcomes
+    // below needs cross-DAO access, so a late-bound reference beats restructuring
+    // construction order for every other method that doesn't need it.
+    var reviewLogs: FakeReviewLogDao? = null
 
     override suspend fun getDueCards(now: Long, limit: Int): List<Card> =
         cards.filter { it.due <= now && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
@@ -135,8 +146,28 @@ internal class FakeCardDao(
         cards.filter { it.due <= cutoff && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
     override suspend fun getAllDueCards(now: Long): List<Card> =
         cards.filter { it.due <= now && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id })
+    override suspend fun getDueSoonNoteIds(cutoff: Long): List<Long> =
+        cards.filter { it.due <= cutoff && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended }.map { it.noteId }.distinct()
+    override suspend fun getGraduatedRecognitionCards(): List<Card> =
+        cards.filter { it.cardType == CardType.RU_TO_MEANING && it.state == CardState.GRADUATED }.sortedBy { it.lastReview ?: 0L }
     override suspend fun getNewCards(limit: Int): List<Card> =
         cards.filter { it.state == CardState.NEW && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
+    override suspend fun getSampleCardsOfType(cardType: CardType, limit: Int): List<Card> =
+        cards.filter { it.cardType == cardType && !it.suspended }.sortedWith(compareByDescending<Card> { it.reps }.thenBy { it.id }).take(limit)
+    override suspend fun getGrammarDrillOutcomes(): List<GrammarDrillOutcome> =
+        cards.filter { it.queue == Queue.GRAMMAR && it.cardType != CardType.LESSON && !it.suspended }
+            .map { card ->
+                val everSucceeded = reviewLogs?.logs
+                    ?.any { it.cardId == card.id && it.rating != Rating.AGAIN } ?: false
+                GrammarDrillOutcome(
+                    cardId = card.id,
+                    cardType = card.cardType,
+                    gramCase = card.gramCase,
+                    gramContextCue = card.gramContextCue,
+                    gramConcept = card.gramConcept,
+                    everSucceeded = everSucceeded
+                )
+            }
     override suspend fun getNewCardsOrdered(limit: Int): List<Card> {
         fun rank(card: Card): IntArray {
             val n = notes.notes.firstOrNull { it.id == card.noteId }
@@ -226,6 +257,10 @@ internal class FakeCardDao(
             .distinct()
     override suspend fun getConceptIdsWithLessons(): List<String> =
         cards.filter { it.cardType == CardType.LESSON && it.gramConcept != null }
+            .mapNotNull { it.gramConcept }
+            .distinct()
+    override suspend fun getTaperedConceptIds(): List<String> =
+        cards.filter { it.cardType == CardType.CONCEPT_APPLY && it.gramConcept != null && it.reps >= 4 && it.consecutiveCorrect >= 3 }
             .mapNotNull { it.gramConcept }
             .distinct()
     override suspend fun getByNoteAndType(noteId: Long, cardType: CardType): Card? = cards.firstOrNull { it.noteId == noteId && it.cardType == cardType }
@@ -389,6 +424,9 @@ internal class FakeReviewLogDao(
     }
     override suspend fun insertAll(logs: List<ReviewLog>) { logs.forEach { insert(it) } }
     override suspend fun getAll(): List<ReviewLog> = logs.sortedWith(compareBy<ReviewLog> { it.reviewDatetime }.thenBy { it.id })
+    override suspend fun recentReviewTimes(limit: Int): List<Long> = recallLogs().sortedByDescending { it.reviewDatetime }.take(limit).map { it.reviewDatetime }
+    override suspend fun passiveEvidenceCountSince(cardId: Long, dayStart: Long): Int =
+        logs.count { it.cardId == cardId && it.reviewDatetime >= dayStart && it.source in setOf(ReviewSource.READING, ReviewSource.LISTENING, ReviewSource.PRODUCTION) }
 
     private fun recallLogs(): List<ReviewLog> = logs.filter { it.source != ReviewSource.READER_LOOKUP }
 
@@ -526,6 +564,12 @@ internal class FakeReaderTextDao : ReaderTextDao {
     override suspend fun getAll(): List<ReaderText> = texts
     override suspend fun getById(id: Long): ReaderText? = texts.firstOrNull { it.id == id }
     override suspend fun deleteById(id: Long) { texts.removeAll { it.id == id } }
+    override suspend fun updateSource(id: Long, source: String): Int {
+        val index = texts.indexOfFirst { it.id == id }
+        if (index < 0) return 0
+        texts[index] = texts[index].copy(source = source)
+        return 1
+    }
 }
 
 internal class FakeReadingScheduleDao : ReadingScheduleDao {
@@ -608,4 +652,62 @@ internal class FakeTelemetryDao : TelemetryDao {
     override suspend fun countByType(eventType: String): Int = events.count { it.eventType == eventType }
     override suspend fun countByTypeSince(eventType: String, since: Long): Int =
         events.count { it.eventType == eventType && it.timestamp >= since }
+}
+
+/** In-memory stand-in for ContentDao (P4.3 tests). Only [framesForConcept]/[allFrames]
+ * are meaningfully implemented — everything else here is unused by LearningRepository
+ * paths that don't need morphology/corpus data. */
+internal class FakeContentDao(
+    private val framesByConcept: Map<String, List<ContentFrame>> = emptyMap(),
+    private val chunksByLemma: Map<String, List<ContentCollocation>> = emptyMap()
+) : ContentDao {
+    override suspend fun candidatesForLemma(lemma: String, limit: Int) = emptyList<SentenceCandidate>()
+    override suspend fun chunksForLemma(lemma: String, limit: Int): List<ContentCollocation> =
+        chunksByLemma[lemma].orEmpty().take(limit)
+    override suspend fun familyForLemma(lemma: String, limit: Int) = emptyList<ContentRootFamily>()
+    override suspend fun emojiForLemma(lemma: String): String? = null
+    override suspend fun neighborsForLemma(lemma: String, limit: Int) = emptyList<SemanticNeighbor>()
+    override suspend fun metadata(key: String): String? = null
+    override fun inflection(lemma: String, feats: String): ParadigmForm? = null
+    override fun paradigm(lemma: String) = emptyList<ParadigmForm>()
+    override fun analyses(surfaceNorm: String) = emptyList<MorphAnalysisRow>()
+    override suspend fun sentencesFor(unitMax: Int, requiredLemma: String?, requiredFeat: String?, limit: Int) = emptyList<BankSentence>()
+    override suspend fun sentencesContaining(chunk: String, limit: Int) = emptyList<ContentSentence>()
+    override suspend fun framesForConcept(conceptId: String): List<ContentFrame> = framesByConcept[conceptId].orEmpty()
+    override suspend fun allFrames(): List<ContentFrame> = framesByConcept.values.flatten()
+    override suspend fun dialoguesFor(unitMax: Int) = emptyList<ContentDialogue>()
+    override suspend fun nodesForDialogue(dialogueId: String) = emptyList<ContentDialogueNode>()
+}
+
+internal class FakeConfusionEventDao : ConfusionEventDao {
+    val events = mutableListOf<ConfusionEvent>()
+    private var nextId = 1L
+    override suspend fun insert(event: ConfusionEvent): Long {
+        val id = nextId++
+        events += event.copy(id = id)
+        return id
+    }
+    override suspend fun topPairSince(since: Long): ConfusionPairCount? =
+        events.filter { it.at >= since }
+            .groupBy { Triple(it.expectedKey, it.producedKey, it.cardType) }
+            .maxByOrNull { it.value.size }
+            ?.let { (key, rows) -> ConfusionPairCount(key.first, key.second, key.third, rows.size) }
+    override suspend fun deleteOlderThan(cutoff: Long): Int {
+        val before = events.size
+        events.removeAll { it.at < cutoff }
+        return before - events.size
+    }
+}
+
+internal class FakeCheckpointResultDao : CheckpointResultDao {
+    val results = mutableListOf<CheckpointResult>()
+    private var nextId = 1L
+    override suspend fun insert(result: CheckpointResult): Long {
+        val id = nextId++
+        results += result.copy(id = id)
+        return id
+    }
+    override suspend fun insertAll(results: List<CheckpointResult>): List<Long> = results.map { insert(it) }
+    override suspend fun since(since: Long): List<CheckpointResult> = results.filter { it.at >= since }.sortedByDescending { it.at }
+    override suspend fun recent(limit: Int): List<CheckpointResult> = results.sortedByDescending { it.at }.take(limit)
 }

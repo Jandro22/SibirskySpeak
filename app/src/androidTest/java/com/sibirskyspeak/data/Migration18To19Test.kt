@@ -1,11 +1,9 @@
 package com.sibirskyspeak.data
 
-import android.content.Context
-import androidx.room.Room
 import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
-import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -30,18 +28,15 @@ class Migration18To19Test {
             close()
         }
 
-        helper.runMigrationsAndValidate(dbName, 19, true, AppDatabase.MIGRATION_18_19).close()
-
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val database = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_18_19)
-            .build()
-        try {
-            database.openHelper.readableDatabase.query("SELECT COUNT(*) FROM cards").use { cursor ->
-                check(cursor.moveToFirst() && cursor.getInt(0) == 1)
-            }
-        } finally {
-            database.close()
+        // Verify against the raw post-migration handle MigrationTestHelper hands
+        // back, not a freshly opened Room instance — a Room.databaseBuilder(...)
+        // targeting AppDatabase always opens at the *current* head version, so it
+        // would need every migration up to head, not just this one, and would
+        // silently break again the next time a migration is added on top.
+        val db = helper.runMigrationsAndValidate(dbName, 19, true, AppDatabase.MIGRATION_18_19)
+        db.query("SELECT COUNT(*) FROM cards").use { cursor ->
+            check(cursor.moveToFirst())
+            assertEquals(1, cursor.getInt(0))
         }
     }
 }

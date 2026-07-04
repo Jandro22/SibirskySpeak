@@ -10,8 +10,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.sibirskyspeak.scheduler.FsrsScheduler
 
 @Database(
-    entities = [Note::class, Card::class, ReviewLog::class, ConfusablePair::class, ReaderText::class, ReadingSchedule::class, ReaderEncounter::class, ReadingActivity::class, TelemetryEvent::class, MinedExample::class, ItemDifficulty::class, ConceptMastery::class, OptimizerParameter::class, SkillRating::class, CapacityState::class, WillingnessState::class, RivalState::class, GhostSnapshot::class, MatchHistory::class, PaceLog::class, BanditPending::class, BanditArmState::class],
-    version = 19,
+    entities = [Note::class, Card::class, ReviewLog::class, ConfusablePair::class, ReaderText::class, ReadingSchedule::class, ReaderEncounter::class, ReadingActivity::class, TelemetryEvent::class, MinedExample::class, ItemDifficulty::class, ConceptMastery::class, OptimizerParameter::class, SkillRating::class, CapacityState::class, WillingnessState::class, RivalState::class, GhostSnapshot::class, MatchHistory::class, PaceLog::class, BanditPending::class, BanditArmState::class, WeeklyReport::class, ConfusionEvent::class, CheckpointResult::class],
+    version = 25,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -27,6 +27,9 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun telemetryDao(): TelemetryDao
     abstract fun minedExampleDao(): MinedExampleDao
     abstract fun learningModelDao(): LearningModelDao
+    abstract fun weeklyReportDao(): WeeklyReportDao
+    abstract fun confusionEventDao(): ConfusionEventDao
+    abstract fun checkpointResultDao(): CheckpointResultDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
@@ -38,7 +41,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "sibirsky_speak.db"
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25)
                     // Only versions before the first real migration (7) are allowed to
                     // wipe destructively — those predate the JSON backup/restore safety
                     // net, so there's nothing worth preserving. Any version from 7 on
@@ -49,7 +52,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .also { instance = it }
             }
 
-        private val MIGRATION_7_8 = object : Migration(7, 8) {
+        val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS `telemetry_events` (
@@ -81,13 +84,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        private val MIGRATION_8_9 = object : Migration(8, 9) {
+        val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `notes` ADD COLUMN `mnemonic` TEXT")
             }
         }
 
-        private val MIGRATION_9_10 = object : Migration(9, 10) {
+        val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS `reading_schedules` (
@@ -106,7 +109,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        private val MIGRATION_10_11 = object : Migration(10, 11) {
+        val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS `reader_encounters` (
@@ -122,7 +125,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        private val MIGRATION_11_12 = object : Migration(11, 12) {
+        val MIGRATION_11_12 = object : Migration(11, 12) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS `reading_activities` (
@@ -164,7 +167,7 @@ abstract class AppDatabase : RoomDatabase() {
         // Records the stability a card carried into each review, so the on-device
         // FSRS weight fit can reconstruct the forgetting curve. Existing rows keep
         // 0.0 (the fitter skips them); new reviews populate it going forward.
-        private val MIGRATION_12_13 = object : Migration(12, 13) {
+        val MIGRATION_12_13 = object : Migration(12, 13) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `review_logs` ADD COLUMN `stabilityBefore` REAL NOT NULL DEFAULT 0.0")
             }
@@ -178,7 +181,7 @@ abstract class AppDatabase : RoomDatabase() {
         // with stability 0 by design and live in the GRAMMAR queue, so the VOCAB
         // filter leaves them — and every genuinely reviewed card (stability>0) —
         // untouched.
-        private val MIGRATION_13_14 = object : Migration(13, 14) {
+        val MIGRATION_13_14 = object : Migration(13, 14) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     """
@@ -201,7 +204,7 @@ abstract class AppDatabase : RoomDatabase() {
         // caches. They carry effectively no review history; their review_logs (if any)
         // cascade-delete with them. The enum value and prompt builder stay so older
         // full-state backups containing stress cards remain importable.
-        private val MIGRATION_14_15 = object : Migration(14, 15) {
+        val MIGRATION_14_15 = object : Migration(14, 15) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("DELETE FROM cards WHERE cardType = 'STRESS_MARK'")
             }
@@ -344,6 +347,50 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_cards_state_suspended_due` ON `cards` (`state`, `suspended`, `due`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_cards_queue_state_suspended_due` ON `cards` (`queue`, `state`, `suspended`, `due`)")
+            }
+        }
+
+        val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `notes` ADD COLUMN `secondSense` TEXT")
+                db.execSQL("ALTER TABLE `notes` ADD COLUMN `secondSenseExample` TEXT")
+                db.execSQL("ALTER TABLE `notes` ADD COLUMN `secondSenseExampleTranslation` TEXT")
+            }
+        }
+
+        /** v20 was already used for second-sense content before the evidence-bus
+         * work landed, so the master plan's v19->20 column addition is v20->21 in
+         * the real database lineage. */
+        val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `review_logs` ADD COLUMN `evidenceStrength` TEXT")
+            }
+        }
+        val MIGRATION_21_22 = object : Migration(21,22) {
+            override fun migrate(db: SupportSQLiteDatabase) { db.execSQL("CREATE TABLE IF NOT EXISTS `weekly_reports` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `generatedAt` INTEGER NOT NULL, `periodStart` INTEGER NOT NULL, `bodyJson` TEXT NOT NULL)") }
+        }
+        /** P4.4 L1: chunk notes link back to the vocab note their collocation was
+         * mined for (see Note.chunkParentNoteId). */
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `notes` ADD COLUMN `chunkParentNoteId` INTEGER")
+            }
+        }
+        /** P4.5: persisted confusion classifications (review/AnswerDiagnosis.kt)
+         * feeding contrastive-pair insertion and the weekly letter. */
+        val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `confusion_events` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `expectedKey` TEXT NOT NULL, `producedKey` TEXT NOT NULL, `cardType` TEXT NOT NULL, `at` INTEGER NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_confusion_events_at` ON `confusion_events` (`at`)")
+            }
+        }
+        /** P6.4: the monthly checkpoint — an unbiased, FSRS-state-free assessment
+         * used to calibrate whether "known" is real (see LearningRepository's
+         * buildCheckpointSession/recordCheckpointResult/checkpointCalibration). */
+        val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `checkpoint_results` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `at` INTEGER NOT NULL, `itemKey` TEXT NOT NULL, `kind` TEXT NOT NULL, `predictedP` REAL, `correct` INTEGER NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_checkpoint_results_at` ON `checkpoint_results` (`at`)")
             }
         }
     }

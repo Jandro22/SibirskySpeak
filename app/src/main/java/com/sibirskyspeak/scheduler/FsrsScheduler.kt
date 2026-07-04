@@ -31,6 +31,14 @@ class FsrsScheduler(
     private val enableFuzz: Boolean = false,
     private val random: Random = Random.Default
 ) : Scheduler {
+    /** Applies deliberately weak, state-preserving evidence. The caller enforces
+     * the once-per-card/day cap because that requires review-log persistence. */
+    fun applyPassiveEvidence(card: Card, factor: Double): Card {
+        if (card.state == CardState.NEW || card.state == CardState.GRADUATED) return card
+        val bounded = factor.coerceIn(0.90, 1.15)
+        val stability = card.stability.takeIf { it.isFinite() && it > 0.0 } ?: return card
+        return card.copy(stability = (stability * bounded).coerceIn(MIN_STABILITY, maximumIntervalDays.toDouble()))
+    }
     // Snapshot the active weights once per public call so a refit mid-call can't make
     // the stability/difficulty/interval math internally inconsistent.
     init { require(maximumIntervalDays >= 1) { "maximumIntervalDays must be positive" } }

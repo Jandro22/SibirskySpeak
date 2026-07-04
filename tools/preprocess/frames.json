@@ -1,0 +1,873 @@
+{
+  "pools": {
+    "person": [
+      "студент",
+      "учительница",
+      "сестра",
+      "мама",
+      "папа",
+      "сосед",
+      "друг",
+      "подруга",
+      "женщина",
+      "мужчина",
+      "брат",
+      "мальчик",
+      "девочка",
+      "врач",
+      "инженер"
+    ],
+    "locative_verb": [
+      "работать",
+      "жить",
+      "учиться",
+      "находиться",
+      "отдыхать"
+    ],
+    "speech_verb": [
+      "говорить",
+      "думать",
+      "писать",
+      "рассказывать",
+      "спрашивать",
+      "знать",
+      "мечтать"
+    ],
+    "dat_transfer_verb": [
+      "давать",
+      "показывать",
+      "посылать",
+      "покупать"
+    ],
+    "ins_tool_verb": [
+      "писать",
+      "резать",
+      "рисовать"
+    ],
+    "occupation": [
+      "врач",
+      "учитель",
+      "инженер",
+      "продавец",
+      "официант",
+      "водитель"
+    ],
+    "see_verb": [
+      "видеть",
+      "любить",
+      "знать"
+    ],
+    "reflexive_verb": [
+      "просыпаться",
+      "заниматься",
+      "встречаться",
+      "начинаться"
+    ],
+    "modal_intrans_verb": [
+      "курить",
+      "шуметь",
+      "разговаривать"
+    ],
+    "motion_verb": [
+      "идти",
+      "ехать"
+    ],
+    "masc_inanimate_object": [
+      "телефон",
+      "компьютер",
+      "дом",
+      "велосипед",
+      "паспорт",
+      "ключ"
+    ],
+    "countable_object": [
+      "книга",
+      "стол",
+      "стул",
+      "окно",
+      "машина",
+      "ручка",
+      "тетрадь",
+      "яблоко",
+      "картина"
+    ]
+  },
+  "frames": [
+    {
+      "id": "nom_pl_simple",
+      "concept": "NOM_PL",
+      "band": "A1",
+      "slots": [
+        {
+          "role": "subj",
+          "pos": "noun",
+          "case": "NOM",
+          "number": "PL",
+          "target": true
+        },
+        {
+          "role": "verb",
+          "pos": "verb",
+          "tense": "PRES",
+          "person": 3,
+          "number": "PL",
+          "aspect": "IPF",
+          "target": false
+        }
+      ],
+      "ruFrame": "{subj} {verb} здесь.",
+      "enFrame": "{subj} {verb} here."
+    },
+    {
+      "id": "acc_direct_object",
+      "concept": "ACC",
+      "band": "A1",
+      "slots": [
+        {
+          "role": "subj",
+          "pos": "noun",
+          "case": "NOM",
+          "number": "SG",
+          "pool": "person",
+          "target": false
+        },
+        {
+          "role": "verb",
+          "pos": "verb",
+          "tense": "PRES",
+          "person": 3,
+          "number": "SG",
+          "aspect": "IPF",
+          "target": false
+        },
+        {
+          "role": "obj",
+          "pos": "noun",
+          "case": "ACC",
+          "number": "SG",
+          "target": true
+        }
+      ],
+      "ruFrame": "{subj} {verb} {obj} каждый день.",
+      "enFrame": "{subj} {verb} {obj} every day."
+    },
+    {
+      "id": "gen_negation_net",
+      "concept": "GEN",
+      "band": "A1",
+      "slots": [
+        {
+          "role": "subj",
+          "pos": "noun",
+          "case": "GEN",
+          "number": "SG",
+          "pool": "person",
+          "target": false
+        },
+        {
+          "role": "obj",
+          "pos": "noun",
+          "case": "GEN",
+          "number": "SG",
+          "target": true
+        }
+      ],
+      "ruFrame": "У {subj} нет {obj}.",
+      "enFrame": "{subj} does not have {obj}."
+    },
+    {
+      "id": "gen_quantity",
+      "concept": "GEN",
+      "band": "A2",
+      "slots": [
+        {
+          "role": "obj",
+          "pos": "noun",
+          "case": "GEN",
+          "number": "PL",
+          "target": true
+        }
+      ],
+      "ruFrame": "У меня много {obj}.",
+      "enFrame": "I have a lot of {obj}."
+    },
+    {
+      "id": "prep_location_v",
+      "concept": "PREP",
+      "band": "A1",
+      "slots": [
+        {
+          "role": "subj",
+          "pos": "noun",
+          "case": "NOM",
+          "number": "SG",
+          "pool": "person",
+          "target": false
+        },
+        {
+          "role": "verb",
+          "pos": "verb",
+          "tense": "PRES",
+          "person": 3,
+          "number": "SG",
+          "aspect": "IPF",
+          "pool": "locative_verb",
+          "target": false
+        },
+        {
+          "role": "obl",
+          "pos": "noun",
+          "case": "PRE",
+          "number": "SG",
+          "target": true
+        }
+      ],
+      "ruFrame": "{subj} {verb} в {obl}.",
+      "enFrame": "{subj} {verb} in {obl}."
+    },
+    {
+      "id": "prep_about",
+      "concept": "PREP",
+      "band": "A2",
+      "slots": [
+        {
+          "role": "subj",
+          "pos": "noun",
+          "case": "NOM",
+          "number": "SG",
+          "pool": "person",
+          "target": false
+        },
+        {
+          "role": "verb",
+          "pos": "verb",
+          "tense": "PRES",
+          "person": 3,
+          "number": "SG",
+          "aspect": "IPF",
+          "pool": "speech_verb",
+          "target": false
+        },
+        {
+          "role": "obl",
+          "pos": "noun",
+          "case": "PRE",
+          "number": "SG",
+          "target": true
+        }
+      ],
+      "ruFrame": "{subj} {verb} о {obl}.",
+      "enFrame": "{subj} {verb} about {obl}."
+    },
+    {
+      "id": "dat_giving",
+      "concept": "DAT",
+      "band": "A2",
+      "slots": [
+        {
+          "role": "subj",
+          "pos": "noun",
+          "case": "NOM",
+          "number": "SG",
+          "pool": "person",
+          "target": false
+        },
+        {
+          "role": "verb",
+          "pos": "verb",
+          "tense": "PRES",
+          "person": 3,
+          "number": "SG",
+          "aspect": "IPF",
+          "pool": "dat_transfer_verb",
+          "target": false
+        },
+        {
+          "role": "iobj",
+          "pos": "noun",
+          "case": "DAT",
+          "number": "SG",
+          "pool": "person",
+          "target": true
+        },
+        {
+          "role": "obj",
+          "pos": "noun",
+          "case": "ACC",
+          "number": "SG",
+          "target": false
+        }
+      ],
+      "ruFrame": "{subj} {verb} {iobj} {obj}.",
+      "enFrame": "{subj} gives {iobj} {obj}."
+    },
+    {
+      "id": "dat_nravitsya",
+      "concept": "DAT",
+      "band": "A1",
+      "slots": [
+        {
+          "role": "exp",
+          "pos": "noun",
+          "case": "DAT",
+          "number": "SG",
+          "pool": "person",
+          "target": true
+        },
+        {
+          "role": "obj",
+          "pos": "noun",
+          "case": "NOM",
+          "number": "SG",
+          "target": false
+        }
+      ],
+      "ruFrame": "{exp} нравится {obj}.",
+      "enFrame": "{exp} likes {obj}."
+    },
+    {
+      "id": "ins_tool",
+      "concept": "INS",
+      "band": "A2",
+      "slots": [
+        {
+          "role": "subj",
+          "pos": "noun",
+          "case": "NOM",
+          "number": "SG",
+          "pool": "person",
+          "target": false
+        },
+        {
+          "role": "verb",
+          "pos": "verb",
+          "tense": "PRES",
+          "person": 3,
+          "number": "SG",
+          "aspect": "IPF",
+          "pool": "ins_tool_verb",
+          "target": false
+        },
+        {
+          "role": "tool",
+          "pos": "noun",
+          "case": "INS",
+          "number": "SG",
+          "target": true
+        }
+      ],
+      "ruFrame": "{subj} {verb} {tool}.",
+      "enFrame": "{subj} {verb} with {tool}."
+    },
+    {
+      "id": "ins_occupation",
+      "concept": "INS",
+      "band": "A2",
+      "slots": [
+        {
+          "role": "subj",
+          "pos": "noun",
+          "case": "NOM",
+          "number": "SG",
+          "pool": "person",
+          "target": false
+        },
+        {
+          "role": "occ",
+          "pos": "noun",
+          "case": "INS",
+          "number": "SG",
+          "pool": "occupation",
+          "target": true
+        }
+      ],
+      "ruFrame": "{subj} работает {occ}.",
+      "enFrame": "{subj} works as {occ}."
+    },
+    {
+      "id": "past_transitive",
+      "concept": "PAST",
+      "band": "A1",
+      "slots": [
+        {
+          "role": "subj",
+          "pos": "noun",
+          "case": "NOM",
+          "number": "SG",
+          "pool": "person",
+          "target": false
+        },
+        {
+          "role": "verb",
+          "pos": "verb",
+          "tense": "PAST",
+          "agreesWith": "subj",
+          "aspect": "PF",
+          "target": true
+        },
+        {
+          "role": "obj",
+          "pos": "noun",
+          "case": "ACC",
+          "number": "SG",
+          "target": false
+        }
+      ],
+      "ruFrame": "Вчера {subj} {verb} {obj}.",
+      "enFrame": "Yesterday {subj} {verb} {obj}."
+    },
+    {
+      "id": "past_plural",
+      "concept": "PAST",
+      "band": "A2",
+      "slots": [
+        {
+          "role": "subj",
+          "pos": "noun",
+          "case": "NOM",
+          "number": "PL",
+          "target": false
+        },
+        {
+          "role": "verb",
+          "pos": "verb",
+          "tense": "PAST",
+          "number": "PL",
+          "aspect": "IPF",
+          "target": true
+        }
+      ],
+      "ruFrame": "{subj} долго {verb}.",
+      "enFrame": "{subj} did that for a long time."
+    },
+    {
+      "id": "adj_agree_nom",
+      "concept": "ADJ_AGREE",
+      "band": "A1",
+      "slots": [
+        {
+          "role": "noun",
+          "pos": "noun",
+          "case": "NOM",
+          "number": "SG",
+          "target": false
+        },
+        {
+          "role": "adj",
+          "pos": "adj",
+          "case": "NOM",
+          "agreesWith": "noun",
+          "target": true
+        }
+      ],
+      "ruFrame": "Это {adj} {noun}.",
+      "enFrame": "This is a {adj} {noun}."
+    },
+    {
+      "id": "adj_agree_acc",
+      "concept": "ADJ_AGREE",
+      "band": "A2",
+      "slots": [
+        {
+          "role": "subj",
+          "pos": "noun",
+          "case": "NOM",
+          "number": "SG",
+          "pool": "person",
+          "target": false
+        },
+        {
+          "role": "verb",
+          "pos": "verb",
+          "tense": "PRES",
+          "person": 3,
+          "number": "SG",
+          "aspect": "IPF",
+          "pool": "see_verb",
+          "target": false
+        },
+        {
+          "role": "noun",
+          "pos": "noun",
+          "case": "ACC",
+          "number": "SG",
+          "target": false
+        },
+        {
+          "role": "adj",
+          "pos": "adj",
+          "case": "ACC",
+          "agreesWith": "noun",
+          "target": true
+        }
+      ],
+      "ruFrame": "{subj} {verb} {adj} {noun}.",
+      "enFrame": "{subj} {verb} a {adj} {noun}."
+    },
+    {
+      "id": "present_first_person",
+      "concept": "PRESENT",
+      "band": "A1",
+      "slots": [
+        {
+          "role": "verb",
+          "pos": "verb",
+          "tense": "PRES",
+          "person": 1,
+          "number": "SG",
+          "aspect": "IPF",
+          "target": true
+        },
+        {
+          "role": "obj",
+          "pos": "noun",
+          "case": "ACC",
+          "number": "SG",
+          "target": false
+        }
+      ],
+      "ruFrame": "Я {verb} {obj}.",
+      "enFrame": "I {verb} {obj}."
+    },
+    {
+      "id": "aspect_ipf_habitual",
+      "concept": "ASPECT",
+      "band": "A2",
+      "slots": [
+        {
+          "role": "subj",
+          "pos": "noun",
+          "case": "NOM",
+          "number": "SG",
+          "pool": "person",
+          "target": false
+        },
+        {
+          "role": "verb",
+          "pos": "verb",
+          "tense": "PRES",
+          "person": 3,
+          "number": "SG",
+          "aspect": "IPF",
+          "target": true
+        },
+        {
+          "role": "obj",
+          "pos": "noun",
+          "case": "ACC",
+          "number": "SG",
+          "target": false
+        }
+      ],
+      "ruFrame": "{subj} каждый день {verb} {obj}.",
+      "enFrame": "{subj} {verb} {obj} every day."
+    },
+    {
+      "id": "aspect_pf_completed",
+      "concept": "ASPECT",
+      "band": "A2",
+      "slots": [
+        {
+          "role": "subj",
+          "pos": "noun",
+          "case": "NOM",
+          "number": "SG",
+          "pool": "person",
+          "target": false
+        },
+        {
+          "role": "verb",
+          "pos": "verb",
+          "tense": "PAST",
+          "agreesWith": "subj",
+          "aspect": "PF",
+          "target": true
+        },
+        {
+          "role": "obj",
+          "pos": "noun",
+          "case": "ACC",
+          "number": "SG",
+          "target": false
+        }
+      ],
+      "ruFrame": "Вчера {subj} уже {verb} {obj}.",
+      "enFrame": "Yesterday {subj} already {verb} {obj}."
+    },
+    {
+      "id": "future_pf_simple",
+      "concept": "FUTURE",
+      "band": "A2",
+      "slots": [
+        {
+          "role": "verb",
+          "pos": "verb",
+          "tense": "FUT",
+          "person": 1,
+          "number": "SG",
+          "aspect": "PF",
+          "target": true
+        },
+        {
+          "role": "obj",
+          "pos": "noun",
+          "case": "ACC",
+          "number": "SG",
+          "target": false
+        }
+      ],
+      "ruFrame": "Завтра я {verb} {obj}.",
+      "enFrame": "Tomorrow I will {verb} {obj}."
+    },
+    {
+      "id": "future_ipf_compound",
+      "concept": "FUTURE",
+      "band": "B1",
+      "slots": [
+        {
+          "role": "aux",
+          "pos": "verb",
+          "fixedLemma": "быть",
+          "tense": "FUT",
+          "person": 1,
+          "number": "SG",
+          "target": false
+        },
+        {
+          "role": "verb",
+          "pos": "verb",
+          "feats": "INF",
+          "aspect": "IPF",
+          "target": true
+        },
+        {
+          "role": "obj",
+          "pos": "noun",
+          "case": "ACC",
+          "number": "SG",
+          "target": false
+        }
+      ],
+      "ruFrame": "Завтра я {aux} {verb} {obj}.",
+      "enFrame": "Tomorrow I will be {verb} {obj}."
+    },
+    {
+      "id": "imperative_simple",
+      "concept": "IMPERATIVE",
+      "band": "A1",
+      "slots": [
+        {
+          "role": "verb",
+          "pos": "verb",
+          "feats": "IMP_SG",
+          "aspect": "PF",
+          "target": true
+        },
+        {
+          "role": "obj",
+          "pos": "noun",
+          "case": "ACC",
+          "number": "SG",
+          "target": false
+        }
+      ],
+      "ruFrame": "{verb} {obj}!",
+      "enFrame": "{verb} the {obj}!"
+    },
+    {
+      "id": "reflexive_simple",
+      "concept": "REFLEXIVE",
+      "band": "A2",
+      "slots": [
+        {
+          "role": "subj",
+          "pos": "noun",
+          "case": "NOM",
+          "number": "SG",
+          "pool": "person",
+          "target": false
+        },
+        {
+          "role": "verb",
+          "pos": "verb",
+          "tense": "PRES",
+          "person": 3,
+          "number": "SG",
+          "aspect": "IPF",
+          "pool": "reflexive_verb",
+          "target": true
+        }
+      ],
+      "ruFrame": "{subj} {verb} рано утром.",
+      "enFrame": "{subj} does that early in the morning."
+    },
+    {
+      "id": "modal_nuzhno",
+      "concept": "MODAL",
+      "band": "A2",
+      "slots": [
+        {
+          "role": "verb",
+          "pos": "verb",
+          "feats": "INF",
+          "aspect": "IPF",
+          "target": true
+        },
+        {
+          "role": "obj",
+          "pos": "noun",
+          "case": "ACC",
+          "number": "SG",
+          "target": false
+        }
+      ],
+      "ruFrame": "Мне нужно {verb} {obj}.",
+      "enFrame": "I need to {verb} {obj}."
+    },
+    {
+      "id": "modal_nelzya",
+      "concept": "MODAL",
+      "band": "A2",
+      "slots": [
+        {
+          "role": "verb",
+          "pos": "verb",
+          "feats": "INF",
+          "aspect": "IPF",
+          "pool": "modal_intrans_verb",
+          "target": true
+        }
+      ],
+      "ruFrame": "Здесь нельзя {verb}.",
+      "enFrame": "You can't {verb} here."
+    },
+    {
+      "id": "motion_destination",
+      "concept": "MOTION",
+      "band": "A1",
+      "slots": [
+        {
+          "role": "subj",
+          "pos": "noun",
+          "case": "NOM",
+          "number": "SG",
+          "pool": "person",
+          "target": false
+        },
+        {
+          "role": "verb",
+          "pos": "verb",
+          "tense": "PRES",
+          "person": 3,
+          "number": "SG",
+          "aspect": "IPF",
+          "pool": "motion_verb",
+          "target": true
+        },
+        {
+          "role": "dest",
+          "pos": "noun",
+          "case": "ACC",
+          "number": "SG",
+          "target": false
+        }
+      ],
+      "ruFrame": "{subj} {verb} в {dest}.",
+      "enFrame": "{subj} is going to {dest}."
+    },
+    {
+      "id": "possessive_svoj",
+      "concept": "POSSESSIVE_SVOJ",
+      "band": "B1",
+      "slots": [
+        {
+          "role": "subj",
+          "pos": "noun",
+          "case": "NOM",
+          "number": "SG",
+          "pool": "person",
+          "target": false
+        },
+        {
+          "role": "verb",
+          "pos": "verb",
+          "tense": "PRES",
+          "person": 3,
+          "number": "SG",
+          "aspect": "IPF",
+          "pool": "see_verb",
+          "target": false
+        },
+        {
+          "role": "obj",
+          "pos": "noun",
+          "case": "ACC",
+          "number": "SG",
+          "pool": "masc_inanimate_object",
+          "target": true
+        }
+      ],
+      "ruFrame": "{subj} {verb} свой {obj}.",
+      "enFrame": "{subj} {verb} their own {obj}."
+    },
+    {
+      "id": "conditional_realis",
+      "concept": "CONDITIONAL",
+      "band": "B1",
+      "slots": [
+        {
+          "role": "verb",
+          "pos": "verb",
+          "tense": "FUT",
+          "person": 1,
+          "number": "SG",
+          "aspect": "PF",
+          "target": true
+        },
+        {
+          "role": "obj",
+          "pos": "noun",
+          "case": "ACC",
+          "number": "SG",
+          "target": false
+        }
+      ],
+      "ruFrame": "Если у меня будет время, я {verb} {obj}.",
+      "enFrame": "If I have time, I will {verb} {obj}."
+    },
+    {
+      "id": "numeral_2_4",
+      "concept": "NUMERAL_CASE",
+      "band": "A2",
+      "slots": [
+        {
+          "role": "obj",
+          "pos": "noun",
+          "case": "GEN",
+          "number": "SG",
+          "pool": "countable_object",
+          "target": true
+        }
+      ],
+      "ruFrame": "У меня три {obj}.",
+      "enFrame": "I have three {obj}."
+    },
+    {
+      "id": "numeral_5plus",
+      "concept": "NUMERAL_CASE",
+      "band": "A2",
+      "slots": [
+        {
+          "role": "obj",
+          "pos": "noun",
+          "case": "GEN",
+          "number": "PL",
+          "pool": "countable_object",
+          "target": true
+        }
+      ],
+      "ruFrame": "У меня пять {obj}.",
+      "enFrame": "I have five {obj}."
+    }
+  ]
+}

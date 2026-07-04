@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.sibirskyspeak.learning.EvidenceStrength
 
 @Entity(
     tableName = "review_logs",
@@ -31,5 +32,6 @@ data class ReviewLog(
     // exactly what the on-device FSRS weight fit needs to reconstruct the forgetting
     // curve. 0.0 for NEW-card first reviews and for rows logged before this column
     // existed (those are simply skipped by the fitter).
-    val stabilityBefore: Double = 0.0
+    val stabilityBefore: Double = 0.0,
+    val evidenceStrength: EvidenceStrength? = null
 )

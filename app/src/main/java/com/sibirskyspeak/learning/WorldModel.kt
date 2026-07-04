@@ -77,6 +77,13 @@ object WorldModel {
         CardType.ADJ_AGREE -> mapOf(AbilitySkill.CASES to 0.45, AbilitySkill.SYNTAX to 0.40, AbilitySkill.PRODUCTION to 0.15)
         CardType.GENDER_ID -> mapOf(AbilitySkill.CASES to 0.55, AbilitySkill.VOCAB to 0.30, AbilitySkill.SYNTAX to 0.15)
         CardType.CONCEPT_DRILL -> mapOf(AbilitySkill.SYNTAX to 0.65, AbilitySkill.PRODUCTION to 0.20, AbilitySkill.READING to 0.15)
+        // Highest production weight of any grammar card: the carrier is never a
+        // memorized string, so success draws almost entirely on applying the rule.
+        CardType.CONCEPT_APPLY -> mapOf(AbilitySkill.SYNTAX to 0.55, AbilitySkill.PRODUCTION to 0.35, AbilitySkill.VOCAB to 0.10)
+        CardType.CHUNK -> mapOf(AbilitySkill.VOCAB to 0.55, AbilitySkill.PRODUCTION to 0.35, AbilitySkill.READING to 0.10)
+        CardType.TRANSFORM -> mapOf(AbilitySkill.SYNTAX to 0.50, AbilitySkill.PRODUCTION to 0.40, AbilitySkill.READING to 0.10)
+        CardType.NOVEL_PRODUCE -> mapOf(AbilitySkill.PRODUCTION to 0.55, AbilitySkill.SYNTAX to 0.35, AbilitySkill.VOCAB to 0.10)
+        CardType.SPEAK_SENTENCE -> mapOf(AbilitySkill.PHONOLOGY to 0.45, AbilitySkill.SYNTAX to 0.35, AbilitySkill.PRODUCTION to 0.20)
         CardType.LESSON -> mapOf(AbilitySkill.READING to 0.50, AbilitySkill.SYNTAX to 0.50)
     }
 

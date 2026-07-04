@@ -14,6 +14,26 @@ import kotlin.random.Random
 
 class FsrsSchedulerTest {
     @Test
+    fun passiveEvidenceIsCappedAndNeverChangesStateOrSchedule() {
+        val scheduler = FsrsScheduler()
+        val card = Card(noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB,
+            state = CardState.REVIEW, stability = 10.0, due = 1234L, scheduledDays = 7)
+        val boosted = scheduler.applyPassiveEvidence(card, 99.0)
+        assertEquals(11.5, boosted.stability, 0.0001)
+        assertEquals(card.state, boosted.state)
+        assertEquals(card.due, boosted.due)
+        assertEquals(card.scheduledDays, boosted.scheduledDays)
+        assertEquals(card.reps, boosted.reps)
+    }
+
+    @Test
+    fun passiveEvidenceNeverTouchesNewCards() {
+        val scheduler = FsrsScheduler()
+        val card = Card(noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB,
+            state = CardState.NEW)
+        assertEquals(card, scheduler.applyPassiveEvidence(card, 1.15))
+    }
+    @Test
     fun intervalModifierLengthensAndShortensVocabIntervals() {
         fun reviewedDays(modifier: Double): Int {
             val scheduler = FsrsScheduler(intervalModifierProvider = { modifier })

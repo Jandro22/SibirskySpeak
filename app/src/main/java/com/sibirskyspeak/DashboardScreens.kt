@@ -59,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,7 +85,9 @@ internal fun DashboardPanel(
     onRead: () -> Unit,
     onLoadLeeches: () -> Unit = {},
     onReleaseLeech: (LeechItem) -> Unit = {},
-    onSaveLeechEdit: (LeechItem, String?, String?, String?, String?) -> Unit = { _, _, _, _, _ -> }
+    onSaveLeechEdit: (LeechItem, String?, String?, String?, String?) -> Unit = { _, _, _, _, _ -> },
+    onApplyDoctrineNudge: () -> Unit = {},
+    onDismissDoctrineNudge: () -> Unit = {}
 ) {
     val stats = state.dashboardStats
     if (stats == null) {
@@ -108,16 +111,21 @@ internal fun DashboardPanel(
     var editingLeech by remember { mutableStateOf<LeechItem?>(null) }
     LaunchedEffect(stats.leechCount) { if (stats.leechCount > 0) onLoadLeeches() }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        LevelCard(game)
+        state.sessionPlan?.doctrineNudge?.let { nudge ->
+            DoctrineNudgeCard(nudge, onApplyDoctrineNudge, onDismissDoctrineNudge)
+        }
         DashboardNextActionCard(state, onStart, onOpenReader, onRead)
+        stats.goalProgress?.let { goal ->
+            SectionCard {
+                Text("${goal.unknownLemmaCount} words to «${goal.textTitle}»", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("${goal.coveragePct}% coverage · ${if (goal.deltaThisWeek >= 0) "+" else ""}${goal.deltaThisWeek}% this week", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         StreakCard(game)
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             DailyGoalCard(Modifier.weight(1f), game)
             WordsKnownCard(Modifier.weight(1f), game)
         }
-        SkillRadarCard(state.skillRatings)
-        RivalProgressCard(state.rivalState, state.matchHistory)
-        AchievementsCard(game)
         if (stats.leechCount > 0) LeechCard(state.leeches, stats.leechCount, onReleaseLeech, onEdit = { editingLeech = it })
         DetailsSection(stats, showDetails) { showDetails = !showDetails }
     }
@@ -130,6 +138,30 @@ internal fun DashboardPanel(
                 editingLeech = null
             }
         )
+    }
+}
+
+@Composable
+internal fun DoctrineNudgeCard(
+    nudge: com.sibirskyspeak.learning.DoctrineNudge,
+    onApply: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Icon(Icons.Filled.Insights, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Pace check", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(nudge.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onApply, modifier = Modifier.testTag(TestTags.DOCTRINE_NUDGE_APPLY)) {
+                Text("Switch to ${nudge.suggested.name.lowercase().replaceFirstChar(Char::uppercase)}")
+            }
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag(TestTags.DOCTRINE_NUDGE_DISMISS)) { Text("Not now") }
+        }
     }
 }
 
@@ -314,7 +346,11 @@ internal fun StreakCard(game: GamificationStats) {
             Column(Modifier.weight(1f)) {
                 Text("${game.currentStreak}", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 Text(
-                    if (game.currentStreak == 1) "day streak" else "days streak",
+                    when (game.currentStreak) {
+                        0 -> "No streak yet"
+                        1 -> "day streak"
+                        else -> "days streak"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -322,6 +358,7 @@ internal fun StreakCard(game: GamificationStats) {
             Column(horizontalAlignment = Alignment.End) {
                 Text("Best", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("${game.longestStreak}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text("${"🛡".repeat(game.restDayCredits)}", style = MaterialTheme.typography.bodyLarge)
             }
         }
         Spacer(Modifier.height(14.dp))
@@ -698,4 +735,3 @@ internal fun DetailsSection(stats: com.sibirskyspeak.data.DashboardStats, expand
         }
     }
 }
-

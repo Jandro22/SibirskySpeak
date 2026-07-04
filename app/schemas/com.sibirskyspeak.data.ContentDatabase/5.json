@@ -1,0 +1,673 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 5,
+    "identityHash": "d84781b1d7159a90906a01bbbecb8480",
+    "entities": [
+      {
+        "tableName": "sentence",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `ru_stressed` TEXT NOT NULL, `ru_plain` TEXT NOT NULL, `en` TEXT NOT NULL, `n_tokens` INTEGER NOT NULL, `audio` INTEGER NOT NULL, `rating` REAL NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ruStressed",
+            "columnName": "ru_stressed",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ruPlain",
+            "columnName": "ru_plain",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "en",
+            "columnName": "en",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tokenCount",
+            "columnName": "n_tokens",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "audio",
+            "columnName": "audio",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rating",
+            "columnName": "rating",
+            "affinity": "REAL",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "lemma_index",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`lemma` TEXT NOT NULL, `sentence_id` INTEGER NOT NULL, `target_pos` INTEGER NOT NULL, `pos` TEXT NOT NULL, PRIMARY KEY(`lemma`, `sentence_id`, `target_pos`))",
+        "fields": [
+          {
+            "fieldPath": "lemma",
+            "columnName": "lemma",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sentenceId",
+            "columnName": "sentence_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetPos",
+            "columnName": "target_pos",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pos",
+            "columnName": "pos",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "lemma",
+            "sentence_id",
+            "target_pos"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_lemma_index_lemma",
+            "unique": false,
+            "columnNames": [
+              "lemma"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_lemma_index_lemma` ON `${TABLE_NAME}` (`lemma`)"
+          },
+          {
+            "name": "index_lemma_index_sentence_id",
+            "unique": false,
+            "columnNames": [
+              "sentence_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_lemma_index_sentence_id` ON `${TABLE_NAME}` (`sentence_id`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "collocation",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`lemma` TEXT NOT NULL, `chunk` TEXT NOT NULL, `freq` INTEGER NOT NULL, PRIMARY KEY(`lemma`, `chunk`))",
+        "fields": [
+          {
+            "fieldPath": "lemma",
+            "columnName": "lemma",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chunk",
+            "columnName": "chunk",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "freq",
+            "columnName": "freq",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "lemma",
+            "chunk"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_collocation_lemma",
+            "unique": false,
+            "columnNames": [
+              "lemma"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_collocation_lemma` ON `${TABLE_NAME}` (`lemma`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "root_family",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`root` TEXT NOT NULL, `lemma` TEXT NOT NULL, `prefix` TEXT NOT NULL, `suffix` TEXT NOT NULL, PRIMARY KEY(`root`, `lemma`))",
+        "fields": [
+          {
+            "fieldPath": "root",
+            "columnName": "root",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lemma",
+            "columnName": "lemma",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "prefix",
+            "columnName": "prefix",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "suffix",
+            "columnName": "suffix",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "root",
+            "lemma"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_root_family_lemma",
+            "unique": false,
+            "columnNames": [
+              "lemma"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_root_family_lemma` ON `${TABLE_NAME}` (`lemma`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "emoji_map",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`lemma` TEXT NOT NULL, `emoji` TEXT NOT NULL, PRIMARY KEY(`lemma`))",
+        "fields": [
+          {
+            "fieldPath": "lemma",
+            "columnName": "lemma",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emoji",
+            "columnName": "emoji",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "lemma"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "semantic_neighbor",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`lemma` TEXT NOT NULL, `neighbor` TEXT NOT NULL, `similarity` REAL NOT NULL, PRIMARY KEY(`lemma`, `neighbor`))",
+        "fields": [
+          {
+            "fieldPath": "lemma",
+            "columnName": "lemma",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "neighbor",
+            "columnName": "neighbor",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "similarity",
+            "columnName": "similarity",
+            "affinity": "REAL",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "lemma",
+            "neighbor"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_semantic_neighbor_lemma",
+            "unique": false,
+            "columnNames": [
+              "lemma"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_semantic_neighbor_lemma` ON `${TABLE_NAME}` (`lemma`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "meta",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `value` TEXT NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "value",
+            "columnName": "value",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "paradigm",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`lemma` TEXT NOT NULL, `pos` TEXT NOT NULL, `feats` TEXT NOT NULL, `surface` TEXT NOT NULL, `stressed` TEXT NOT NULL, PRIMARY KEY(`lemma`, `feats`, `surface`))",
+        "fields": [
+          {
+            "fieldPath": "lemma",
+            "columnName": "lemma",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pos",
+            "columnName": "pos",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "feats",
+            "columnName": "feats",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "surface",
+            "columnName": "surface",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stressed",
+            "columnName": "stressed",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "lemma",
+            "feats",
+            "surface"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_paradigm_lemma",
+            "unique": false,
+            "columnNames": [
+              "lemma"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_paradigm_lemma` ON `${TABLE_NAME}` (`lemma`)"
+          },
+          {
+            "name": "index_paradigm_surface",
+            "unique": false,
+            "columnNames": [
+              "surface"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_paradigm_surface` ON `${TABLE_NAME}` (`surface`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "analysis",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`surface_norm` TEXT NOT NULL, `lemma` TEXT NOT NULL, `pos` TEXT NOT NULL, `feats` TEXT NOT NULL, PRIMARY KEY(`surface_norm`, `lemma`, `feats`))",
+        "fields": [
+          {
+            "fieldPath": "surfaceNorm",
+            "columnName": "surface_norm",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lemma",
+            "columnName": "lemma",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pos",
+            "columnName": "pos",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "feats",
+            "columnName": "feats",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "surface_norm",
+            "lemma",
+            "feats"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_analysis_surface_norm",
+            "unique": false,
+            "columnNames": [
+              "surface_norm"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_analysis_surface_norm` ON `${TABLE_NAME}` (`surface_norm`)"
+          },
+          {
+            "name": "index_analysis_lemma",
+            "unique": false,
+            "columnNames": [
+              "lemma"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_analysis_lemma` ON `${TABLE_NAME}` (`lemma`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "sentence_bank",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sent_id` INTEGER NOT NULL, `unit_min` INTEGER NOT NULL, `band` TEXT NOT NULL, `token_count` INTEGER NOT NULL, `grammar_feats` TEXT NOT NULL, `source` TEXT NOT NULL, PRIMARY KEY(`sent_id`))",
+        "fields": [
+          {
+            "fieldPath": "sentenceId",
+            "columnName": "sent_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unitMin",
+            "columnName": "unit_min",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "band",
+            "columnName": "band",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tokenCount",
+            "columnName": "token_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "grammarFeats",
+            "columnName": "grammar_feats",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "sent_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sentence_bank_unit_min",
+            "unique": false,
+            "columnNames": [
+              "unit_min"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sentence_bank_unit_min` ON `${TABLE_NAME}` (`unit_min`)"
+          },
+          {
+            "name": "index_sentence_bank_band",
+            "unique": false,
+            "columnNames": [
+              "band"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sentence_bank_band` ON `${TABLE_NAME}` (`band`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "frame",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `concept` TEXT NOT NULL, `band` TEXT NOT NULL, `slots_json` TEXT NOT NULL, `ru_frame` TEXT NOT NULL, `en_frame` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "concept",
+            "columnName": "concept",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "band",
+            "columnName": "band",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "slotsJson",
+            "columnName": "slots_json",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ruFrame",
+            "columnName": "ru_frame",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "enFrame",
+            "columnName": "en_frame",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_frame_concept",
+            "unique": false,
+            "columnNames": [
+              "concept"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_frame_concept` ON `${TABLE_NAME}` (`concept`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "dialogue",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `unit_min` INTEGER NOT NULL, `function` TEXT NOT NULL, `title` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unitMin",
+            "columnName": "unit_min",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "function",
+            "columnName": "function",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "dialogue_node",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `dialogueId` TEXT NOT NULL, `speaker` TEXT NOT NULL, `ru` TEXT NOT NULL, `en` TEXT NOT NULL, `acceptable_json` TEXT, `next_ids_json` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dialogueId",
+            "columnName": "dialogueId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "speaker",
+            "columnName": "speaker",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ru",
+            "columnName": "ru",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "en",
+            "columnName": "en",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "acceptableJson",
+            "columnName": "acceptable_json",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "nextIdsJson",
+            "columnName": "next_ids_json",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_dialogue_node_dialogueId",
+            "unique": false,
+            "columnNames": [
+              "dialogueId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_dialogue_node_dialogueId` ON `${TABLE_NAME}` (`dialogueId`)"
+          }
+        ],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd84781b1d7159a90906a01bbbecb8480')"
+    ]
+  }
+}

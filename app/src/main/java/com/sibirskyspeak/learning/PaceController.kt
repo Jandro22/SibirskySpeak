@@ -2,6 +2,7 @@ package com.sibirskyspeak.learning
 
 import com.sibirskyspeak.data.Card
 import com.sibirskyspeak.data.CardState
+import com.sibirskyspeak.data.PaceLog
 import com.sibirskyspeak.scheduler.FsrsScheduler
 import kotlin.math.floor
 import kotlin.math.ln
@@ -234,5 +235,61 @@ object PaceController {
     private fun blendDouble(configured: Double, generated: Double, trust: Double): Double {
         val boundedTrust = trust.coerceIn(0.0, 1.0)
         return configured * (1.0 - boundedTrust) + generated * boundedTrust
+    }
+}
+
+enum class NudgeDirection { EASIER, HARDER }
+
+data class DoctrineNudge(
+    val direction: NudgeDirection,
+    val suggested: Doctrine,
+    val reason: String
+)
+
+/**
+ * [PaceController.generatePace] already silently damps the daily new-card cap
+ * session to session (see `adaptDailyLoad`), but a learner stuck on the wrong
+ * [Doctrine] entirely — repeatedly cutting sessions short, or repeatedly
+ * finishing with room to spare — has no visible signal that a coarser lever
+ * exists. This reads the same [PaceLog] history the dashboard already
+ * persists and proposes (never applies) a one-step doctrine change when a
+ * majority of recent sessions land on the same extreme, so a run of one or
+ * two hard days doesn't nag — see [MIN_SAMPLES]/[TRIGGER_FRACTION].
+ */
+object DoctrineAdvisor {
+    // Ordered by intensity (matches Doctrine's own doctrineNewCap ordering, not
+    // its declaration order): a "step" moves exactly one entry either way.
+    private val INTENSITY = listOf(Doctrine.RECOVERY, Doctrine.CONSERVE, Doctrine.BALANCED, Doctrine.AMBITIOUS, Doctrine.SPRINT)
+    private const val MIN_SAMPLES = 4
+    private const val SAMPLE_WINDOW = 5
+    private const val TRIGGER_FRACTION = 0.75
+
+    fun suggest(recentLogsNewestFirst: List<PaceLog>, currentDoctrine: Doctrine): DoctrineNudge? {
+        val sample = recentLogsNewestFirst.take(SAMPLE_WINDOW)
+        if (sample.size < MIN_SAMPLES) return null
+        val idx = INTENSITY.indexOf(currentDoctrine)
+        if (idx < 0) return null
+        val threshold = (sample.size * TRIGGER_FRACTION)
+        val early = sample.count { it.modeChosen == SessionMode.QUICK.name }
+        val stretch = sample.count { it.modeChosen == SessionMode.STRETCH.name }
+        return when {
+            early >= threshold && idx > 0 -> {
+                val next = INTENSITY[idx - 1]
+                DoctrineNudge(
+                    NudgeDirection.EASIER, next,
+                    "Your last ${sample.size} sessions cut short more often than not. " +
+                        "Switching to ${next.name.lowercase().replaceFirstChar(Char::uppercase)} eases the daily load."
+                )
+            }
+            stretch >= threshold && idx < INTENSITY.lastIndex -> {
+                val next = INTENSITY[idx + 1]
+                DoctrineNudge(
+                    NudgeDirection.HARDER, next,
+                    "Your last ${sample.size} sessions finished with room to spare. " +
+                        "Switching to ${next.name.lowercase().replaceFirstChar(Char::uppercase)} raises the pace."
+                )
+            }
+            else -> null
+        }
     }
 }

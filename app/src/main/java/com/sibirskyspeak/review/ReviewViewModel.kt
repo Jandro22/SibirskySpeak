@@ -18,6 +18,7 @@ import com.sibirskyspeak.data.SkillRating
 import com.sibirskyspeak.data.RivalState
 import com.sibirskyspeak.data.TelemetryEvent
 import com.sibirskyspeak.data.WordStatus
+import com.sibirskyspeak.data.WeeklyReport
 import com.sibirskyspeak.scheduler.FsrsScheduler
 import com.sibirskyspeak.scheduler.FsrsWeightFitter
 import com.sibirskyspeak.learning.LiveSessionState
@@ -44,6 +45,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.util.UUID
@@ -76,7 +80,8 @@ enum class SessionStep {
     INTERLEAVED,
     READER,
     IMPORT,
-    DASHBOARD
+    DASHBOARD,
+    LAB
 }
 
 data class ReviewUiState(
@@ -107,7 +112,6 @@ data class ReviewUiState(
     val autoRatedAgain: Boolean = false,
     val suggestedRating: Rating? = null,
     val correctionRequired: Boolean = false,
-    val correctionAnswer: String = "",
     val correctionAccepted: Boolean = false,
     val fatigueAdjusted: Boolean = false,
     val feedbackSequence: Int = 0,
@@ -132,6 +136,10 @@ data class ReviewUiState(
     val reminderEnabled: Boolean = true,
     val reminderHour: Int = SettingsStore.DEFAULT_REMINDER_HOUR,
     val readerFontScale: Float = 1.0f,
+    val backupTreeUri: String = "",
+    val restDayCredits: Int = 0,
+    val weeklyReports: List<WeeklyReport> = emptyList(),
+    val skeletonReady: Boolean = false,
     // Deck search (Settings/Import area).
     val searchQuery: String = "",
     val searchResults: List<Note> = emptyList(),
@@ -188,24 +196,43 @@ data class LeechItem(
 
 private data class SessionCounterDelta(val reviewed: Int, val correct: Int)
 
-class ReviewViewModel(
+@dagger.hilt.android.lifecycle.HiltViewModel
+class ReviewViewModel @javax.inject.Inject constructor(
     private val repository: LearningRepository,
     private val settings: SettingsStore,
     // Dispatcher for CPU-bound work (the FSRS weight fit). Injectable so tests can
-    // pass a deterministic test dispatcher instead of the real Default pool.
+    // pass a deterministic test dispatcher instead of the real Default pool; the
+    // production binding lives in di/AppModule.kt.
     private val computeDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(ReviewUiState())
     val state: StateFlow<ReviewUiState> = mutableState.asStateFlow()
+    val studyState = state.map(::StudyUiState).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StudyUiState(state.value))
+    val readerState = state.map(::ReaderUiState).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReaderUiState(state.value))
+    val dashboardState = state.map(::DashboardUiState).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState(state.value))
+    val importState = state.map(::ImportUiState).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ImportUiState(state.value))
     // The in-progress typed answer lives in its own flow, not in ReviewUiState, so a
     // keystroke doesn't re-emit the whole 60-field state and recompose the entire
     // screen. Only the answer-input subtree (which collects this) recomposes while
     // typing. Reset to "" whenever a fresh card is shown (see loadSession).
     private val mutableTypedAnswer = MutableStateFlow("")
     val typedAnswer: StateFlow<String> = mutableTypedAnswer.asStateFlow()
+    // Same rationale as typedAnswer above: the post-miss correction field updates on
+    // every keystroke, so it lives outside ReviewUiState too. Reset to "" everywhere
+    // correctionRequired is cleared or a fresh card is shown.
+    private val mutableCorrectionAnswer = MutableStateFlow("")
+    val correctionAnswer: StateFlow<String> = mutableCorrectionAnswer.asStateFlow()
     private val sessionCounterDeltas = ArrayDeque<SessionCounterDelta>()
     private val activeStudyQueue = mutableListOf<ReviewPrompt>()
     private val sessionOriginCardIds = linkedSetOf<Long>()
+    // A re-entrancy guard: "is a session claimed right now," not "is there a session to
+    // show" (that's ReviewUiState.inStudySession) and not "is the UI currently displaying
+    // the study screen" (that's MainActivity's local `studyActive`). All three track
+    // related but distinct things and must not be collapsed into one — see the comment on
+    // `studyActive` in MainActivity.kt for the two safe patterns for setting that one.
+    // Must be set true synchronously, before any suspending work, by every function that
+    // checks it (see startStudySession/debugStartSessionWithCardType) — setting it only
+    // after an await lets two rapid calls both pass the guard.
     private var studySessionActive = false
     private var telemetrySessionId: String? = null
     private var promptShownAt: Long = System.currentTimeMillis()
@@ -235,6 +262,14 @@ class ReviewViewModel(
             runCatching {
                 repository.banditArmStates().let(nextCardBandit::restore)
                 repository.seedIfEmpty(runMaintenance = false)
+                val skeletonIds = settings.planSkeletonCardIds.split(',').mapNotNull(String::toLongOrNull)
+                val skeleton = repository.promptsForCardIds(skeletonIds)
+                if (skeleton.isNotEmpty()) {
+                    studySessionActive = true
+                    activeStudyQueue.clear(); activeStudyQueue += skeleton
+                    sessionOriginCardIds.clear(); sessionOriginCardIds += skeleton.map { it.card.id }
+                    mutableState.value = mutableState.value.copy(prompt=skeleton.first(),inStudySession=true,skeletonReady=true,sessionProgressTotal=skeleton.size)
+                }
                 loadSession(includeReaderInsights = false)
             }.onFailure { error ->
                 mutableState.value = mutableState.value.copy(
@@ -265,14 +300,16 @@ class ReviewViewModel(
                 runCatching { refreshReaderInsights() }
                 runCatching { repository.performLaunchMaintenance() }
             }
-            maybeBackup()
+            // Backups are written after completed sessions. Materializing an 80MB
+            // full-state JSON snapshot during first-launch seeding competes with
+            // bootstrap parsing and can exhaust the normal Android heap.
         }
     }
 
     /** Write a full-state backup at most once per day, on a background dispatcher. */
-    private fun maybeBackup() {
+    private fun maybeBackup(force: Boolean = false) {
         val now = System.currentTimeMillis()
-        if (now - settings.lastBackupAt < BACKUP_INTERVAL_MS) return
+        if (!force && now - settings.lastBackupAt < BACKUP_INTERVAL_MS) return
         viewModelScope.launch {
             runCatching { if (repository.backupNow()) settings.lastBackupAt = now }
         }
@@ -309,6 +346,24 @@ class ReviewViewModel(
         viewModelScope.launch { loadSession() }
     }
 
+    /** Accepts the dashboard's pacing nudge, adopting its suggested doctrine. */
+    fun applyDoctrineNudge() {
+        val suggested = mutableState.value.sessionPlan?.doctrineNudge?.suggested ?: return
+        settings.dismissedDoctrineNudge = ""
+        setDoctrine(suggested)
+    }
+
+    /** Dismisses the dashboard's pacing nudge without changing the doctrine. Only
+     * suppresses this exact suggestion — a nudge in a different direction later
+     * still surfaces. */
+    fun dismissDoctrineNudge() {
+        val suggested = mutableState.value.sessionPlan?.doctrineNudge?.suggested ?: return
+        settings.dismissedDoctrineNudge = suggested.name
+        mutableState.value = mutableState.value.copy(
+            sessionPlan = mutableState.value.sessionPlan?.copy(doctrineNudge = null)
+        )
+    }
+
     fun setReminderEnabled(value: Boolean) {
         settings.reminderEnabled = value
         mutableState.value = mutableState.value.copy(reminderEnabled = value)
@@ -322,6 +377,13 @@ class ReviewViewModel(
     fun setReaderFontScale(value: Float) {
         settings.readerFontScale = value
         mutableState.value = mutableState.value.copy(readerFontScale = settings.readerFontScale)
+    }
+
+    fun setBackupTreeUri(value: String) {
+        settings.backupTreeUri = value
+        settings.lastBackupAt = 0L
+        mutableState.value = mutableState.value.copy(backupTreeUri = value)
+        maybeBackup()
     }
 
     fun dismissNewlyUnlocked() {
@@ -376,14 +438,16 @@ class ReviewViewModel(
     }
 
     fun setCorrectionAnswer(value: String) {
-        mutableState.value = mutableState.value.copy(correctionAnswer = value, answerFeedback = null)
+        mutableCorrectionAnswer.value = value
+        mutableState.value = mutableState.value.copy(answerFeedback = null)
     }
 
     fun submitCorrection() {
         val state = mutableState.value
         val prompt = state.prompt ?: return
         if (!state.correctionRequired || state.correctionAccepted) return
-        val evaluation = evaluatePromptAnswer(prompt, state.correctionAnswer)
+        val correctionAnswer = mutableCorrectionAnswer.value
+        val evaluation = evaluatePromptAnswer(prompt, correctionAnswer)
         mutableState.value = state.copy(
             correctionAccepted = evaluation.accepted,
             answerFeedback = if (evaluation.accepted) "Corrected. Retrieve it again when it returns." else "Not yet — rebuild the expected answer.",
@@ -393,7 +457,7 @@ class ReviewViewModel(
         viewModelScope.launch {
             repository.recordTelemetry(telemetryForPrompt("active_correction", prompt).copy(
                 answerMatch = evaluation.match.name,
-                typedLength = state.correctionAnswer.length,
+                typedLength = correctionAnswer.length,
                 metadataJson = JSONObject().put("accepted", evaluation.accepted).toString()
             ))
         }
@@ -429,6 +493,11 @@ class ReviewViewModel(
                 wasRevealed = true,
                 typedLength = typed.length
             ))
+        }
+        if (!evaluation.accepted) {
+            classifyAnswer(prompt, typed)?.let { diagnosis ->
+                viewModelScope.launch { runCatching { repository.recordConfusionEvent(diagnosis, prompt.card.cardType) } }
+            }
         }
         // A committed miss is auto-graded AGAIN (honest scheduling); a receptive
         // recognition prompt instead reveals and lets the learner self-grade, so a
@@ -476,9 +545,9 @@ class ReviewViewModel(
                         loadSession(preserveStudyQueue = true)
                     } else {
                         handleFailure(prompt, recordSample = true)
+                        mutableCorrectionAnswer.value = ""
                         mutableState.value = mutableState.value.copy(
                             correctionRequired = true,
-                            correctionAnswer = "",
                             correctionAccepted = false
                         )
                     }
@@ -512,11 +581,11 @@ class ReviewViewModel(
                 answerMatch = AnswerMatch.WRONG.name,
                 metadataJson = JSONObject().put("autoRated", true).toString()
             ))
+            mutableCorrectionAnswer.value = ""
             mutableState.value = mutableState.value.copy(
                 ratingInProgress = false,
                 autoRatedAgain = true,
                 correctionRequired = true,
-                correctionAnswer = "",
                 correctionAccepted = false,
                 sessionCompletedCards = mutableState.value.sessionCompletedCards + 1,
                 canUndo = false
@@ -569,11 +638,11 @@ class ReviewViewModel(
                         loadSession(preserveStudyQueue = true)
                     } else {
                         handleFailure(prompt, recordSample = false)
+                        mutableCorrectionAnswer.value = ""
                         mutableState.value = mutableState.value.copy(
                             ratingInProgress = false,
                             autoRatedAgain = true,
                             correctionRequired = true,
-                            correctionAnswer = "",
                             correctionAccepted = false
                         )
                     }
@@ -646,12 +715,12 @@ class ReviewViewModel(
                 repository.recordTelemetry(telemetryForPrompt("acquisition_practice", prompt).copy(rating = rating.name))
             }
             activeStudyQueue.clear(); activeStudyQueue += remaining
+            mutableCorrectionAnswer.value = ""
             mutableState.value = mutableState.value.copy(
                 ratingInProgress = false,
                 sessionCompletedCards = mutableState.value.sessionCompletedCards + 1,
                 autoRatedAgain = !success,
                 correctionRequired = !success,
-                correctionAnswer = "",
                 correctionAccepted = false,
                 canUndo = false
             )
@@ -761,11 +830,25 @@ class ReviewViewModel(
     private fun evaluatePromptAnswer(prompt: ReviewPrompt, actual: String): AnswerEvaluation =
         when (prompt.answerMode) {
             AnswerMode.ENGLISH -> evaluateEnglishAnswer(prompt.expectedAnswer, actual)
-            AnswerMode.RUSSIAN_TYPED, AnswerMode.AUDIO_ONLY, AnswerMode.SPEAK -> evaluateRussianAnswer(
-                expected = prompt.expectedAnswer,
-                actual = actual,
-                allowTypos = prompt.card.cardType !in STRICT_FORM_CARD_TYPES
-            )
+            // NOVEL_PRODUCE (P4.4 L3): the learner composes a whole sentence from an
+            // English cue with no Russian shown, so Russian's genuinely free word
+            // order must not be penalized — grade word-order-free instead of the
+            // normal fixed-string comparison.
+            AnswerMode.RUSSIAN_TYPED, AnswerMode.AUDIO_ONLY, AnswerMode.SPEAK ->
+                if (prompt.card.cardType == CardType.NOVEL_PRODUCE) {
+                    evaluateWordOrderFreeRussianAnswer(prompt.expectedAnswer, actual)
+                } else if (prompt.card.cardType == CardType.SPEAK_SENTENCE) {
+                    // Elicited imitation (P6.1): order-aware, per-token, ASR-tolerant —
+                    // distinct from both the free-order NOVEL_PRODUCE grading above and
+                    // the fixed-string comparison below (single-word SPEAK cards).
+                    evaluateElicitedImitation(prompt.expectedAnswer, actual)
+                } else {
+                    evaluateRussianAnswer(
+                        expected = prompt.expectedAnswer,
+                        actual = actual,
+                        allowTypos = prompt.card.cardType !in STRICT_FORM_CARD_TYPES
+                    )
+                }
             AnswerMode.RUSSIAN_STRESS_TYPED -> evaluateRussianAnswer(prompt.expectedAnswer, actual, ignoreStress = false)
             AnswerMode.CHOICE -> {
                 if (prompt.card.cardType == CardType.STRESS_MARK) {
@@ -982,6 +1065,7 @@ class ReviewViewModel(
             }
             queueBeforeLastReview = null
             loadSession(status = "Undid last review", preserveStudyQueue = true)
+            mutableCorrectionAnswer.value = ""
             mutableState.value = mutableState.value.copy(
                 revealed = false,
                 isAnswerCorrect = null,
@@ -989,7 +1073,6 @@ class ReviewViewModel(
                 answerFeedback = null,
                 autoRatedAgain = false,
                 correctionRequired = false,
-                correctionAnswer = "",
                 correctionAccepted = false,
                 sessionReviewed = (mutableState.value.sessionReviewed - delta.reviewed).coerceAtLeast(0),
                 sessionCorrect = (mutableState.value.sessionCorrect - delta.correct).coerceAtLeast(0),
@@ -1098,10 +1181,10 @@ class ReviewViewModel(
             queueBeforeLastReview = null
             mutableState.value.prompt?.let { repository.recordTelemetry(telemetryForPrompt("auto_miss_overridden", it)) }
             val delta = if (sessionCounterDeltas.isNotEmpty()) sessionCounterDeltas.removeLast() else SessionCounterDelta(1, 0)
+            mutableCorrectionAnswer.value = ""
             mutableState.value = mutableState.value.copy(
                 autoRatedAgain = false,
                 correctionRequired = false,
-                correctionAnswer = "",
                 correctionAccepted = false,
                 revealed = true,
                 isAnswerCorrect = true,
@@ -1215,6 +1298,14 @@ class ReviewViewModel(
     fun openReaderText(id: Long) {
         viewModelScope.launch {
             openReaderTextNow(id, inSession = false)
+        }
+    }
+
+    fun setReaderGoal(id: Long) {
+        viewModelScope.launch {
+            runCatching { repository.setReaderGoal(id) }
+                .onSuccess { refreshReaderInsights(); mutableState.value = mutableState.value.copy(statusMessage = "Reading goal set") }
+                .onFailure { mutableState.value = mutableState.value.copy(statusMessage = it.message ?: "Could not set goal") }
         }
     }
 
@@ -1444,6 +1535,7 @@ class ReviewViewModel(
         val freshPlan = if (canReusePlan) current.sessionPlan!! else repository.sessionPlan(
             includeReaderInsights = includeReaderInsights
         )
+        if (!canReusePlan) settings.planSkeletonCardIds = freshPlan.reviewQueue.take(5).joinToString(",") { it.card.id.toString() }
         // Study can be opened before the asynchronous startup plan is ready. In
         // that race startStudySession() freezes an empty queue; when the plan lands,
         // adopt it here so the visible prompt and the queue cannot diverge.
@@ -1502,7 +1594,9 @@ class ReviewViewModel(
             prompt = promptForStep(step, plan),
             reviewedToday = repository.reviewedToday(),
             dailyPlan = plan.dailyPlan,
-            sessionPlan = plan,
+            sessionPlan = plan.copy(
+                doctrineNudge = plan.doctrineNudge?.takeIf { it.suggested.name != settings.dismissedDoctrineNudge }
+            ),
             readerRecommendation = readerRecommendation,
             allReaderTexts = allReaders,
             readerTokens = readerTokens,
@@ -1524,6 +1618,10 @@ class ReviewViewModel(
             reminderEnabled = settings.reminderEnabled,
             reminderHour = settings.reminderHour,
             readerFontScale = settings.readerFontScale,
+            backupTreeUri = settings.backupTreeUri,
+            restDayCredits = settings.restDayCredits,
+            weeklyReports = repository.weeklyReports(),
+            skeletonReady = current.skeletonReady,
             searchQuery = current.searchQuery,
             searchResults = current.searchResults,
             referenceQuery = current.referenceQuery,
@@ -1560,6 +1658,7 @@ class ReviewViewModel(
         // A rebuilt session always presents a fresh card, so clear any in-progress
         // input (this mirrors the old ReviewUiState rebuild that defaulted it to "").
         mutableTypedAnswer.value = ""
+        mutableCorrectionAnswer.value = ""
         val nextPrompt = mutableState.value.prompt
         if (nextPrompt != null && nextPrompt.card.id != previousPromptId) {
             promptShownAt = System.currentTimeMillis()
@@ -1584,10 +1683,10 @@ class ReviewViewModel(
                 repository.recordTelemetry(telemetryForPrompt("context_card_shown", nextPrompt))
             }
             val lessonBody = nextPrompt.lesson?.body.orEmpty()
-            if (lessonBody.contains("Cognate fast-track:")) {
+            if (lessonBody.any { it.startsWith("Cognate fast-track:") }) {
                 repository.recordTelemetry(telemetryForPrompt("cognate_fasttrack", nextPrompt))
             }
-            if (lessonBody.contains("Useful chunks:")) {
+            if (lessonBody.any { it.startsWith("Useful chunks:") }) {
                 repository.recordTelemetry(telemetryForPrompt("chunk_card", nextPrompt))
             }
         }
@@ -1629,6 +1728,13 @@ class ReviewViewModel(
                 rankedMatch = objectiveAttempts.size >= MIN_RANKED_MATCH_CARDS,
                 stoppedEarly = mutableState.value.sessionStoppedEarly
             )
+            maybeBackup(force = true)
+            val day = System.currentTimeMillis() / (24L * 60 * 60 * 1000)
+            val streak = mutableState.value.sessionPlan?.gamification?.currentStreak ?: 0
+            if (streak >= 7 && streak % 7 == 0 && settings.lastRestCreditAwardDay != day) {
+                settings.restDayCredits = (settings.restDayCredits + 1).coerceAtMost(2)
+                settings.lastRestCreditAwardDay = day
+            }
             studySessionActive = false
             studyPausedAt = null
             mutableState.value = mutableState.value.copy(inStudySession = false, matchReport = report)
@@ -1784,9 +1890,12 @@ class ReviewViewModel(
         }
     }
 
-    /** Reset the per-sitting counters when the learner (re)opens the study screen. */
-    fun startStudySession(mode: SessionMode = SessionMode.FULL) {
-        if (studySessionActive) return
+    /**
+     * Clears every per-sitting tracking collection/flag. Shared by [startStudySession] and
+     * [debugStartSessionWithCardType] so the two can't drift out of sync — a prior real
+     * session's fatigue/flow/reading-interstitial state must never leak into the next one.
+     */
+    private fun resetSessionTrackingState() {
         sessionCounterDeltas.clear()
         failureCounts.clear()
         acquisitionSuccesses.clear()
@@ -1799,6 +1908,12 @@ class ReviewViewModel(
         fatigueAdjusted = false
         flowOffered = false
         scheduledReadingPresented = false
+    }
+
+    /** Reset the per-sitting counters when the learner (re)opens the study screen. */
+    fun startStudySession(mode: SessionMode = SessionMode.FULL) {
+        if (studySessionActive) return
+        resetSessionTrackingState()
         studySessionActive = true
         studyPausedAt = null
         sessionStartedAt = System.currentTimeMillis()
@@ -1828,6 +1943,7 @@ class ReviewViewModel(
         activeStudyQueue += plannedQueue
         sessionOriginCardIds.clear()
         sessionOriginCardIds += activeStudyQueue.map { it.card.id }
+        mutableCorrectionAnswer.value = ""
         mutableState.value = mutableState.value.copy(
             sessionPlan = plan?.copy(
                 reviewQueue = plannedQueue,
@@ -1840,7 +1956,6 @@ class ReviewViewModel(
             sessionProgressCompleted = 0,
             sessionProgressTotal = sessionOriginCardIds.size,
             correctionRequired = false,
-            correctionAnswer = "",
             correctionAccepted = false,
             fatigueAdjusted = false,
             matchReport = null,
@@ -1874,6 +1989,104 @@ class ReviewViewModel(
                     .toString()
             ))
             maybeStartScheduledReading()
+        }
+    }
+
+    fun startMicroSession() {
+        startStudySession(SessionMode.QUICK)
+        if (!studySessionActive) return
+        while (activeStudyQueue.size > 3) activeStudyQueue.removeAt(activeStudyQueue.lastIndex)
+        sessionOriginCardIds.clear(); sessionOriginCardIds += activeStudyQueue.map { it.card.id }
+        mutableState.value = mutableState.value.copy(
+            sessionPlan = mutableState.value.sessionPlan?.copy(reviewQueue = activeStudyQueue.toList()),
+            prompt = activeStudyQueue.firstOrNull(), sessionProgressTotal = activeStudyQueue.size
+        )
+    }
+
+    /**
+     * Debug-only: jump straight into a single card of [cardType] instead of waiting
+     * for the adaptive session to eventually surface one. Marked `practiceOnly` so
+     * rating it runs the existing unscheduled-prompt path (see [rateUnscheduledPrompt])
+     * and never touches the card's real FSRS state — this is a preview, not a review.
+     *
+     * Deliberately skips [startStudySession]'s `session_start` telemetry, bandit-exposure
+     * recording, pace recording, and scheduled-reading check — a debug preview isn't real
+     * usage and shouldn't feed the adaptive models. It also doesn't filter by [CardState] or
+     * concept-gating, so it can surface a card a real learner couldn't reach yet (e.g. a
+     * grammar drill still locked behind an unintroduced lesson concept) — that's fine for
+     * previewing what a card TYPE looks like, just don't read it as "what the queue would
+     * show next."
+     */
+    fun debugStartSessionWithCardType(cardType: com.sibirskyspeak.data.CardType, onStarted: () -> Unit = {}) {
+        // The Settings screen already hides the button behind BuildConfig.DEBUG, but that's
+        // a UI-layer gate a future screen could forget to repeat — bypassing the adaptive
+        // queue is not something a release build should ever be able to trigger, so enforce
+        // it here too.
+        if (!com.sibirskyspeak.BuildConfig.DEBUG) return
+        if (studySessionActive) {
+            mutableState.value = mutableState.value.copy(
+                statusMessage = "Exit the current session before jumping to a debug card type."
+            )
+            return
+        }
+        // A prior session's "undo last review" affordance can still be armed here (canUndo
+        // survives a session-complete transition) and would otherwise try to restore a
+        // snapshot of a queue this call is about to replace — clear it first, matching
+        // suspendCurrentCard/markCurrentWordKnown.
+        repository.clearUndo()
+        queueBeforeLastReview = null
+        // Claim the slot synchronously, before the suspending DB lookup below, so a second
+        // rapid tap (e.g. two different debug buttons) can't also pass the guard above while
+        // this call is still in flight — mirrors startStudySession, which sets this flag
+        // before doing any suspending work for the same reason. Released again if the lookup
+        // fails or finds no matching card, so a dead end doesn't wedge the app in "session
+        // active" with nothing actually running.
+        studySessionActive = true
+        viewModelScope.launch {
+            runCatching { repository.debugPromptForCardType(cardType) }
+                .onSuccess { debugPrompt ->
+                    if (debugPrompt == null) {
+                        studySessionActive = false
+                        mutableState.value = mutableState.value.copy(
+                            statusMessage = "No ${cardType.name} card exists yet in this database."
+                        )
+                        return@onSuccess
+                    }
+                    resetSessionTrackingState()
+                    studyPausedAt = null
+                    sessionStartedAt = System.currentTimeMillis()
+                    telemetrySessionId = UUID.randomUUID().toString()
+                    lastPauseSignature = null
+                    promptShownAt = System.currentTimeMillis()
+                    answerRevealedAt = 0L
+                    activeStudyQueue.clear()
+                    activeStudyQueue += debugPrompt.copy(practiceOnly = true, queueReason = "Debug preview — not scored")
+                    sessionOriginCardIds.clear()
+                    sessionOriginCardIds += activeStudyQueue.map { it.card.id }
+                    mutableCorrectionAnswer.value = ""
+                    mutableState.value = mutableState.value.copy(
+                        prompt = activeStudyQueue.firstOrNull(),
+                        sessionReviewed = 0,
+                        sessionCorrect = 0,
+                        sessionCompletedCards = 0,
+                        sessionProgressCompleted = 0,
+                        sessionProgressTotal = sessionOriginCardIds.size,
+                        sessionStoppedEarly = false,
+                        stoppedQueueRemaining = 0,
+                        correctionRequired = false,
+                        correctionAccepted = false,
+                        fatigueAdjusted = false,
+                        matchReport = null,
+                        inStudySession = true
+                    )
+                    onStarted()
+                }
+                .onFailure {
+                    studySessionActive = false
+                    mutableState.value = mutableState.value.copy(
+                        statusMessage = it.message ?: "Could not load a $cardType card"
+                    )
+                }
         }
     }
 
@@ -2015,7 +2228,7 @@ class ReviewViewModel(
             SessionStep.REVIEWS -> plan?.reviewQueue?.firstOrNull()
             SessionStep.BLOCKED -> plan?.blockedGrammar?.firstOrNull()
             SessionStep.INTERLEAVED -> plan?.interleavedGrammar?.firstOrNull()
-            SessionStep.RULE, SessionStep.READER, SessionStep.IMPORT, SessionStep.DASHBOARD -> null
+            SessionStep.RULE, SessionStep.READER, SessionStep.IMPORT, SessionStep.DASHBOARD, SessionStep.LAB -> null
         }
 
     private fun recommendNextReader(texts: List<ReaderRecommendation>): ReaderRecommendation? =

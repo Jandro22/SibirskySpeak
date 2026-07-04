@@ -9,8 +9,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.app.RemoteInput
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
@@ -18,10 +20,20 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.sibirskyspeak.MainActivity
 import com.sibirskyspeak.R
-import com.sibirskyspeak.SibirskySpeakApp
+import com.sibirskyspeak.data.LearningRepository
 import com.sibirskyspeak.data.PrefsSettingsStore
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedInject
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
+import android.content.BroadcastReceiver
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
+import dagger.hilt.android.EntryPointAccessors
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 object Reminders {
     const val CHANNEL_ID = "daily_reminders"
@@ -59,6 +71,11 @@ object Reminders {
         )
     }
 
+    fun scheduleWeekly(context: Context) {
+        val request = PeriodicWorkRequestBuilder<WeeklyReportWorker>(7, TimeUnit.DAYS).build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork("weekly_letter", ExistingPeriodicWorkPolicy.UPDATE, request)
+    }
+
     private fun millisUntilNextReminder(reminderHour: Int): Long {
         val now = Calendar.getInstance()
         val next = (now.clone() as Calendar).apply {
@@ -71,7 +88,7 @@ object Reminders {
         return next.timeInMillis - now.timeInMillis
     }
 
-    fun postNotification(context: Context, title: String, body: String) {
+    fun postNotification(context: Context, title: String, body: String, inlineCardId: Long? = null) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -87,7 +104,7 @@ object Reminders {
             intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_reminder)
             .setContentTitle(title)
             .setContentText(body)
@@ -95,26 +112,41 @@ object Reminders {
             .setContentIntent(pending)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .build()
-        NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+        if (inlineCardId != null) {
+            val replyIntent=Intent(context,InlineReviewReceiver::class.java).putExtra("cardId",inlineCardId)
+            val replyPending=PendingIntent.getBroadcast(context,inlineCardId.toInt(),replyIntent,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
+            builder.addAction(NotificationCompat.Action.Builder(0,"Answer",replyPending).addRemoteInput(RemoteInput.Builder("answer").setLabel("English meaning").build()).build())
+        }
+        NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder.build())
     }
 }
 
-class DailyReminderWorker(
-    appContext: Context,
-    params: WorkerParameters
+@HiltWorker class WeeklyReportWorker @AssistedInject constructor(
+    @Assisted appContext: Context, @Assisted params: WorkerParameters,
+    private val repository: LearningRepository
+) : CoroutineWorker(appContext, params) {
+    override suspend fun doWork(): Result {
+        if (runCatching { repository.createWeeklyReport() }.getOrElse { return Result.retry() } == null) return Result.success()
+        Reminders.postNotification(applicationContext, "Your weekly Russian letter", "Retention, time, and the next useful adjustment are ready in Lab.")
+        return Result.success()
+    }
+}
+
+@HiltWorker
+class DailyReminderWorker @AssistedInject constructor(
+    @Assisted appContext: Context,
+    @Assisted params: WorkerParameters,
+    private val repository: LearningRepository
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val settings = PrefsSettingsStore(applicationContext)
         if (!settings.reminderEnabled) return Result.success()
-        val repo = (applicationContext as SibirskySpeakApp).repository
-        val info = runCatching { repo.reminderInfo() }.getOrElse { return Result.retry() }
-        val (title, body) = composeMessage(
-            streak = info.currentStreak,
-            studiedToday = info.studiedToday,
-            dueToday = info.dueToday
-        )
-        Reminders.postNotification(applicationContext, title, body)
+        val info = runCatching { repository.reminderInfo() }.getOrElse { return Result.retry() }
+        val inline = runCatching { repository.nextPrompt() }.getOrNull()?.takeIf { it.answerMode == com.sibirskyspeak.review.AnswerMode.ENGLISH }
+        if (settings.reminderHour != info.preferredHour) settings.reminderHour = info.preferredHour
+        val title = if (info.studiedToday) "Today's contract is kept" else "Russian is ready"
+        val body = "${info.dueToday} reviews, ~${info.estimatedMinutes} min — streak day ${info.currentStreak + if (info.studiedToday) 0 else 1}"
+        Reminders.postNotification(applicationContext, title, body, inline?.card?.id)
         return Result.success()
     }
 
@@ -145,5 +177,22 @@ class DailyReminderWorker(
             else -> "Read a short text or learn a few new words to start a streak."
         }
         return openers.random() to body
+    }
+}
+
+@EntryPoint @InstallIn(SingletonComponent::class) interface InlineReviewEntryPoint { fun repository(): LearningRepository }
+
+class InlineReviewReceiver: BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val answer=RemoteInput.getResultsFromIntent(intent)?.getCharSequence("answer")?.toString() ?: return
+        val cardId=intent.getLongExtra("cardId",-1L); if(cardId<0)return
+        val pending=goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val repo=EntryPointAccessors.fromApplication(context.applicationContext,InlineReviewEntryPoint::class.java).repository()
+                val correct=repo.gradeInlineEnglish(cardId,answer)
+                Reminders.postNotification(context,if(correct==true)"Correct" else "Review saved",if(correct==true)"That retrieval counts." else "The card will return sooner.")
+            } finally { pending.finish() }
+        }
     }
 }

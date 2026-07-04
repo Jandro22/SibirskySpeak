@@ -22,8 +22,8 @@ data class GrammarConcept(
     /**
      * True teaching order across the whole curriculum (matches the unit sequence
      * in a1_starter.py..c2_starter.py) — informational/display ordering only, not
-     * consulted by concept gating (see [LearningRepository.lockedConceptIds],
-     * which derives locking from actual card/lesson state, not this field).
+     * consulted by concept gating (see [LearningRepository.conceptGate],
+     * which derives locking from actual card/lesson/drill-outcome state, not this field).
      * Concepts that are part of the core spine ([spine] = true) gate the formal/
      * political domain tier: the domain stays locked until every spine concept's
      * lesson has been seen.
@@ -41,8 +41,8 @@ object GrammarConcepts {
             "feminine, -о/-е is neuter. Gender matters because adjectives and past-" +
             "tense verbs change their endings to match the noun.",
         exampleRu = "стол (masculine) · книга (feminine) · окно (neuter)",
-        exampleEn = "table (m.) · book (f.) · window (n.)",
-        hint = "Ending → gender: consonant/-й = masc, -а/-я = fem, -о/-е = neut.",
+        exampleEn = "table (masculine) · book (feminine) · window (neuter)",
+        hint = "Ending → gender: consonant/-й = masculine, -а/-я = feminine, -о/-е = neuter.",
         order = 10
     )
 
@@ -323,7 +323,7 @@ object GrammarConcepts {
             "or judgment; the full form (краси́вый, etc.) still names an inherent quality.",
         exampleRu = "Он рад. Она́ ра́да. Мы ра́ды.",
         exampleEn = "He is glad. She is glad. We are glad.",
-        hint = "Predicate-only form: masc (bare stem) / -а(fem) / -о(neut) / -ы/-и(pl).",
+        hint = "Predicate-only form: masculine (bare stem), feminine -а, neuter -о, plural -ы/-и.",
         order = 245, spine = false
     )
 

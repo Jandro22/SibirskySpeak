@@ -18,6 +18,10 @@ NOTES = ROOT / "app/src/main/assets/bootstrap_notes.jsonl"
 LEDGER = Path(__file__).with_name("bootstrap_verified.json")
 CYRILLIC = re.compile(r"[А-Яа-яЁё]")
 MOJIBAKE = ("Ð", "Ñ", "Ã", "â€")
+# Cyrillic Supplement letters (Macedonian/Serbian/Ukrainian-only, U+0400-U+045F
+# minus the legitimate "Ё"/"ё") never appear in Russian text — their presence
+# is a reliable signature of a broken CP1251 decode somewhere upstream.
+MOJIBAKE_CYRILLIC = re.compile("[ѐђ-џЀЂ-Џ]")
 PLACEHOLDERS = ("todo", "tbd", "translation missing", "{t}", "{inf}")
 
 
@@ -50,6 +54,8 @@ def machine_problems(notes: list[dict]) -> list[str]:
         lowered = searchable.lower()
         if any(marker in searchable for marker in MOJIBAKE):
             problems.append(f"{label}: mojibake detected")
+        if MOJIBAKE_CYRILLIC.search(searchable):
+            problems.append(f"{label}: mojibake Cyrillic (Macedonian/Serbian code points) detected")
         if any(marker in lowered for marker in PLACEHOLDERS):
             problems.append(f"{label}: placeholder text detected")
         identity = (str(note.get("lemma", "")).lower(), str(note.get("pos", "")), str(note.get("translation", "")).lower())

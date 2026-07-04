@@ -2,6 +2,7 @@ package com.sibirskyspeak.data
 
 import com.sibirskyspeak.review.ReviewPrompt
 import com.sibirskyspeak.learning.Doctrine
+import com.sibirskyspeak.learning.DoctrineNudge
 import com.sibirskyspeak.learning.Pace
 import com.sibirskyspeak.learning.SessionBlueprint
 
@@ -44,7 +45,10 @@ data class ReaderRecommendation(
     val knownTokens: Int,
     val totalTokens: Int,
     val status: ReaderStatus,
-    val authenticReady: Boolean
+    val authenticReady: Boolean,
+    // Count of distinct text lemmas with a card due within 48h (P5.2): the day's
+    // chapter deliberately smuggles in the words FSRS wants reviewed.
+    val dueOverlap: Int = 0
 )
 
 enum class ReaderStatus {
@@ -52,6 +56,18 @@ enum class ReaderStatus {
     PRODUCTIVE,
     EASY
 }
+
+/** One question in the monthly checkpoint (P6.4). Never linked to a Card — this
+ * is deliberately outside the FSRS graph so answering it can't change scheduling. */
+data class CheckpointItem(
+    val itemKey: String,
+    val kind: String,
+    val prompt: String,
+    val expectedAnswer: String,
+    val predictedP: Double?
+)
+
+data class CheckpointSession(val items: List<CheckpointItem>, val generatedAt: Long)
 
 data class ReaderToken(
     val surface: String,
@@ -95,8 +111,11 @@ data class DashboardStats(
     val leechCount: Int = 0,
     val dueForecast: List<Int> = emptyList(),
     // Current data-driven FSRS interval multiplier (1.0 = neutral), surfaced for display.
-    val intervalModifier: Double = 1.0
+    val intervalModifier: Double = 1.0,
+    val goalProgress: GoalProgress? = null
 )
+
+data class GoalProgress(val textId: Long, val textTitle: String, val coveragePct: Int, val unknownLemmaCount: Int, val deltaThisWeek: Int = 0)
 
 data class ImportQualityReport(
     val totalNotes: Int,
@@ -132,7 +151,8 @@ data class SessionPlan(
     val confusablePairs: Set<Pair<Long, Long>> = emptySet(),
     val skillRatings: List<SkillRating> = emptyList(),
     val rivalState: RivalState? = null,
-    val matchHistory: List<MatchHistory> = emptyList()
+    val matchHistory: List<MatchHistory> = emptyList(),
+    val doctrineNudge: DoctrineNudge? = null
 )
 
 data class ProblemCardSummary(
@@ -177,7 +197,9 @@ data class Achievement(
 data class ReminderInfo(
     val currentStreak: Int,
     val studiedToday: Boolean,
-    val dueToday: Int
+    val dueToday: Int,
+    val estimatedMinutes: Int = 0,
+    val preferredHour: Int = SettingsStore.DEFAULT_REMINDER_HOUR
 )
 
 data class GamificationStats(
@@ -194,7 +216,8 @@ data class GamificationStats(
     val dailyGoal: Int,
     val activeDays: Int,
     val last7Days: List<Boolean>,
-    val achievements: List<Achievement>
+    val achievements: List<Achievement>,
+    val restDayCredits: Int = 0
 ) {
     val goalReached: Boolean get() = dailyGoal > 0 && reviewedToday >= dailyGoal
 
@@ -216,5 +239,6 @@ data class LearningConfig(
     // keeps the future review load (and the daily session) sustainable.
     val newCardsPerDay: Int = 15,
     val desiredRetention: Double = 0.90,
-    val doctrine: Doctrine = Doctrine.BALANCED
+    val doctrine: Doctrine = Doctrine.BALANCED,
+    val restDayCredits: Int = 0
 )

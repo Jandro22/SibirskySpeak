@@ -32,7 +32,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -73,6 +75,7 @@ internal fun ImportExportPanel(
     onImport: () -> Unit,
     onExport: () -> Unit,
     onFullBackup: () -> Unit,
+    onBackupTree: (String) -> Unit,
     onTitle: (String) -> Unit,
     onBody: (String) -> Unit,
     onAdd: () -> Unit,
@@ -90,7 +93,8 @@ internal fun ImportExportPanel(
     onReminderHour: (Int) -> Unit,
     onFontScale: (Float) -> Unit,
     onSearch: (String) -> Unit,
-    onSpeakRussian: (String) -> Unit
+    onSpeakRussian: (String) -> Unit,
+    onDebugStartCardType: (com.sibirskyspeak.data.CardType) -> Unit
 ) {
     val context = LocalContext.current
     // Save the exported JSON Lines to a user-chosen file via the system picker.
@@ -100,6 +104,14 @@ internal fun ImportExportPanel(
         if (uri != null && state.exportText.isNotBlank()) {
             runCatching {
                 context.contentResolver.openOutputStream(uri)?.use { it.write(state.exportText.toByteArray()) }
+            }
+        }
+    }
+    val backupTreeLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                onBackupTree(uri.toString())
             }
         }
     }
@@ -279,12 +291,15 @@ internal fun ImportExportPanel(
                                 Button(onClick = onImport, enabled = state.importText.isNotBlank()) { Text("Import Notes") }
                                 OutlinedButton(onClick = onExport) { Text("Export") }
                                 OutlinedButton(onClick = onFullBackup) { Text("Full Backup") }
+                                OutlinedButton(onClick = { backupTreeLauncher.launch(null) }) {
+                                    Text(if (state.backupTreeUri.isBlank()) "Choose Backup Folder" else "Change Backup Folder")
+                                }
                                 if (state.exportText.isNotBlank()) {
                                     OutlinedButton(onClick = { saveLauncher.launch("sibirskyspeak-export.jsonl") }) { Text("Save to File") }
                                 }
                             }
                             Text(
-                                "Export saves note content. Full Backup also includes SRS scheduling.",
+                                "Export saves note content. Full Backup includes SRS and mirrors rolling snapshots to the selected folder.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -301,6 +316,26 @@ internal fun ImportExportPanel(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+                        if (com.sibirskyspeak.BuildConfig.DEBUG) {
+                            SectionCard {
+                                Text("Debug: jump to card type", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    "Debug builds only. Opens an existing card of the chosen type as an unscored preview " +
+                                        "— the adaptive session may otherwise take dozens of turns to surface a rare type.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    com.sibirskyspeak.data.CardType.entries.forEach { cardType ->
+                                        OutlinedButton(onClick = { onDebugStartCardType(cardType) }) {
+                                            Text(cardType.name)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -382,17 +417,31 @@ internal fun SettingsAreaPicker(selected: SettingsArea, onSelect: (SettingsArea)
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun DoctrinePicker(selected: Doctrine, onSelect: (Doctrine) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Doctrine.entries.forEach { doctrine ->
-            FilterChip(
-                selected = selected == doctrine,
-                onClick = { onSelect(doctrine) },
-                label = { Text(doctrine.name.lowercase().replaceFirstChar { it.uppercase() }) }
-            )
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Doctrine.entries.forEach { doctrine ->
+                FilterChip(
+                    selected = selected == doctrine,
+                    onClick = { onSelect(doctrine) },
+                    label = { Text(doctrine.name.lowercase().replaceFirstChar { it.uppercase() }) }
+                )
+            }
         }
+        Text(
+            when (selected) {
+                Doctrine.RECOVERY -> "Reviews only, with shorter sessions and no new material."
+                Doctrine.CONSERVE -> "A lighter pace with fewer new words and less production pressure."
+                Doctrine.BALANCED -> "A sustainable mix of reviews, new material, and active recall."
+                Doctrine.AMBITIOUS -> "More new material and production practice when your workload allows it."
+                Doctrine.SPRINT -> "The highest short-term pace; expect longer sessions and more future reviews."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SettingSlider(
     label: String,
@@ -407,7 +456,14 @@ internal fun SettingSlider(
             Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
             Text(valueLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
         }
-        Slider(value = value.coerceIn(range.start, range.endInclusive), onValueChange = onChange, valueRange = range)
+        Slider(
+            value = value.coerceIn(range.start, range.endInclusive),
+            onValueChange = onChange,
+            valueRange = range,
+            // Matches the LinearProgressIndicator fix elsewhere: the default M3 stop
+            // indicator dot at the track's end reads as a rendering glitch, not a range hint.
+            track = { sliderState -> SliderDefaults.Track(sliderState = sliderState, drawStopIndicator = {}) }
+        )
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(rangeLabel(range.start), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(rangeLabel(range.endInclusive), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

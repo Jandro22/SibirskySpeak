@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -54,6 +55,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -65,6 +67,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -94,12 +98,14 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
 import com.sibirskyspeak.audio.RussianSpeechRecognizer
@@ -123,6 +129,7 @@ import kotlinx.coroutines.delay
 internal fun StudySessionScreen(
     state: ReviewUiState,
     typedAnswer: StateFlow<String>,
+    correctionAnswer: StateFlow<String>,
     onAnswerChanged: (String) -> Unit,
     onChoice: (String) -> Unit,
     onReveal: () -> Unit,
@@ -149,16 +156,17 @@ internal fun StudySessionScreen(
     DisposableEffect(answerSounds) { onDispose { answerSounds.release() } }
     var editing by remember { mutableStateOf(false) }
     var retireAction by remember { mutableStateOf<ReviewRetireAction?>(null) }
-    val sessionSize = state.sessionPlan?.reviewQueue?.size ?: 0
+    var actionsExpanded by remember { mutableStateOf(false) }
     val prompt = state.prompt
     val headerMessage = when {
         prompt == null && state.sessionStoppedEarly ->
             "Adaptive stop: ${state.stoppedQueueRemaining} prompts were deferred to protect retention and tomorrow's workload."
         prompt == null -> state.sessionPlan?.completion?.message ?: "Session complete."
         state.revealed -> "Check the answer, then rate your recall."
-        prompt.answerMode == AnswerMode.AUDIO_ONLY -> "Audio started automatically. Type what you heard."
-        sessionSize > 0 -> "The session adapts after every answer."
-        else -> "Answer, check, then rate recall."
+        prompt.answerMode == AnswerMode.AUDIO_ONLY -> "Listen once from memory; replay only if you need it."
+        prompt.answerMode == AnswerMode.LESSON -> "Study this item, hear it, then continue when it feels familiar."
+        prompt.card.queue.name == "GRAMMAR" -> "Answer from context; feedback will explain the rule after you check."
+        else -> "Recall the answer, then check it and rate how easily it came back."
     }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Surface(
@@ -168,69 +176,81 @@ internal fun StudySessionScreen(
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
             tonalElevation = 1.dp
         ) {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Practice", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                            PracticeStageChip(
-                                when {
-                                    prompt == null && state.sessionStoppedEarly -> "Stopped"
-                                    prompt == null -> "Done"
-                                    state.revealed -> "Rate"
-                                    else -> "Answer"
-                                }
-                            )
-                        }
-                        Text(
-                            headerMessage,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Practice", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        PracticeStageChip(
+                            when {
+                                prompt == null && state.sessionStoppedEarly -> "Stopped"
+                                prompt == null -> "Done"
+                                state.revealed -> "Rate"
+                                prompt.answerMode == AnswerMode.LESSON -> "Learn"
+                                else -> "Answer"
+                            }
                         )
                     }
-                    // Compact icon actions so the header never squishes on narrow phones.
-                    Row(horizontalArrangement = Arrangement.spacedBy(0.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (prompt != null && prompt.card.queue.name == "VOCAB") {
-                            IconButton(
-                                onClick = { retireAction = ReviewRetireAction.MARK_KNOWN },
-                                enabled = !state.ratingInProgress
-                            ) {
-                                Icon(Icons.Filled.DoneAll, contentDescription = "Mark known and stop vocab practice")
-                            }
-                        }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         if (prompt != null) {
-                            IconButton(onClick = { editing = true }, enabled = !state.ratingInProgress) {
-                                Icon(Icons.Filled.Edit, contentDescription = "Fix this card")
-                            }
-                            IconButton(
-                                onClick = { retireAction = ReviewRetireAction.SUSPEND_CARD },
-                                enabled = !state.ratingInProgress
-                            ) {
-                                Icon(Icons.Filled.Block, contentDescription = "Suspend this card permanently")
+                            Box {
+                                IconButton(
+                                    onClick = { actionsExpanded = true },
+                                    enabled = !state.ratingInProgress,
+                                    modifier = Modifier.testTag(TestTags.SESSION_MORE_MENU)
+                                ) {
+                                    Icon(Icons.Filled.MoreVert, contentDescription = "More card actions")
+                                }
+                                DropdownMenu(expanded = actionsExpanded, onDismissRequest = { actionsExpanded = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text("Fix card content") },
+                                        leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                                        onClick = { actionsExpanded = false; editing = true }
+                                    )
+                                    if (prompt.card.queue.name == "VOCAB" && !prompt.isNewVocabularyIntroduction()) {
+                                        DropdownMenuItem(
+                                            text = { Text("Mark word known") },
+                                            leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
+                                            onClick = { actionsExpanded = false; retireAction = ReviewRetireAction.MARK_KNOWN }
+                                        )
+                                    }
+                                    DropdownMenuItem(
+                                        text = { Text("Suspend this card") },
+                                        leadingIcon = { Icon(Icons.Filled.Block, contentDescription = null) },
+                                        onClick = { actionsExpanded = false; retireAction = ReviewRetireAction.SUSPEND_CARD }
+                                    )
+                                }
                             }
                         }
                         if (state.canUndo) {
-                            IconButton(onClick = onUndo, enabled = !state.ratingInProgress) {
+                            IconButton(
+                                onClick = onUndo,
+                                enabled = !state.ratingInProgress,
+                                modifier = Modifier.testTag(TestTags.SESSION_UNDO)
+                            ) {
                                 Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo last review")
                             }
                         }
-                        IconButton(onClick = onExit) {
+                        IconButton(onClick = onExit, modifier = Modifier.testTag(TestTags.SESSION_EXIT)) {
                             Icon(Icons.Filled.Close, contentDescription = "Exit practice")
                         }
                     }
                 }
                 Text(
-                    when {
-                        prompt == null -> "${state.sessionCompletedCards} practice actions completed"
-                        state.sessionCompletedCards == 0 -> "Adaptive session · length changes with your answers"
-                        else -> "${state.sessionCompletedCards} practice actions completed · session length adapts"
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                    if (prompt != null && state.sessionCompletedCards > 0) "$headerMessage · ${state.sessionCompletedCards} done" else headerMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -253,6 +273,8 @@ internal fun StudySessionScreen(
                     stoppedEarly = state.sessionStoppedEarly,
                     deferredPrompts = state.stoppedQueueRemaining,
                     matchReport = state.matchReport,
+                    tomorrowReviews = state.dashboardStats?.dueForecast?.getOrNull(0) ?: 0,
+                    tomorrowMinutes = kotlin.math.ceil((state.dashboardStats?.dueForecast?.getOrNull(0) ?: 0) * 0.35).toInt(),
                     onReadNext = onReadNext
                 )
             } else {
@@ -261,6 +283,7 @@ internal fun StudySessionScreen(
                     prompt = prompt,
                     answerSounds = answerSounds,
                     typedAnswerFlow = typedAnswer,
+                    correctionAnswerFlow = correctionAnswer,
                     onAnswerChanged = onAnswerChanged,
                     onChoice = onChoice,
                     onReveal = onReveal,
@@ -517,6 +540,7 @@ internal fun ReviewContent(
     prompt: ReviewPrompt,
     answerSounds: AnswerSoundEffects,
     typedAnswerFlow: StateFlow<String>,
+    correctionAnswerFlow: StateFlow<String>,
     onAnswerChanged: (String) -> Unit,
     onChoice: (String) -> Unit,
     onReveal: () -> Unit,
@@ -558,6 +582,7 @@ internal fun ReviewContent(
     // The typed answer is collected here (not read from ReviewUiState) so a keystroke
     // only recomposes this quiz card, not the whole screen — see ReviewViewModel.
     val typedAnswer by typedAnswerFlow.collectAsStateWithLifecycle()
+    val correctionAnswer by correctionAnswerFlow.collectAsStateWithLifecycle()
     // Offer tiles for Russian typing and for listening (AUDIO_ONLY) so the learner
     // rarely needs a Russian keyboard at all. LetterTileBank switches to whole-word
     // tiles automatically for multi-word answers, so short phrases work too.
@@ -695,8 +720,7 @@ internal fun ReviewContent(
                         if (prompt.card.cardType == CardType.AUDIO_TO_RU) "Word dictation: type what you hear"
                         else "Sentence dictation: type what you hear"
                     },
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold
+                    style = RussianDisplay
                 )
                 if (prompt.answerMode == AnswerMode.AUDIO_ONLY) {
                     AudioPracticeButton(onClick = onSpeak)
@@ -721,7 +745,7 @@ internal fun ReviewContent(
             }
         } else if (!state.revealed) {
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().imePadding(),
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surface,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
@@ -813,7 +837,7 @@ internal fun ReviewContent(
                     CardType.SENTENCE_BUILD
                 ),
                 onClick = onReveal,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().testTag(TestTags.ANSWER_SHOW)
             )
         }
         AnimatedVisibility(
@@ -821,7 +845,7 @@ internal fun ReviewContent(
             enter = fadeIn(tween(200)) + slideInVertically(spring(stiffness = Spring.StiffnessMediumLow)) { it / 6 },
             exit = fadeOut(tween(120))
         ) {
-            RevealPanel(state, prompt, typedAnswer, onRate, onContinue, onKnewIt, onSpeak, onCorrectionChanged, onSubmitCorrection)
+            RevealPanel(state, prompt, typedAnswer, correctionAnswer, onRate, onContinue, onKnewIt, onSpeak, onCorrectionChanged, onSubmitCorrection)
         }
     }
 }
@@ -974,7 +998,11 @@ internal fun LessonCard(
             )
         }
         Spacer(Modifier.height(10.dp))
-        Text(lesson.body, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            lesson.body.forEach { paragraph ->
+                Text(paragraph, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            }
+        }
         if (lesson.exampleRu.isNotBlank()) {
             Spacer(Modifier.height(16.dp))
             Surface(
@@ -990,7 +1018,13 @@ internal fun LessonCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(lesson.exampleRu, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            lesson.exampleRu,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.width(8.dp))
                         AssistChip(
                             onClick = onSpeak,
                             label = { Text("Hear") },
@@ -1007,7 +1041,7 @@ internal fun LessonCard(
         Button(
             onClick = onGotIt,
             enabled = !ratingInProgress,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.LESSON_GOT_IT),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 14.dp)
         ) {
             Text(if (ratingInProgress) "Saving..." else "Got it", fontWeight = FontWeight.SemiBold)
@@ -1210,7 +1244,7 @@ internal fun KeyboardAnswerInput(
     OutlinedTextField(
         value = value,
         onValueChange = onChange,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().testTag(TestTags.ANSWER_INPUT_FIELD),
         singleLine = true,
         shape = MaterialTheme.shapes.small,
         label = { Text(answerHint(prompt)) },
@@ -1233,6 +1267,7 @@ internal fun RevealPanel(
     state: ReviewUiState,
     prompt: ReviewPrompt,
     typedAnswer: String,
+    correctionAnswer: String,
     onRate: (Rating) -> Unit,
     onContinue: () -> Unit,
     onKnewIt: () -> Unit,
@@ -1311,11 +1346,16 @@ internal fun RevealPanel(
                         CorrectionPractice(
                             state = state,
                             prompt = prompt,
+                            correctionAnswer = correctionAnswer,
                             onChange = onCorrectionChanged,
                             onSubmit = onSubmitCorrection
                         )
                         if (!state.correctionAccepted) {
-                            Button(onClick = onSubmitCorrection, enabled = state.correctionAnswer.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+                            Button(
+                                onClick = onSubmitCorrection,
+                                enabled = correctionAnswer.isNotBlank(),
+                                modifier = Modifier.fillMaxWidth().testTag(TestTags.CORRECTION_CHECK)
+                            ) {
                                 Text("Check correction")
                             }
                         } else {
@@ -1338,7 +1378,7 @@ internal fun RevealPanel(
                         onContinue()
                     },
                     enabled = !state.ratingInProgress && (!state.correctionRequired || state.correctionAccepted),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).testTag(TestTags.CORRECTION_NEXT_CARD)
                 ) {
                     Text(if (state.ratingInProgress) "Saving..." else "Next Card", fontWeight = FontWeight.SemiBold)
                 }
@@ -1400,7 +1440,15 @@ internal fun RevealPanel(
                     suggested = state.suggestedRating == rating,
                     modifier = Modifier
                         .weight(1f)
-                        .height(84.dp),
+                        .height(84.dp)
+                        .testTag(
+                            when (rating) {
+                                Rating.AGAIN -> TestTags.RATE_AGAIN
+                                Rating.HARD -> TestTags.RATE_HARD
+                                Rating.GOOD -> TestTags.RATE_GOOD
+                                Rating.EASY -> TestTags.RATE_EASY
+                            }
+                        ),
                     onClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         onRate(rating)
@@ -1503,6 +1551,7 @@ internal fun RatingButton(
 internal fun CorrectionPractice(
     state: ReviewUiState,
     prompt: ReviewPrompt,
+    correctionAnswer: String,
     onChange: (String) -> Unit,
     onSubmit: () -> Unit
 ) {
@@ -1527,7 +1576,7 @@ internal fun CorrectionPractice(
         )
         if (keyboardMode) {
             OutlinedTextField(
-                value = state.correctionAnswer,
+                value = correctionAnswer,
                 onValueChange = onChange,
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
@@ -1568,7 +1617,7 @@ internal fun ResultBanner(state: ReviewUiState, prompt: ReviewPrompt, typedAnswe
         colors = CardDefaults.outlinedCardColors(containerColor = color.copy(alpha = 0.12f)),
         border = BorderStroke(1.5.dp, color.copy(alpha = 0.55f))
     ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Icon(
                 if (matched) Icons.Filled.CheckCircle else Icons.Filled.School,
                 contentDescription = null,
@@ -1670,4 +1719,3 @@ internal fun String.russianLinesForSpeech(): String? {
         .joinToString(" ")
         .takeIf { it.isNotBlank() }
 }
-

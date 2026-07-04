@@ -82,9 +82,37 @@ class ReviewPromptTest {
         val mature = buildPrompt(Card(noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, reps = 5), note, emptyMap())
 
         assertEquals(AnswerMode.LESSON, young.answerMode)
-        assertTrue(young.lesson?.body.orEmpty().contains("house"))
+        assertTrue(young.lesson?.body.orEmpty().any { it.contains("house") })
         assertTrue(mature.prompt.contains("Это мой дом."))
         assertTrue(mature.prompt.contains("mean here"))
+    }
+
+    @Test
+    fun secondSenseSurfacesOnceTheCardIsWellEstablished() {
+        val note = Note(
+            id = 1, russian = "мир", lemma = "мир", translation = "world, peace", partOfSpeech = "noun",
+            exampleSentence = "Мир мал", exampleTranslation = "The world is small.",
+            secondSense = "peace", secondSenseExample = "Он хочет мира.", secondSenseExampleTranslation = "He wants peace."
+        )
+        fun explanationAt(reps: Int) = buildPrompt(
+            Card(noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.REVIEW, reps = reps),
+            note, emptyMap()
+        ).explanation.orEmpty()
+
+        assertFalse("not shown before the card is established", explanationAt(1).contains("peace"))
+        assertTrue("shown exactly at the exposure rep", explanationAt(3).contains("also mean \"peace\""))
+        assertTrue(explanationAt(3).contains("Он хочет мира."))
+        assertFalse("not repeated on later reviews", explanationAt(4).contains("peace"))
+    }
+
+    @Test
+    fun secondSenseNeverSurfacesWhenNoteHasNoCuratedSecondSense() {
+        val note = Note(id = 1, russian = "стол", lemma = "стол", translation = "table", partOfSpeech = "noun")
+        val prompt = buildPrompt(
+            Card(noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.REVIEW, reps = 3),
+            note, emptyMap()
+        )
+        assertFalse(prompt.explanation.orEmpty().contains("Also worth knowing"))
     }
 
     @Test
@@ -208,6 +236,23 @@ class ReviewPromptTest {
         assertTrue(feedback!!.contains("Cue: ongoing process."))
         assertTrue(feedback.contains("does not fit this context"))
         assertTrue(feedback.contains("imperfective is the intended default"))
+    }
+
+    @Test
+    fun aspectSelectFallsBackToTypedWhenPartnerNoteIsMissing() {
+        // aspectPartner is set on the note but the partner note itself couldn't be
+        // resolved (e.g. pruned from the deck after this card was scheduled) —
+        // buildPrompt is called with no partner Note, same as the repository would
+        // see. A single-choice "pick the right form" quiz isn't a real choice, so
+        // this should degrade to typed recall rather than an auto-passing button.
+        val note = verbNote(1, "discuss_ipf", "IPF", "activity", partnerId = 2)
+        val card = Card(noteId = 1, cardType = CardType.ASPECT_SELECT, queue = Queue.GRAMMAR, gramContextCue = "NO_CUE")
+
+        val prompt = buildPrompt(card, note, emptyMap(), aspectPartner = null)
+
+        assertEquals(AnswerMode.RUSSIAN_TYPED, prompt.answerMode)
+        assertTrue(prompt.choices.isEmpty())
+        assertEquals("discuss_ipf", prompt.expectedAnswer)
     }
 
     @Test
@@ -374,7 +419,16 @@ class ReviewPromptTest {
         assertEquals("-а", guided.choiceLabels["дома"])
         assertTrue(guided.prompt.contains("дом___"))
 
-        assertEquals(AnswerMode.RUSSIAN_TYPED, prompt(2).answerMode)
+        // Once mature, the drill switches from formation ("make дом genitive") to
+        // selection ("which form does this sentence need") — that's a discrimination
+        // task by definition, so it must keep offering choices, just without naming
+        // the case. Regression check for a bug where the same rep threshold that
+        // triggered selection mode also zeroed out the choices that mode needs.
+        val mature = prompt(2)
+        assertEquals(AnswerMode.CHOICE, mature.answerMode)
+        assertTrue(mature.choices.contains("дома"))
+        assertTrue(mature.prompt.contains("Which form does the sentence need?"))
+        assertFalse(mature.prompt.contains("genitive"))
     }
 
     @Test
@@ -728,7 +782,7 @@ class ReviewPromptTest {
 
         assertEquals(AnswerMode.LESSON, prompt.answerMode)
         assertEquals("Noun gender", prompt.lesson?.title)
-        assertTrue(prompt.lesson!!.body.isNotBlank())
+        assertTrue(prompt.lesson!!.body.isNotEmpty())
         assertTrue(prompt.lesson!!.exampleRu.isNotBlank())
         assertTrue(prompt.lesson!!.exampleEn.isNotBlank())
     }
@@ -786,6 +840,127 @@ class ReviewPromptTest {
     }
 
     @Test
+    fun conceptApplyFallsBackToConceptTitleWhenNoFrameHasBeenRealized() {
+        // buildPrompt is a pure function with no suspend DB access, so it can't call
+        // FrameRealizer itself; LearningRepository.promptFor overrides this with a
+        // real realized sentence when frames + FrameRealizer are wired (P4.3). This
+        // test only covers the static fallback path, which must still be honest
+        // (non-blank prompt/answer) if that override never fires.
+        val note = Note(
+            id = 1,
+            russian = "Genitive case",
+            lemma = "lesson_gen",
+            translation = "Genitive case",
+            partOfSpeech = "lesson",
+            conceptId = "GEN"
+        )
+        val card = Card(noteId = 1, cardType = CardType.CONCEPT_APPLY, queue = Queue.GRAMMAR, gramConcept = "GEN")
+
+        val prompt = buildPrompt(card, note, emptyMap())
+
+        assertEquals(AnswerMode.RUSSIAN_TYPED, prompt.answerMode)
+        assertFalse(prompt.prompt.isBlank())
+        assertFalse(prompt.expectedAnswer.isBlank())
+        assertTrue(prompt.prompt.contains("genitive", ignoreCase = true))
+    }
+
+    @Test
+    fun chunkFallsBackToTranslationWhenNoCorpusSentenceHasBeenFound() {
+        // Same shape as the CONCEPT_APPLY fallback test above: buildPrompt can't do
+        // the suspend corpus lookup itself, so LearningRepository.promptFor overrides
+        // this with a real sentence containing the chunk (P4.4 L1) when contentDao is
+        // wired. This only covers the static fallback path.
+        val note = Note(
+            id = 1,
+            russian = "на диване",
+            lemma = "на диване",
+            translation = "on the sofa",
+            partOfSpeech = "chunk",
+            chunkParentNoteId = 7
+        )
+        val card = Card(noteId = 1, cardType = CardType.CHUNK, queue = Queue.VOCAB)
+
+        val prompt = buildPrompt(card, note, emptyMap())
+
+        assertEquals(AnswerMode.RUSSIAN_TYPED, prompt.answerMode)
+        assertEquals("on the sofa", prompt.prompt)
+        assertEquals("на диване", prompt.expectedAnswer)
+    }
+
+    @Test
+    fun transformFallsBackToNegationInstructionWhenNoSentenceHasBeenRealized() {
+        // Same shape as the other P4.4 fallback tests: buildPrompt can't do the
+        // suspend corpus lookup + Transformer.negate itself, so
+        // LearningRepository.promptFor overrides this with a real sentence-bank
+        // rewrite when contentDao + morphologyEngine are wired. This only covers the
+        // static fallback path.
+        val note = Note(
+            id = 1,
+            russian = "читать",
+            lemma = "читать",
+            translation = "to read",
+            partOfSpeech = "verb",
+            tier = 0,
+            exampleSentence = "Он читает книгу."
+        )
+        val card = Card(noteId = 1, cardType = CardType.TRANSFORM, queue = Queue.VOCAB)
+
+        val prompt = buildPrompt(card, note, emptyMap())
+
+        assertEquals(AnswerMode.RUSSIAN_TYPED, prompt.answerMode)
+        assertTrue(prompt.prompt.contains("negative", ignoreCase = true))
+        assertTrue(prompt.prompt.contains("Он читает книгу."))
+        assertEquals("читать", prompt.expectedAnswer)
+    }
+
+    @Test
+    fun speakSentenceFallsBackToExampleSentenceWhenNoBankSentenceHasBeenRealized() {
+        // Same shape as the other fallback tests: buildPrompt can't do the suspend
+        // sentence-bank lookup itself, so LearningRepository.promptFor overrides
+        // this with a real sentence (P6.1) when contentDao is wired.
+        val note = Note(
+            id = 1,
+            russian = "читать",
+            lemma = "читать",
+            translation = "to read",
+            partOfSpeech = "verb",
+            tier = 0,
+            exampleSentence = "Он читает интересную книгу."
+        )
+        val card = Card(noteId = 1, cardType = CardType.SPEAK_SENTENCE, queue = Queue.VOCAB)
+
+        val prompt = buildPrompt(card, note, emptyMap())
+
+        assertEquals(AnswerMode.SPEAK, prompt.answerMode)
+        assertEquals("Он читает интересную книгу.", prompt.expectedAnswer)
+    }
+
+    @Test
+    fun novelProduceFallsBackToConceptCueWhenNoFrameHasBeenRealized() {
+        // Same shape as the CONCEPT_APPLY fallback test: buildPrompt can't call
+        // FrameRealizer itself (needs suspend DB access), so
+        // LearningRepository.promptFor overrides this with a real English cue +
+        // full novel sentence (P4.4 L3) when frames + FrameRealizer are wired. This
+        // only covers the static fallback path.
+        val note = Note(
+            id = 1,
+            russian = "Genitive case",
+            lemma = "lesson_gen",
+            translation = "Genitive case",
+            partOfSpeech = "lesson",
+            conceptId = "GEN"
+        )
+        val card = Card(noteId = 1, cardType = CardType.NOVEL_PRODUCE, queue = Queue.GRAMMAR, gramConcept = "GEN")
+
+        val prompt = buildPrompt(card, note, emptyMap())
+
+        assertEquals(AnswerMode.RUSSIAN_TYPED, prompt.answerMode)
+        assertFalse(prompt.prompt.isBlank())
+        assertFalse(prompt.expectedAnswer.isBlank())
+        assertTrue(prompt.prompt.contains("genitive", ignoreCase = true))
+    }
+
+    @Test
     fun grammarDrillsCarryAPromptSideTeachingHint() {
         val note = Note(
             id = 1,
@@ -826,7 +1001,7 @@ class ReviewPromptTest {
         val prompt = buildPrompt(card, note, emptyMap())
 
         assertEquals("стратегические", prompt.expectedAnswer)
-        assertTrue(prompt.prompt.contains("___ дома"))
+        assertTrue(prompt.prompt.contains("___ ${carrierNoun("PL", note.id)}"))
         assertEquals(null, reviewContext(prompt))
     }
 
@@ -872,7 +1047,7 @@ class ReviewPromptTest {
         assertEquals(AnswerMode.CHOICE, guided.answerMode)
         assertEquals(4, guided.choices.size)
         assertEquals("-ие · plural", guided.choiceLabels["стратегические"])
-        assertTrue(guided.prompt.contains("стратегическ___ дома"))
+        assertTrue(guided.prompt.contains("стратегическ___ ${carrierNoun("PL", note.id)}"))
 
         val recalledChoice = prompt(1)
         assertEquals("-ие", recalledChoice.choiceLabels["стратегические"])
@@ -901,7 +1076,7 @@ class ReviewPromptTest {
 
         val feedback = diagnosticFeedbackFor(prompt, "стратегический").orEmpty()
         assertTrue(feedback.contains("masculine singular"))
-        assertTrue(feedback.contains("дома is plural"))
+        assertTrue(feedback.contains("${carrierNoun("PL", note.id)} is plural"))
         assertTrue(feedback.contains("стратегический → стратегические"))
     }
 
