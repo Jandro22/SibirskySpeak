@@ -1,8 +1,11 @@
 package com.sibirskyspeak.data
 
 import androidx.room.TypeConverter
+import com.sibirskyspeak.review.ErrorCategory
 
 class Converters {
+    @TypeConverter fun errorCategoryToString(value: ErrorCategory): String = value.name
+    @TypeConverter fun stringToErrorCategory(value: String): ErrorCategory = ErrorCategory.valueOf(value)
     @TypeConverter
     fun cardTypeToString(value: CardType): String = value.name
 

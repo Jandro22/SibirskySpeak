@@ -10,8 +10,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.sibirskyspeak.scheduler.FsrsScheduler
 
 @Database(
-    entities = [Note::class, Card::class, ReviewLog::class, ConfusablePair::class, ReaderText::class, ReadingSchedule::class, ReaderEncounter::class, ReadingActivity::class, TelemetryEvent::class, MinedExample::class, ItemDifficulty::class, ConceptMastery::class, OptimizerParameter::class, SkillRating::class, CapacityState::class, WillingnessState::class, RivalState::class, GhostSnapshot::class, MatchHistory::class, PaceLog::class, BanditPending::class, BanditArmState::class, WeeklyReport::class, ConfusionEvent::class, CheckpointResult::class],
-    version = 26,
+    entities = [Note::class, Card::class, ReviewLog::class, ConfusablePair::class, ReaderText::class, ReadingSchedule::class, ReaderEncounter::class, ReadingActivity::class, TelemetryEvent::class, MinedExample::class, ItemDifficulty::class, ConceptMastery::class, OptimizerParameter::class, SkillRating::class, CapacityState::class, WillingnessState::class, RivalState::class, GhostSnapshot::class, MatchHistory::class, PaceLog::class, BanditPending::class, BanditArmState::class, WeeklyReport::class, ConfusionEvent::class, CheckpointResult::class, CurriculumState::class, CurriculumMigrationReport::class, ExitTicketResult::class],
+    version = 28,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -30,6 +30,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun weeklyReportDao(): WeeklyReportDao
     abstract fun confusionEventDao(): ConfusionEventDao
     abstract fun checkpointResultDao(): CheckpointResultDao
+    abstract fun curriculumStateDao(): CurriculumStateDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
@@ -41,7 +42,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "sibirsky_speak.db"
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28)
                     // Only versions before the first real migration (7) are allowed to
                     // wipe destructively — those predate the JSON backup/restore safety
                     // net, so there's nothing worth preserving. Any version from 7 on
@@ -468,6 +469,29 @@ abstract class AppDatabase : RoomDatabase() {
                         AND noteId IN (SELECT id FROM notes WHERE cefrLevel = 'A2')
                     """.trimIndent()
                 )
+            }
+        }
+
+        val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE confusion_events ADD COLUMN category TEXT NOT NULL DEFAULT 'ORTHOGRAPHY'")
+                db.execSQL("UPDATE confusion_events SET category = CASE cardType WHEN 'CASE_FILL' THEN 'CASE_ENDING' WHEN 'ADJ_AGREE' THEN 'AGREEMENT' WHEN 'VERB_FORM' THEN 'VERB_CONJUGATION' ELSE 'ORTHOGRAPHY' END")
+                db.execSQL("UPDATE notes SET conceptId = 'GEN_CHUNK_POSSESSION' WHERE conceptId = 'GEN' AND unit = 6")
+                db.execSQL("UPDATE notes SET conceptId = 'PREP_CHUNK_LOCATION' WHERE conceptId = 'PREP' AND unit = 7")
+                db.execSQL("UPDATE notes SET conceptId = 'DAT_CHUNK_EXPERIENCER' WHERE conceptId = 'DAT' AND unit = 8")
+                db.execSQL("UPDATE notes SET conceptId = 'INS_CHUNK_WITH' WHERE conceptId = 'INS' AND unit = 9")
+                db.execSQL("UPDATE cards SET gramConcept = 'GEN_CHUNK_POSSESSION' WHERE gramConcept = 'GEN' AND noteId IN (SELECT id FROM notes WHERE unit = 6)")
+                db.execSQL("UPDATE cards SET gramConcept = 'PREP_CHUNK_LOCATION' WHERE gramConcept = 'PREP' AND noteId IN (SELECT id FROM notes WHERE unit = 7)")
+                db.execSQL("UPDATE cards SET gramConcept = 'DAT_CHUNK_EXPERIENCER' WHERE gramConcept = 'DAT' AND noteId IN (SELECT id FROM notes WHERE unit = 8)")
+                db.execSQL("UPDATE cards SET gramConcept = 'INS_CHUNK_WITH' WHERE gramConcept = 'INS' AND noteId IN (SELECT id FROM notes WHERE unit = 9)")
+            }
+        }
+
+        val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS curriculum_state (id INTEGER NOT NULL PRIMARY KEY, version TEXT NOT NULL, checksum TEXT NOT NULL, manifestJson TEXT NOT NULL, installedAt INTEGER NOT NULL)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS curriculum_migration_reports (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, fromVersion TEXT, toVersion TEXT NOT NULL, appeared INTEGER NOT NULL, moved INTEGER NOT NULL, retired INTEGER NOT NULL, detailsJson TEXT NOT NULL, createdAt INTEGER NOT NULL, shown INTEGER NOT NULL)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS exit_ticket_results (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, unit INTEGER NOT NULL, recognition INTEGER NOT NULL, production INTEGER NOT NULL, listening INTEGER NOT NULL, reading INTEGER NOT NULL, completedAt INTEGER NOT NULL)")
             }
         }
     }

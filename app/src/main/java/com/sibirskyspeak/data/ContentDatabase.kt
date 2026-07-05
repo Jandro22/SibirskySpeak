@@ -108,14 +108,20 @@ data class BankSentence(
  * authored/validated at build time in tools/preprocess/frames.json; the
  * runtime only fills them in (see generation/FrameRealizer.kt).
  */
-@Entity(tableName = "frame", indices = [Index("concept")])
+@Entity(tableName = "frame", indices = [Index("concept"), Index("domain")])
 data class ContentFrame(
     @PrimaryKey val id: String,
     val concept: String,
     val band: String,
     @ColumnInfo(name = "slots_json") val slotsJson: String,
     @ColumnInfo(name = "ru_frame") val ruFrame: String,
-    @ColumnInfo(name = "en_frame") val enFrame: String
+    @ColumnInfo(name = "en_frame") val enFrame: String,
+    val domain: String = "general",
+    val register: String = "neutral",
+    val minStage: Int = 1,
+    val tier: Int = 1,
+    val requiresAudioPack: Boolean = false,
+    val contrastConcept: String? = null
 )
 
 /**
@@ -217,7 +223,7 @@ interface ContentDao {
         ContentRootFamily::class, ContentEmoji::class, SemanticNeighbor::class, ContentMeta::class,
         ParadigmForm::class, MorphAnalysisRow::class, SentenceBankRow::class, ContentFrame::class,
         ContentDialogue::class, ContentDialogueNode::class],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 abstract class ContentDatabase : RoomDatabase() {

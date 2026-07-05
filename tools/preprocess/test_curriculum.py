@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-from curriculum_common import CONCEPT_TITLES
+from curriculum_common import CONCEPT_TITLES, spine2_rows
 from russian_morph import strip_stress
 from a1_starter import a1_rows, a1_reader_texts
 from a2_starter import a2_rows, a2_reader_texts
@@ -24,9 +24,9 @@ def _norm(text):
 
 
 def all_rows():
-    rows = a1_rows() + a2_rows() + b1_rows() + b2_rows() + c1_rows() + c2_rows()
+    rows = a1_rows() + a2_rows() + b1_rows() + b2_rows() + c1_rows() + c2_rows() + spine2_rows()
     # Stable sort by unit so the cumulative-vocabulary check sees curriculum order.
-    return sorted(rows, key=lambda n: n["unit"])
+    return sorted(rows, key=lambda n: (n["unit"], n["pos"] != "lesson"))
 
 
 def all_readers():
@@ -67,6 +67,7 @@ CLOSED_CLASS = set("""
 изучаю изучает требует требуют согласи́лись
 встаю встаёт согласились заче́м зачем него неё ним
 еду едешь едет едут езжу ездит хожу ходит иду идёт идут
+столов окон рублей
 """.split())
 
 
@@ -184,14 +185,11 @@ def test_cumulative_controlled_vocabulary():
 
 def test_units_are_monotonic_per_level_and_lessons_lead():
     rows = all_rows()
-    first_index = {}
-    for i, note in enumerate(rows):
-        first_index.setdefault(note["unit"], i)
-    for i, note in enumerate(rows):
-        if note["pos"] == "lesson":
-            assert first_index[note["unit"]] == i, (
-                f"lesson for unit {note['unit']} is not first"
-            )
+    for unit in {n["unit"] for n in rows}:
+        unit_rows = [n for n in rows if n["unit"] == unit]
+        first_content = next((i for i, n in enumerate(unit_rows) if n["pos"] != "lesson"), len(unit_rows))
+        assert all(n["pos"] == "lesson" for n in unit_rows[:first_content]), f"lessons for unit {unit} must lead"
+        assert all(n["pos"] != "lesson" for n in unit_rows[first_content:]), f"lesson for unit {unit} follows content"
 
 
 def test_all_declared_concepts_have_titles_and_lessons():
@@ -206,3 +204,38 @@ def test_every_level_is_present_and_readers_graded():
         assert lvl in levels, f"missing level {lvl}"
     for text in all_readers():
         assert text["body"].strip()
+
+
+# G9: A1 thematic/semantic-field coverage. See audit_curriculum.py's
+# A1_THEMATIC_CHECKLIST for the authoritative per-field minimums this
+# mirrors as a real pytest gate (not just the manual audit script).
+A1_THEMATIC_FIELDS = (
+    "family", "food_drink", "body_health", "weather", "city_transport",
+    "time", "home", "clothing", "emotions", "numerals",
+)
+
+
+def _a1_topic_counts():
+    counts = {}
+    for note in a1_rows():
+        if note["pos"] == "lesson":
+            continue
+        for tok in note.get("tags", "").split():
+            if tok.startswith("topic:"):
+                topic = tok[6:]
+                counts[topic] = counts.get(topic, 0) + 1
+    return counts
+
+
+def test_a1_covers_every_thematic_field():
+    counts = _a1_topic_counts()
+    for field in A1_THEMATIC_FIELDS:
+        assert counts.get(field, 0) > 0, f"A1 has no notes tagged topic:{field}"
+
+
+def test_a1_has_at_least_30_numeral_notes():
+    counts = _a1_topic_counts()
+    assert counts.get("numerals", 0) >= 30, (
+        f"A1 numeral-related notes: {counts.get('numerals', 0)} (need >= 30 — "
+        f"cardinals plus a few time-telling/price chunks)"
+    )

@@ -11,6 +11,7 @@ import com.sibirskyspeak.data.ConfusablePairDao
 import com.sibirskyspeak.data.ConfusionEventDao
 import com.sibirskyspeak.data.ContentDao
 import com.sibirskyspeak.data.ContentDatabase
+import com.sibirskyspeak.data.CurriculumStateDao
 import com.sibirskyspeak.data.LearningConfig
 import com.sibirskyspeak.data.LearningModelDao
 import com.sibirskyspeak.data.LearningRepository
@@ -69,6 +70,7 @@ object AppModule {
     @Provides fun provideLearningModelDao(db: AppDatabase): LearningModelDao = db.learningModelDao()
     @Provides fun provideWeeklyReportDao(db: AppDatabase): WeeklyReportDao = db.weeklyReportDao()
     @Provides fun provideCheckpointResultDao(db: AppDatabase): CheckpointResultDao = db.checkpointResultDao()
+    @Provides fun provideCurriculumStateDao(db: AppDatabase): CurriculumStateDao = db.curriculumStateDao()
     @Provides fun provideContentDao(db: ContentDatabase): ContentDao = db.contentDao()
     @Provides @Singleton fun provideMorphologyEngine(dao: ContentDao): MorphologyEngine = MorphologyEngine(dao)
 
@@ -119,6 +121,7 @@ object AppModule {
         weeklyReportDao: WeeklyReportDao,
         confusionEventDao: ConfusionEventDao,
         checkpointResultDao: CheckpointResultDao,
+        curriculumStateDao: CurriculumStateDao,
         contentDao: ContentDao,
         morphologyEngine: MorphologyEngine,
         frameRealizer: FrameRealizer,
@@ -141,6 +144,7 @@ object AppModule {
         weeklyReportDao = weeklyReportDao,
         confusionEventDao = confusionEventDao,
         checkpointResultDao = checkpointResultDao,
+        curriculumStateDao = curriculumStateDao,
         contentDao = contentDao,
         morphologyEngine = morphologyEngine,
         frameRealizer = frameRealizer,
@@ -148,6 +152,11 @@ object AppModule {
         scheduler = scheduler,
         bootstrapNotes = { assets.readTextAsset("bootstrap_notes.jsonl") },
         bootstrapReaderTexts = { assets.readTextAsset("bootstrap_reader_texts.jsonl") },
+        bootstrapManifest = { assets.readTextAsset("curriculum_manifest.json") },
+        bootstrapUnits = { assets.readTextAsset("units.json") },
+        bootstrapTransformations = { assets.readTextAsset("transformations.json") },
+        bootstrapCompleteness = { assets.readTextAsset("curriculum_completeness.json") },
+        bootstrapPhonology = { assets.readTextAsset("phonology.json") },
         transactionRunner = { block -> appDatabase.withTransaction(block) },
         config = {
             LearningConfig(
@@ -157,6 +166,7 @@ object AppModule {
                 desiredRetention = settings.desiredRetention,
                 doctrine = settings.doctrine
                 , restDayCredits = settings.restDayCredits
+                , preferredDomain = settings.preferredDomain
             )
         },
         decayProvider = { FsrsScheduler.decayOf(settings.fsrsWeights) },

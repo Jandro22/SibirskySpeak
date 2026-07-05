@@ -748,6 +748,7 @@ internal fun reviewTaskTitle(prompt: ReviewPrompt): String =
         CardType.SENTENCE_BUILD -> "Build the Russian sentence"
         CardType.STRESS_MARK -> "Mark the stress"
         CardType.LESSON -> "Read the grammar lesson"
+        CardType.PHONOLOGY_MINIMAL_PAIR -> "Listen and type the word you heard"
     }
 
 internal fun reviewTaskHelp(prompt: ReviewPrompt): String =
@@ -787,6 +788,7 @@ internal fun reviewTaskHelp(prompt: ReviewPrompt): String =
         CardType.SENTENCE_BUILD -> "Build the Russian sentence from the meaning or word-bank cue."
         CardType.STRESS_MARK -> "Choose the spelling with the stressed vowel marked."
         CardType.LESSON -> "Read the explanation, then continue when it feels familiar."
+        CardType.PHONOLOGY_MINIMAL_PAIR -> "Listen closely — this pair differs by a single sound. Type which word you heard."
     }
 
 internal fun answerHint(prompt: ReviewPrompt): String =
@@ -880,6 +882,8 @@ internal fun reviewContext(prompt: ReviewPrompt): String? =
         CardType.DICTATION -> null
         CardType.SENTENCE_BUILD -> null
         CardType.LESSON -> null
+        // Like AUDIO_TO_RU: no meaning shown pre-answer, this is a pure ear test.
+        CardType.PHONOLOGY_MINIMAL_PAIR -> null
     }
 
 /**

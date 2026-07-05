@@ -360,10 +360,12 @@ fun buildPrompt(
             )
         }
         CardType.TRANSFORM -> {
-            // Overwritten by LearningRepository.promptFor with a real sentence-bank
-            // sentence transformed by transform/Transformer.kt (needs suspend DB
-            // access this pure function doesn't have). This fallback only fires if no
-            // sentence containing this verb could be found or transformed.
+            // Overwritten by LearningRepository.promptFor with either a real
+            // sentence-bank sentence negated by transform/Transformer.kt, or — at
+            // B2+ effective CEFR — an authored register-ladder pair (neutral<->
+            // formal, transformations.json) via Transformer.pickRegisterPair
+            // (needs suspend DB access this pure function doesn't have). This
+            // fallback only fires if neither source could produce a realization.
             ReviewPrompt(
                 card = card,
                 note = note,
@@ -403,6 +405,22 @@ fun buildPrompt(
                 intervalPreview = intervalPreview,
                 teachingHint = "Listen, then repeat the whole sentence from memory.",
                 explanation = example.translation
+            )
+        }
+        CardType.PHONOLOGY_MINIMAL_PAIR -> {
+            // Overwritten by LearningRepository.promptFor.phonologyMinimalPairRealization
+            // with the day-stable choice of which side of the pair to play (needs
+            // card.gramContextCue, only present on cards this repository minted).
+            // This fallback only fires for a card somehow missing that field.
+            ReviewPrompt(
+                card = card,
+                note = note,
+                prompt = "",
+                expectedAnswer = note.russian,
+                answerMode = AnswerMode.AUDIO_ONLY,
+                intervalPreview = intervalPreview,
+                teachingHint = "Minimal-pair listening — type the word you heard.",
+                explanation = meaningLine(note.translation)
             )
         }
         CardType.LESSON -> {

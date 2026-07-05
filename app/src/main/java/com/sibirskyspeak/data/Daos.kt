@@ -1004,8 +1004,8 @@ interface LearningModelDao {
 @Dao interface ConfusionEventDao {
     @Insert suspend fun insert(event: ConfusionEvent): Long
     @Query("""
-        SELECT expectedKey, producedKey, cardType, COUNT(*) as count FROM confusion_events
-        WHERE at >= :since GROUP BY expectedKey, producedKey, cardType
+        SELECT expectedKey, producedKey, category, cardType, COUNT(*) as count FROM confusion_events
+        WHERE at >= :since GROUP BY expectedKey, producedKey, category, cardType
         ORDER BY count DESC, expectedKey LIMIT 1
     """)
     suspend fun topPairSince(since: Long): ConfusionPairCount?
@@ -1017,4 +1017,14 @@ interface LearningModelDao {
     @Insert suspend fun insertAll(results: List<CheckpointResult>): List<Long>
     @Query("SELECT * FROM checkpoint_results WHERE at >= :since ORDER BY at DESC") suspend fun since(since: Long): List<CheckpointResult>
     @Query("SELECT * FROM checkpoint_results ORDER BY at DESC LIMIT :limit") suspend fun recent(limit: Int = 200): List<CheckpointResult>
+}
+
+@Dao interface CurriculumStateDao {
+    @Query("SELECT * FROM curriculum_state WHERE id = 0") suspend fun current(): CurriculumState?
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(value: CurriculumState)
+    @Insert suspend fun insertReport(value: CurriculumMigrationReport): Long
+    @Query("SELECT * FROM curriculum_migration_reports WHERE shown = 0 ORDER BY createdAt DESC LIMIT 1") suspend fun pendingReport(): CurriculumMigrationReport?
+    @Query("UPDATE curriculum_migration_reports SET shown = 1 WHERE id = :id") suspend fun markShown(id: Long)
+    @Insert suspend fun insertExitTicket(value: ExitTicketResult): Long
+    @Query("SELECT * FROM exit_ticket_results ORDER BY completedAt DESC") suspend fun exitTickets(): List<ExitTicketResult>
 }

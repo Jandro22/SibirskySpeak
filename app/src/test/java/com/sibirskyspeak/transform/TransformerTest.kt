@@ -6,6 +6,8 @@ import com.sibirskyspeak.data.MorphAnalysisRow
 import com.sibirskyspeak.data.ParadigmForm
 import com.sibirskyspeak.morph.MorphologyEngine
 import org.json.JSONObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -119,5 +121,49 @@ class TransformerTest {
             assertTrue("expected at least 40 real (lemma, sentence) attempts, got $attempts", attempts >= 40)
             assertTrue("too few successful negations: $successes/$attempts", successes >= attempts / 4)
         }
+    }
+
+    // --- Register ladder (Phase G6 §13.6, transformations.json) --------------
+
+    private val samplePairsJson = """
+        {"schemaVersion":1,"pairs":[
+            {"id":"formal_say","band":"B2","fromRegister":"neutral","toRegister":"formal","source":"Он сказал, что решение готово.","answer":"Он сообщил о готовности решения."},
+            {"id":"formal_due_to","band":"C1","fromRegister":"neutral","toRegister":"formal","source":"Мы отменили встречу, потому что он заболел.","answer":"Встреча была отменена вследствие его болезни."}
+        ]}
+    """.trimIndent()
+
+    @Test fun parseRegisterPairsReadsEveryFieldFromTheAuthoredSchema() {
+        val pairs = Transformer.parseRegisterPairs(samplePairsJson)
+
+        assertEquals(2, pairs.size)
+        val first = pairs.first { it.id == "formal_say" }
+        assertEquals("B2", first.band)
+        assertEquals("neutral", first.fromRegister)
+        assertEquals("formal", first.toRegister)
+        assertEquals("Он сказал, что решение готово.", first.source)
+        assertEquals("Он сообщил о готовности решения.", first.answer)
+    }
+
+    @Test fun parseRegisterPairsNeverThrowsOnMissingOrMalformedAsset() {
+        assertEquals(emptyList<RegisterPair>(), Transformer.parseRegisterPairs(""))
+        assertEquals(emptyList<RegisterPair>(), Transformer.parseRegisterPairs("not json"))
+        assertEquals(emptyList<RegisterPair>(), Transformer.parseRegisterPairs("{}"))
+        // A pair missing a required field (answer) is dropped, not fatal.
+        val partial = Transformer.parseRegisterPairs("""{"pairs":[{"id":"x","source":"Он ушёл."}]}""")
+        assertEquals(emptyList<RegisterPair>(), partial)
+    }
+
+    @Test fun pickRegisterPairIsDeterministicForTheSameDayAndCard() {
+        val pairs = Transformer.parseRegisterPairs(samplePairsJson)
+
+        val picked = Transformer.pickRegisterPair(pairs, epochDay = 5L, cardId = 42L)
+        val pickedAgain = Transformer.pickRegisterPair(pairs, epochDay = 5L, cardId = 42L)
+
+        assertEquals(picked, pickedAgain)
+        assertTrue(picked in pairs)
+    }
+
+    @Test fun pickRegisterPairReturnsNullForAnEmptyPairList() {
+        assertNull(Transformer.pickRegisterPair(emptyList(), epochDay = 1L, cardId = 1L))
     }
 }

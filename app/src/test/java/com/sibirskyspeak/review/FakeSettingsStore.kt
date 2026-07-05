@@ -25,6 +25,8 @@ internal class FakeSettingsStore : SettingsStore {
     override var planSkeletonCardIds: String = ""
     override var lastAdaptiveLoadDay: Long = Long.MIN_VALUE
     override var dismissedDoctrineNudge: String = ""
+    override var preferredDomain: String = ""
+    override var preferredSessionMinutes: Int = 15
     override val learningExperimentVariant: String = "A"
     override var unlockedAchievementIds: Set<String> = emptySet()
 

@@ -39,4 +39,12 @@ internal object TestTags {
     const val CHECKPOINT_INPUT = "checkpoint_input"
     const val CHECKPOINT_SUBMIT = "checkpoint_submit"
     const val CHECKPOINT_DISMISS = "checkpoint_dismiss"
+
+    // Dashboard: unit exit ticket offer + mini proof session (Phase G6)
+    const val EXIT_TICKET_START = "exit_ticket_start"
+    const val EXIT_TICKET_DISMISS = "exit_ticket_dismiss"
+    const val EXIT_TICKET_INPUT = "exit_ticket_input"
+    const val EXIT_TICKET_SUBMIT = "exit_ticket_submit"
+    const val EXIT_TICKET_CLOSE = "exit_ticket_close"
+    const val DISMISS_MIGRATION_REPORT = "dismiss_migration_report"
 }

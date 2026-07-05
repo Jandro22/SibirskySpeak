@@ -20,6 +20,8 @@ A grammar concept declared on a unit produces one ``pos:"lesson"`` note whose
 ``conceptId`` must match com.sibirskyspeak.data.GrammarConcepts.
 """
 from __future__ import annotations
+import re
+from pathlib import Path
 
 from present_verb_forms import present_forms_for
 from russian_morph import decline_adjective, decline_noun, strip_stress
@@ -31,6 +33,11 @@ CONCEPT_TITLES = {
     "NOM_PL": "Making plurals",
     "ACC": "The accusative (direct object)",
     "GEN": "The genitive (\"of\", absence)",
+    "GEN_CHUNK_POSSESSION": "Having: у меня есть",
+    "GEN_CHUNK_ABSENCE": "Not having: у меня нет",
+    "PREP_CHUNK_LOCATION": "Location chunks",
+    "DAT_CHUNK_EXPERIENCER": "Experiencer chunks",
+    "INS_CHUNK_WITH": "With someone",
     "PREP": "The prepositional (location)",
     "DAT": "The dative (\"to/for\")",
     "INS": "The instrumental (\"with/by\")",
@@ -73,6 +80,11 @@ CONCEPT_TITLES = {
     "INVERSION_EMPHASIS": "Emphatic word order",
     "SUBJUNCTIVE_NUANCE": "Deeper hypotheticals",
 }
+
+_KT = Path(__file__).resolve().parents[2] / "app/src/main/java/com/sibirskyspeak/data/GrammarConcepts.kt"
+_STAGED_RE = re.compile(r'StagedSpec\("([A-Z0-9_]+)",\s*"([^"]+)",\s*"([A-Z0-9_]+)",\s*(\d+),\s*(\d+),\s*"(A1|A2|B1|B2|C1|C2)"\)')
+STAGED_SPECS = _STAGED_RE.findall(_KT.read_text(encoding="utf-8"))
+CONCEPT_TITLES.update({concept: title for concept, title, _family, _stage, _order, _band in STAGED_SPECS})
 
 
 def _example_fields(ex_ru, ex_en, extras=None):
@@ -194,6 +206,14 @@ def build_level(units, level, seen=None, rank_start=0):
 
     [seen] is a shared set of already-emitted lemmas so a word taught at an
     earlier level is never re-taught later. Returns the level's note rows.
+
+    A unit may declare an optional ``"topic"`` (a string, or a list of
+    strings for a unit that spans more than one field, e.g. "numerals" and
+    "time") — a thematic/semantic-field label appended to every non-lesson
+    note's ``tags`` as ``topic:<name>`` (G9), read by the thematic-coverage
+    audit gate. Existing space-separated tag tokens are untouched; Kotlin
+    only ever does substring `.contains()` checks on `tags`, so this is
+    purely additive.
     """
     if seen is None:
         seen = set()
@@ -201,8 +221,12 @@ def build_level(units, level, seen=None, rank_start=0):
     rank = rank_start
     for u in units:
         unit = u["unit"]
-        if u.get("concept"):
-            note = _lesson_note(u["concept"], unit, rank, level); rank += 1
+        topics = u.get("topic")
+        if isinstance(topics, str):
+            topics = [topics]
+        concepts = ([u["concept"]] if u.get("concept") else []) + list(u.get("extraConcepts", []))
+        for concept in concepts:
+            note = _lesson_note(concept, unit, rank, level); rank += 1
             if note["lemma"] not in seen:
                 seen.add(note["lemma"]); rows.append(note)
         for entry in u.get("nouns", []):
@@ -225,4 +249,27 @@ def build_level(units, level, seen=None, rank_start=0):
             if note["lemma"] in seen:
                 continue
             seen.add(note["lemma"]); rows.append(note)
+        if topics:
+            for note in rows:
+                if note["unit"] != unit or note["pos"] == "lesson":
+                    continue
+                for topic in topics:
+                    if f"topic:{topic}" not in note["tags"]:
+                        note["tags"] = f"{note['tags']} topic:{topic}"
+    return rows
+
+
+def spine2_rows():
+    """G7 lesson notes spread across the complete A1–C2 unit range."""
+    ranges = {"A1": (2, 11), "A2": (12, 20), "B1": (21, 49),
+              "B2": (50, 128), "C1": (129, 220), "C2": (221, 262)}
+    by_band = {band: [] for band in ranges}
+    for spec in STAGED_SPECS:
+        by_band[spec[5]].append(spec)
+    rows, rank = [], 900_000
+    for band, specs in by_band.items():
+        start, end = ranges[band]
+        for index, (concept, _title, _family, _stage, _order, _band) in enumerate(specs):
+            unit = start + round(index * (end - start) / max(1, len(specs) - 1))
+            rows.append(_lesson_note(concept, unit, rank, band)); rank += 1
     return rows

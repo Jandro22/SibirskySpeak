@@ -30,17 +30,84 @@ import org.json.JSONObject
     state: ReviewUiState,
     onStartCheckpoint: () -> Unit = {},
     onSubmitCheckpointAnswer: (String) -> Unit = {},
-    onDismissCheckpoint: () -> Unit = {}
+    onDismissCheckpoint: () -> Unit = {},
+    onDismissMigrationReport: () -> Unit = {}
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Learning Lab", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text("Diagnostics and experiments; FSRS remains the scheduler.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        state.curriculumMigrationReport?.let { report ->
+            SectionCard {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Content updated", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${report.appeared} new, ${report.retired} retired since your last update.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                        Button(
+                            onClick = onDismissMigrationReport,
+                            modifier = Modifier.testTag(TestTags.DISMISS_MIGRATION_REPORT)
+                        ) { Text("Got it") }
+                    }
+                }
+            }
+        }
         SkillRadarCard(state.skillRatings)
+        ProficiencyMapCard(state.skillRatings)
+        state.sessionPlan?.levelConstraint?.let { constraint ->
+            SectionCard { Text(constraint, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.SemiBold) }
+        }
+        CurriculumCompletenessCard(state.curriculumCompleteness)
         RivalProgressCard(state.rivalState, state.matchHistory)
         CheckpointCard(state, onStartCheckpoint, onSubmitCheckpointAnswer, onDismissCheckpoint)
         state.dashboardStats?.let { DetailsSection(it, expanded = true, onToggle = {}) }
         state.weeklyReports.firstOrNull()?.let { report ->
             WeeklyLetterCard(report)
+        }
+    }
+}
+
+/** Phase G11: how much of the Tatoeba corpus is fully parseable with the
+ * currently-shipped grammar+vocab spine, by CEFR band — the honest number
+ * behind "40 concepts is too few" turned into a dashboard readout. */
+@Composable
+private fun CurriculumCompletenessCard(bands: Map<String, com.sibirskyspeak.data.CurriculumCompletenessBand>) {
+    if (bands.isEmpty()) return
+    SectionCard {
+        Text("Curriculum completeness", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(
+            "% of on-device example sentences fully parseable with what's shipped so far",
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        val order = listOf("A1", "A2", "B1", "B2+")
+        order.forEach { band ->
+            bands[band]?.let { metrics ->
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(band, fontWeight = FontWeight.SemiBold)
+                    Text("${metrics.percent}% (${metrics.parseableSentences}/${metrics.corpusSentences})")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProficiencyMapCard(ratings: List<com.sibirskyspeak.data.SkillRating>) {
+    val bands = listOf("A1", "A2", "B1", "B2", "C1", "C2")
+    fun ordinal(mu: Double) = when {
+        mu < -5 -> 0; mu < 0 -> 1; mu < 5 -> 2; mu < 10 -> 3; mu < 15 -> 4; else -> 5
+    }
+    val core = listOf("reading", "listening", "production")
+    SectionCard {
+        Text("Proficiency map", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("Checkpoint-calibrated skill evidence by CEFR band", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        core.forEach { skill ->
+            val rating = ratings.firstOrNull { it.skill == skill }
+            val reached = rating?.takeIf { it.observations > 0 }?.let { ordinal(it.mu) }
+            Text("${skill.replaceFirstChar(Char::uppercase)}  " + bands.mapIndexed { index, band ->
+                when { reached == null -> "·"; index <= reached -> "●$band"; else -> "○$band" }
+            }.joinToString("  "), style = MaterialTheme.typography.bodySmall)
         }
     }
 }

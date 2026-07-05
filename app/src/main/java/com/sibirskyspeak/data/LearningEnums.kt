@@ -54,7 +54,13 @@ enum class CardType {
     // parsing, not parroting. Graded order-aware, per-token (see
     // review/AnswerNormalizer.evaluateElicitedImitation), at PRACTICE strength
     // (ASR noise means a miss is weaker evidence than a typed miss).
-    SPEAK_SENTENCE
+    SPEAK_SENTENCE,
+    // Phase G10 phonology strand: TTS plays one word from a minimal pair
+    // (tools/preprocess/phonology.json, kind=MINIMAL_PAIR, requiresAudioPack=false
+    // only — device TTS can't reliably render the audio-pack-gated contrasts) and
+    // the learner types which of the two forms they heard. Graded exact-match like
+    // DICTATION/AUDIO_TO_RU; see LearningRepository.phonologyMinimalPairRealization.
+    PHONOLOGY_MINIMAL_PAIR
 }
 
 enum class Queue {

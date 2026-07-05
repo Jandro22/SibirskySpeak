@@ -1871,6 +1871,238 @@ class LearningRepositoryTest {
     }
 
     @Test
+    fun buildExitTicketSessionAssemblesMixedFacetsFromUnitInventory() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """
+            {"russian":"дом","lemma":"дом","pos":"word","translation":"house","tier":0,"unit":1,"exampleSentence":"Это мой дом.","exampleTranslation":"This is my house."}
+            {"russian":"книга","lemma":"книга","pos":"word","translation":"book","tier":0,"unit":1,"exampleSentence":"Я читаю книгу.","exampleTranslation":"I am reading a book."}
+            {"russian":"стол","lemma":"стол","pos":"word","translation":"table","tier":0,"unit":1}
+            {"russian":"два","lemma":"два","pos":"word","translation":"two","tier":0,"unit":2}
+            """.trimIndent()
+        )
+
+        val session = fixture.repository.buildExitTicketSession(unit = 1)
+
+        assertNotNull(session)
+        assertEquals(1, session!!.unit)
+        val kinds = session.items.map { it.kind }
+        assertTrue("expected a recognition item", "recognition" in kinds)
+        assertTrue("expected a production item", "production" in kinds)
+        assertTrue("expected a listening item", "listening" in kinds)
+        assertTrue("expected a reading item drawn from a note with an example sentence", "reading" in kinds)
+        // Every item's noteId must belong to unit 1 — never unit 2's inventory.
+        val unitOneIds = setOf(
+            fixture.notes.getByLemma("дом")!!.id,
+            fixture.notes.getByLemma("книга")!!.id,
+            fixture.notes.getByLemma("стол")!!.id
+        )
+        assertTrue(session.items.all { it.noteId == null || it.noteId in unitOneIds })
+    }
+
+    @Test
+    fun buildExitTicketSessionReturnsNullForAnEmptyOrSingleWordUnit() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """{"russian":"дом","lemma":"дом","pos":"word","translation":"house","tier":0,"unit":1}"""
+        )
+
+        assertNull(fixture.repository.buildExitTicketSession(unit = 1))
+        assertNull(fixture.repository.buildExitTicketSession(unit = 99))
+    }
+
+    @Test
+    fun completeExitTicketRecordsResultAndFeedsEvidenceForEveryInvolvedNote() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """
+            {"russian":"дом","lemma":"дом","pos":"word","translation":"house","tier":0,"unit":1,"exampleSentence":"Это мой дом.","exampleTranslation":"This is my house."}
+            {"russian":"книга","lemma":"книга","pos":"word","translation":"book","tier":0,"unit":1,"exampleSentence":"Я читаю книгу.","exampleTranslation":"I am reading a book."}
+            {"russian":"стол","lemma":"стол","pos":"word","translation":"table","tier":0,"unit":1}
+            """.trimIndent()
+        )
+        val session = fixture.repository.buildExitTicketSession(unit = 1)!!
+
+        fixture.repository.completeExitTicket(session, session.items.map { true })
+
+        val results = fixture.repository.exitTicketResults()
+        assertEquals(1, results.size)
+        assertEquals(1, results.first().unit)
+        assertTrue(results.first().recognition)
+    }
+
+    @Test
+    fun gradeExitTicketAnswerMatchesRecognitionLeniantlyAndProductionExactly() = runTest {
+        val fixture = RepoFixture()
+        val recognitionItem = ExitTicketItem(kind = "recognition", noteId = 1, prompt = "дом", expectedAnswer = "house")
+        val productionItem = ExitTicketItem(kind = "production", noteId = 1, prompt = "house", expectedAnswer = "дом")
+
+        assertTrue(fixture.repository.gradeExitTicketAnswer(recognitionItem, "House"))
+        assertFalse(fixture.repository.gradeExitTicketAnswer(recognitionItem, "table"))
+        assertTrue(fixture.repository.gradeExitTicketAnswer(productionItem, "дом"))
+        assertFalse(fixture.repository.gradeExitTicketAnswer(productionItem, "книга"))
+    }
+
+    @Test
+    fun readerRecommendationPrefersPreferredDomainWhenCoverageIsTied() = runTest {
+        // Phase G6 domain overlays, scaled down to reader-text selection (see
+        // LearningRepository.domainBiasFor) — SettingsStore.preferredDomain
+        // should bias which equally-covered text wins, matched against
+        // ReaderText.source's real "target:<domain>"/"graded:<domain>" tags.
+        val fixture = RepoFixture(config = { LearningConfig(preferredDomain = "business") })
+        fixture.repository.importJsonLines(
+            """{"russian":"дом","lemma":"дом","pos":"word","translation":"house","tier":0,"unit":1}"""
+        )
+        fixture.repository.addReaderText("Science text", "дом дом дом", "target:science")
+        fixture.repository.addReaderText("Business text", "дом дом дом", "target:business")
+
+        val recommendation = fixture.repository.readerRecommendation()
+
+        assertEquals("Business text", recommendation?.text?.title)
+    }
+
+    @Test
+    fun readerRecommendationIgnoresPreferredDomainWhenBlank() = runTest {
+        val fixture = RepoFixture(config = { LearningConfig(preferredDomain = "") })
+        fixture.repository.importJsonLines(
+            """{"russian":"дом","lemma":"дом","pos":"word","translation":"house","tier":0,"unit":1}"""
+        )
+        fixture.repository.addReaderText("First", "дом дом дом", "target:science")
+        fixture.repository.addReaderText("Second", "дом дом дом", "target:business")
+
+        // With no preference, the domain bias is a no-op and the existing
+        // coverage/dueOverlap ranking alone decides — both are tied, so the
+        // first-inserted text wins deterministically (minWithOrNull is stable).
+        val recommendation = fixture.repository.readerRecommendation()
+
+        assertEquals("First", recommendation?.text?.title)
+    }
+
+    @Test
+    fun transformCardUsesRegisterLadderPairAtEffectiveB2AndAbove() = runTest {
+        // No tier-0 notes are cefrLevel-tagged in this fixture, so
+        // spineMasteryCefrOrdinal() (and thus effectiveCefrOrdinal()) falls
+        // through to CEFR_LEVELS.lastIndex (C2) — comfortably >= B2, exercising
+        // the gated register-ladder path.
+        val pairsJson = """
+            {"schemaVersion":1,"pairs":[
+                {"id":"formal_say","band":"B2","fromRegister":"neutral","toRegister":"formal","source":"Он сказал, что решение готово.","answer":"Он сообщил о готовности решения."}
+            ]}
+        """.trimIndent()
+        val fixture = RepoFixture(bootstrapTransformations = pairsJson)
+        fixture.repository.importJsonLines(
+            """{"russian":"говорить","lemma":"говорить","pos":"verb","translation":"to say","tier":0,"unit":1}"""
+        )
+        val note = fixture.notes.getByLemma("говорить")!!
+        val card = fixture.cards.insert(Card(noteId = note.id, cardType = CardType.TRANSFORM, queue = Queue.VOCAB))
+
+        val prompt = fixture.repository.promptForCard(fixture.cards.cards.first { it.id == card })
+
+        assertNotNull(prompt)
+        assertTrue("expected the register-ladder source sentence in the prompt", prompt!!.prompt.contains("Он сказал, что решение готово."))
+        assertEquals("Он сообщил о готовности решения.", prompt.expectedAnswer)
+    }
+
+    @Test
+    fun transformCardFallsBackToNegationWhenNoRegisterPairsAreLoaded() = runTest {
+        val fixture = RepoFixture(bootstrapTransformations = null)
+        fixture.repository.importJsonLines(
+            """{"russian":"говорить","lemma":"говорить","pos":"verb","translation":"to say","tier":0,"unit":1,"exampleSentence":"Он говорит правду."}"""
+        )
+        val note = fixture.notes.getByLemma("говорить")!!
+        val card = fixture.cards.insert(Card(noteId = note.id, cardType = CardType.TRANSFORM, queue = Queue.VOCAB))
+
+        val prompt = fixture.repository.promptForCard(fixture.cards.cards.first { it.id == card })
+
+        // No contentDao/morphologyEngine wired either, so transformRealization()
+        // also can't fire — this exercises ReviewPrompt.kt's own static fallback,
+        // confirming the register-ladder path never crashes or blocks when the
+        // asset simply isn't there (the expected state until build_bootstrap.py
+        // ships transformations.json as a real asset).
+        assertNotNull(prompt)
+        assertEquals(com.sibirskyspeak.review.AnswerMode.RUSSIAN_TYPED, prompt!!.answerMode)
+    }
+
+    private val phonologyJson = """
+        {"schemaVersion":1,"items":[
+            {"id":"vowel_y_i","band":"A1","kind":"MINIMAL_PAIR","forms":["быть","бить"],"requiresAudioPack":false},
+            {"id":"ik3_yes_no","band":"A2","kind":"INTONATION","forms":["Это дом?"],"requiresAudioPack":true}
+        ]}
+    """.trimIndent()
+
+    @Test
+    fun syncMissingPhonologyCardsOnlyMintsForMatureRecognitionOfAShippedForm() = runTest {
+        val fixture = RepoFixture(bootstrapPhonology = phonologyJson)
+        val matureId = fixture.notes.insert(
+            Note(russian = "быть", lemma = "быть", translation = "to be", partOfSpeech = "verb", tier = 0, unit = 1)
+        )
+        fixture.cards.insert(
+            Card(noteId = matureId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB,
+                state = CardState.REVIEW, reps = 3, consecutiveCorrect = 2)
+        )
+
+        fixture.repository.seedIfEmpty()
+
+        val minted = fixture.cards.cards.filter { it.noteId == matureId && it.cardType == CardType.PHONOLOGY_MINIMAL_PAIR }
+        assertEquals(1, minted.size)
+        assertEquals("бить", minted.first().gramContextCue)
+    }
+
+    @Test
+    fun syncMissingPhonologyCardsSkipsAudioPackGatedItems() = runTest {
+        val fixture = RepoFixture(bootstrapPhonology = phonologyJson)
+        val matureId = fixture.notes.insert(
+            Note(russian = "Это дом?", lemma = "это дом", translation = "is this a house?", partOfSpeech = "phrase", tier = 0, unit = 1)
+        )
+        fixture.cards.insert(
+            Card(noteId = matureId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB,
+                state = CardState.REVIEW, reps = 3, consecutiveCorrect = 2)
+        )
+
+        fixture.repository.seedIfEmpty()
+
+        assertFalse(fixture.cards.cards.any { it.cardType == CardType.PHONOLOGY_MINIMAL_PAIR })
+    }
+
+    @Test
+    fun syncMissingPhonologyCardsSkipsImmatureRecognition() = runTest {
+        val fixture = RepoFixture(bootstrapPhonology = phonologyJson)
+        val immatureId = fixture.notes.insert(
+            Note(russian = "быть", lemma = "быть", translation = "to be", partOfSpeech = "verb", tier = 0, unit = 1)
+        )
+        fixture.cards.insert(
+            Card(noteId = immatureId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB,
+                state = CardState.NEW, reps = 0, consecutiveCorrect = 0)
+        )
+
+        fixture.repository.seedIfEmpty()
+
+        assertFalse(fixture.cards.cards.any { it.cardType == CardType.PHONOLOGY_MINIMAL_PAIR })
+    }
+
+    @Test
+    fun phonologyMinimalPairPromptPlaysOneSideDeterministicallyAndGradesExactMatch() = runTest {
+        val fixture = RepoFixture(bootstrapPhonology = phonologyJson)
+        val noteId = fixture.notes.insert(
+            Note(russian = "быть", lemma = "быть", translation = "to be", partOfSpeech = "verb", tier = 0, unit = 1)
+        )
+        val cardId = fixture.cards.insert(
+            Card(noteId = noteId, cardType = CardType.PHONOLOGY_MINIMAL_PAIR, queue = Queue.VOCAB,
+                gramContextCue = "бить", gramConcept = "PHONOLOGY_vowel_y_i")
+        )
+        val card = fixture.cards.cards.first { it.id == cardId }
+
+        val prompt = fixture.repository.promptForCard(card)
+
+        assertNotNull(prompt)
+        assertEquals(com.sibirskyspeak.review.AnswerMode.AUDIO_ONLY, prompt!!.answerMode)
+        assertTrue(prompt.expectedAnswer == "быть" || prompt.expectedAnswer == "бить")
+        // Same day + card id must always resolve to the same side of the pair.
+        val prompt2 = fixture.repository.promptForCard(card)
+        assertEquals(prompt.expectedAnswer, prompt2!!.expectedAnswer)
+    }
+
+    @Test
     fun endOfSessionReaderPrefersTextContainingTodaysReviewedWords() = runTest {
         val fixture = RepoFixture()
         fixture.repository.importJsonLines(

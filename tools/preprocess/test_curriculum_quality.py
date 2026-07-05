@@ -113,7 +113,7 @@ def test_aspect_pairs_are_symmetric_and_have_aktionsart():
 
 def test_lesson_concepts_exist_in_app():
     kt = GRAMMAR_CONCEPTS_KT.read_text(encoding="utf-8")
-    app_ids = set(re.findall(r'id = "([A-Z_]+)"', kt))
+    app_ids = set(re.findall(r'id = "([A-Z0-9_]+)"', kt)) | set(re.findall(r'StagedSpec\("([A-Z0-9_]+)"', kt))
     lesson_ids = {n["conceptId"] for n in all_rows() if n["pos"] == "lesson"}
     missing = lesson_ids - app_ids
     assert not missing, f"lesson concepts not in GrammarConcepts.kt: {missing}"
@@ -128,7 +128,7 @@ def test_concept_titles_match_grammar_concepts_kt():
     Python entry added with no Kotlin GrammarConcept (its lesson can never render,
     since GrammarConcepts.byId() falls through to null)."""
     kt = GRAMMAR_CONCEPTS_KT.read_text(encoding="utf-8")
-    app_ids = set(re.findall(r'id = "([A-Za-z0-9_]+)"', kt))
+    app_ids = set(re.findall(r'id = "([A-Za-z0-9_]+)"', kt)) | set(re.findall(r'StagedSpec\("([A-Z0-9_]+)"', kt))
     python_ids = set(CONCEPT_TITLES.keys())
     only_in_python = python_ids - app_ids
     only_in_kotlin = app_ids - python_ids

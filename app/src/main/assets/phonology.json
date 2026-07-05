@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {"id":"vowel_y_i","band":"A1","kind":"MINIMAL_PAIR","forms":["быть","бить"],"requiresAudioPack":false},
+    {"id":"sh_shch","band":"A1","kind":"MINIMAL_PAIR","forms":["чаша","чаща"],"requiresAudioPack":false},
+    {"id":"hard_soft","band":"A1","kind":"MINIMAL_PAIR","forms":["мат","мять"],"requiresAudioPack":false},
+    {"id":"final_devoice","band":"A1","kind":"RULE","forms":["дуб","дубы"],"requiresAudioPack":false},
+    {"id":"ik1_statement","band":"A1","kind":"INTONATION","forms":["Это дом."],"requiresAudioPack":true},
+    {"id":"ik2_wh","band":"A1","kind":"INTONATION","forms":["Где дом?"],"requiresAudioPack":true},
+    {"id":"ik3_yes_no","band":"A2","kind":"INTONATION","forms":["Это дом?"],"requiresAudioPack":true},
+    {"id":"vowel_reduction","band":"A2","kind":"RULE","forms":["молоко"],"requiresAudioPack":false},
+    {"id":"fast_chto","band":"B1","kind":"FAST_SPEECH","forms":["что","што"],"requiresAudioPack":true},
+    {"id":"fast_seichas","band":"B1","kind":"FAST_SPEECH","forms":["сейчас","щас"],"requiresAudioPack":true},
+    {"id":"stress_ruka","band":"B1","kind":"STRESS_MOBILITY","forms":["рука́","ру́ку"],"requiresAudioPack":true}
+  ]
+}

@@ -17,7 +17,10 @@ internal class RepoFixture(
     writeBackup: (suspend (String) -> Unit)? = null,
     config: () -> LearningConfig = { LearningConfig() },
     withTelemetry: Boolean = false,
-    contentDao: ContentDao? = null
+    contentDao: ContentDao? = null,
+    bootstrapTransformations: String? = null,
+    bootstrapPhonology: String? = null,
+    morphologyEngine: com.sibirskyspeak.morph.MorphologyEngine? = null
 ) {
     val notes = FakeNoteDao()
     val readerEncounters = FakeReaderEncounterDao()
@@ -30,6 +33,7 @@ internal class RepoFixture(
     val telemetry = if (withTelemetry) FakeTelemetryDao() else null
     val confusionEvents = FakeConfusionEventDao()
     val checkpointResults = FakeCheckpointResultDao()
+    val curriculumState = FakeCurriculumStateDao()
     val repository = LearningRepository(
         notes,
         cards,
@@ -48,7 +52,11 @@ internal class RepoFixture(
         readingActivityDao = readingActivities,
         confusionEventDao = confusionEvents,
         checkpointResultDao = checkpointResults,
+        curriculumStateDao = curriculumState,
         contentDao = contentDao,
+        morphologyEngine = morphologyEngine,
+        bootstrapTransformations = { bootstrapTransformations },
+        bootstrapPhonology = { bootstrapPhonology },
         // Unconfined runs the repository's withContext(compute) blocks inline on the
         // caller, so the deterministic test scheduler still controls all of its work.
         computeDispatcher = Dispatchers.Unconfined
@@ -713,4 +721,29 @@ internal class FakeCheckpointResultDao : CheckpointResultDao {
     override suspend fun insertAll(results: List<CheckpointResult>): List<Long> = results.map { insert(it) }
     override suspend fun since(since: Long): List<CheckpointResult> = results.filter { it.at >= since }.sortedByDescending { it.at }
     override suspend fun recent(limit: Int): List<CheckpointResult> = results.sortedByDescending { it.at }.take(limit)
+}
+
+internal class FakeCurriculumStateDao : CurriculumStateDao {
+    var state: CurriculumState? = null
+    val reports = mutableListOf<CurriculumMigrationReport>()
+    val exitTicketResults = mutableListOf<ExitTicketResult>()
+    private var nextReportId = 1L
+    private var nextExitTicketId = 1L
+    override suspend fun current(): CurriculumState? = state
+    override suspend fun upsert(value: CurriculumState) { state = value }
+    override suspend fun insertReport(value: CurriculumMigrationReport): Long {
+        val id = nextReportId++
+        reports += value.copy(id = id)
+        return id
+    }
+    override suspend fun pendingReport(): CurriculumMigrationReport? = reports.firstOrNull { !it.shown }
+    override suspend fun markShown(id: Long) {
+        reports.replaceAll { if (it.id == id) it.copy(shown = true) else it }
+    }
+    override suspend fun insertExitTicket(value: ExitTicketResult): Long {
+        val id = nextExitTicketId++
+        exitTicketResults += value.copy(id = id)
+        return id
+    }
+    override suspend fun exitTickets(): List<ExitTicketResult> = exitTicketResults.sortedByDescending { it.completedAt }
 }

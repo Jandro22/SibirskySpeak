@@ -1,6 +1,24 @@
 package com.sibirskyspeak.transform
 
 import com.sibirskyspeak.morph.MorphologyEngine
+import org.json.JSONObject
+
+/**
+ * A single authored, build-time-validated register-ladder transformation pair
+ * (Phase G6 §13.6): [source] is the neutral-register sentence shown as the
+ * prompt, [answer] is its formal-register rewrite — the deterministic expected
+ * answer, exactly like the negation transform's [Transformer.Transformed.
+ * expectedAnswer]. Mirrors tools/preprocess/transformations.json's schema
+ * 1:1 ({"id","band","fromRegister","toRegister","source","answer"}).
+ */
+data class RegisterPair(
+    val id: String,
+    val band: String,
+    val fromRegister: String,
+    val toRegister: String,
+    val source: String,
+    val answer: String
+)
 
 /**
  * Deterministic sentence transforms over real sentence-bank carriers (P4.4 L2).
@@ -42,5 +60,40 @@ object Transformer {
         return readings.any { reading ->
             (reading.pos == "VERB" || reading.pos == "INFN") && "IMP" !in reading.feats
         }
+    }
+
+    /**
+     * Parses the register-ladder asset (Phase G6 §13.6, schema mirrored by
+     * [RegisterPair]). Never throws — a missing/malformed asset (see the
+     * shipping-gap note on LearningRepository's bootstrapTransformations
+     * provider) just yields an empty list, so the feature is silently inactive
+     * rather than crashing.
+     */
+    fun parseRegisterPairs(json: String): List<RegisterPair> = runCatching {
+        val root = JSONObject(json)
+        val pairs = root.optJSONArray("pairs") ?: return@runCatching emptyList()
+        (0 until pairs.length()).mapNotNull { i ->
+            val obj = pairs.optJSONObject(i) ?: return@mapNotNull null
+            val id = obj.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val source = obj.optString("source").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val answer = obj.optString("answer").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            RegisterPair(
+                id = id,
+                band = obj.optString("band", "B2"),
+                fromRegister = obj.optString("fromRegister", "neutral"),
+                toRegister = obj.optString("toRegister", "formal"),
+                source = source,
+                answer = answer
+            )
+        }
+    }.getOrDefault(emptyList())
+
+    /** Deterministically picks one pair for a given (day, cardId), rotating
+     * across days like [negate]'s sentence rotation so a mature card isn't
+     * stuck testing one memorized pair forever. */
+    fun pickRegisterPair(pairs: List<RegisterPair>, epochDay: Long, cardId: Long): RegisterPair? {
+        if (pairs.isEmpty()) return null
+        val offset = Math.floorMod(epochDay + cardId, pairs.size.toLong()).toInt()
+        return pairs[offset]
     }
 }

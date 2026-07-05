@@ -85,6 +85,9 @@ object WorldModel {
         CardType.NOVEL_PRODUCE -> mapOf(AbilitySkill.PRODUCTION to 0.55, AbilitySkill.SYNTAX to 0.35, AbilitySkill.VOCAB to 0.10)
         CardType.SPEAK_SENTENCE -> mapOf(AbilitySkill.PHONOLOGY to 0.45, AbilitySkill.SYNTAX to 0.35, AbilitySkill.PRODUCTION to 0.20)
         CardType.LESSON -> mapOf(AbilitySkill.READING to 0.50, AbilitySkill.SYNTAX to 0.50)
+        // Purest phonology signal of any card: the carrier is a single memorized
+        // word, so success draws almost entirely on ear discrimination, not recall.
+        CardType.PHONOLOGY_MINIMAL_PAIR -> mapOf(AbilitySkill.PHONOLOGY to 0.80, AbilitySkill.LISTENING to 0.20)
     }
 
     fun effectiveAbility(card: Card, state: LearnerWorldState): Gaussian {

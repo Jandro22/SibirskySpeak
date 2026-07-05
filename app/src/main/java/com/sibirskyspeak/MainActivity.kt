@@ -292,17 +292,23 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                     nav.replace(Dest.Import)
                     viewModel.setSessionStep(SessionStep.IMPORT)
                 },
+                onTimeBudget = viewModel::setPreferredSessionMinutes,
                 onLoadLeeches = viewModel::loadLeeches,
                 onReleaseLeech = viewModel::releaseLeech,
                 onSaveLeechEdit = viewModel::editLeech,
                 onApplyDoctrineNudge = viewModel::applyDoctrineNudge,
-                onDismissDoctrineNudge = viewModel::dismissDoctrineNudge
+                onDismissDoctrineNudge = viewModel::dismissDoctrineNudge,
+                onStartExitTicket = viewModel::startExitTicket,
+                onDismissExitTicketOffer = viewModel::dismissExitTicketOffer,
+                onSubmitExitTicketAnswer = viewModel::submitExitTicketAnswer,
+                onCloseExitTicket = viewModel::closeExitTicket
             )
             SessionStep.LAB -> LabPanel(
                 state = state,
                 onStartCheckpoint = viewModel::startCheckpoint,
                 onSubmitCheckpointAnswer = viewModel::submitCheckpointAnswer,
-                onDismissCheckpoint = viewModel::dismissCheckpoint
+                onDismissCheckpoint = viewModel::dismissCheckpoint,
+                onDismissMigrationReport = viewModel::dismissCurriculumMigrationReport
             )
             SessionStep.IMPORT -> ImportExportPanel(
                 state = state,

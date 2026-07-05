@@ -34,10 +34,47 @@ data class GrammarConcept(
      *  section each concept already lived in below; making it an explicit field (rather
      *  than only a comment + [order] range) lets CEFR-aware gating/display read it
      *  directly instead of re-deriving it from position. */
-    val cefrLevel: String
+    val cefrLevel: String,
+    /** Stable curriculum graph edges. Prerequisites must form a DAG. */
+    val prerequisites: List<String> = emptyList(),
+    /** Concepts that should be contrasted after both have been introduced. */
+    val interferesWith: List<String> = emptyList(),
+    /** A macro-strand and its progressive stage (G7). */
+    val family: String = id.substringBefore('_'),
+    val stage: Int = 1
 )
 
 object GrammarConcepts {
+    val GEN_CHUNK_POSSESSION = GrammarConcept(
+        id = "GEN_CHUNK_POSSESSION", title = "Having: у меня есть",
+        lesson = "Russian expresses possession as something existing 'by' a person. Learn the whole frame before producing genitive endings.",
+        exampleRu = "У меня есть книга.", exampleEn = "I have a book.", hint = "Use у + person + есть.",
+        order = 55, cefrLevel = "A1", family = "GEN", stage = 0
+    )
+    val GEN_CHUNK_ABSENCE = GrammarConcept(
+        id = "GEN_CHUNK_ABSENCE", title = "Not having: у меня нет",
+        lesson = "Absence uses the fixed frame у + person + нет. Treat the following form as part of the phrase for now.",
+        exampleRu = "У меня нет времени.", exampleEn = "I have no time.", hint = "Use у + person + нет.",
+        order = 56, cefrLevel = "A1", prerequisites = listOf("GEN_CHUNK_POSSESSION"), family = "GEN", stage = 0
+    )
+    val PREP_CHUNK_LOCATION = GrammarConcept(
+        id = "PREP_CHUNK_LOCATION", title = "Location chunks",
+        lesson = "Learn common locations as whole phrases with в/на: в школе, на работе. The ending system comes later.",
+        exampleRu = "Я в школе.", exampleEn = "I am at school.", hint = "Where? Use a learned в/на location chunk.",
+        order = 65, cefrLevel = "A1", family = "PREP", stage = 0
+    )
+    val DAT_CHUNK_EXPERIENCER = GrammarConcept(
+        id = "DAT_CHUNK_EXPERIENCER", title = "Experiencer chunks",
+        lesson = "Russian often puts the person experiencing a feeling in forms such as мне/тебе. Learn these high-frequency frames whole.",
+        exampleRu = "Мне нравится музыка.", exampleEn = "I like music.", hint = "Use мне/тебе + experience.",
+        order = 75, cefrLevel = "A1", family = "DAT", stage = 0
+    )
+    val INS_CHUNK_WITH = GrammarConcept(
+        id = "INS_CHUNK_WITH", title = "With someone",
+        lesson = "Learn с + person as a useful whole phrase. Productive instrumental endings unlock later.",
+        exampleRu = "Я иду с другом.", exampleEn = "I am going with a friend.", hint = "Together with: с + learned form.",
+        order = 85, cefrLevel = "A1", family = "INS", stage = 0
+    )
     val GENDER = GrammarConcept(
         id = "GENDER",
         title = "Noun gender",
@@ -554,10 +591,103 @@ object GrammarConcepts {
         cefrLevel = "C2"
     )
 
+    private data class StagedSpec(val id: String, val title: String, val family: String, val stage: Int, val order: Int, val band: String)
+    private val stagedSpecs = listOf(
+        StagedSpec("QUESTIONS", "Question formation", "QUESTIONS", 1, 25, "A1"),
+        StagedSpec("CONNECTORS_A_NO", "And, but, and contrast: и/а/но", "CONNECTORS", 1, 35, "A1"),
+        StagedSpec("CARDINALS", "Cardinal numbers 0–100", "NUMERALS", 1, 45, "A1"),
+        StagedSpec("TIME_TELLING", "Telling time", "TIME", 1, 115, "A2"),
+        StagedSpec("ORDINALS_DATES", "Ordinals and dates", "NUMERALS", 2, 125, "A2"),
+        StagedSpec("NUMERAL_GOV_234", "Two, three, four + genitive singular", "NUMERALS", 3, 185, "B1"),
+        StagedSpec("NUMERAL_GOV_5", "Five and above + genitive plural", "NUMERALS", 4, 195, "B1"),
+        StagedSpec("ASPECT_PAST", "Aspect in the past", "ASPECT", 2, 105, "A2"),
+        StagedSpec("ASPECT_FUTURE", "Aspect in the future", "ASPECT", 3, 135, "A2"),
+        StagedSpec("ASPECT_INFINITIVE", "Aspect after modals and phase verbs", "ASPECT", 4, 175, "B1"),
+        StagedSpec("ASPECT_IMPERATIVE", "Aspect in commands", "ASPECT", 5, 205, "B1"),
+        StagedSpec("ASPECT_NEGATION", "Aspect under negation", "ASPECT", 6, 235, "B2"),
+        StagedSpec("MOTION_UNIDIRECTIONAL", "идти/ехать: motion in one direction", "MOTION", 1, 145, "A2"),
+        StagedSpec("MOTION_MULTIDIRECTIONAL", "ходить/ездить: habitual and round-trip motion", "MOTION", 2, 165, "B1"),
+        StagedSpec("MOTION_CARRY", "Carrying and leading motion verbs", "MOTION", 3, 215, "B1"),
+        StagedSpec("MOTION_TRANSPORT", "Choosing motion by transport and context", "MOTION", 4, 225, "B1"),
+        StagedSpec("MOTION_PREFIX_ARRIVE_LEAVE", "Motion prefixes при-/у-", "MOTION_PREFIX", 1, 245, "B2"),
+        StagedSpec("MOTION_PREFIX_ENTER_EXIT", "Motion prefixes в-/вы-", "MOTION_PREFIX", 2, 255, "B2"),
+        StagedSpec("MOTION_PREFIX_APPROACH", "Motion prefixes под-/от-/до-", "MOTION_PREFIX", 3, 265, "B2"),
+        StagedSpec("MOTION_PREFIX_CROSS_PASS", "Motion prefixes за-/пере-/про-", "MOTION_PREFIX", 4, 275, "B2"),
+        StagedSpec("GEN_PL", "Genitive plural", "CASE_PLURAL", 1, 155, "B1"),
+        StagedSpec("DAT_PL", "Dative plural", "CASE_PLURAL", 2, 175, "B1"),
+        StagedSpec("INS_PL", "Instrumental plural", "CASE_PLURAL", 3, 195, "B1"),
+        StagedSpec("PREP_PL", "Prepositional plural", "CASE_PLURAL", 4, 215, "B1"),
+        StagedSpec("GOV_INTEREST_INS", "интересоваться/заниматься + instrumental", "GOVERNMENT", 1, 185, "B1"),
+        StagedSpec("GOV_FEAR_GEN", "бояться + genitive", "GOVERNMENT", 2, 205, "B1"),
+        StagedSpec("GOV_HELP_DAT", "помогать + dative", "GOVERNMENT", 3, 225, "B1"),
+        StagedSpec("GOV_WAIT_GEN_ACC", "ждать + genitive or accusative", "GOVERNMENT", 4, 245, "B2"),
+        StagedSpec("GOV_DEPEND_ON", "зависеть от + genitive", "GOVERNMENT", 5, 265, "B2"),
+        StagedSpec("GOV_MANAGE_INS", "управлять + instrumental", "GOVERNMENT", 6, 285, "B2"),
+        StagedSpec("GOV_USE_INS", "пользоваться + instrumental", "GOVERNMENT", 7, 305, "B2"),
+        StagedSpec("GOV_CONGRAT_DAT", "благодарить + accusative; благодарен + dative", "GOVERNMENT", 8, 325, "C1"),
+        StagedSpec("POSITION_STATE", "Standing, lying, and hanging", "POSITION", 1, 235, "B1"),
+        StagedSpec("POSITION_CAUSED", "Putting, laying, and hanging", "POSITION", 2, 255, "B2"),
+        StagedSpec("TIME_WEEK_ACC", "Days and recurrence with в + accusative", "TIME", 2, 145, "A2"),
+        StagedSpec("TIME_MONTH_PREP", "Months and years with в + prepositional", "TIME", 3, 165, "B1"),
+        StagedSpec("TIME_DURATION", "Duration: назад and в течение", "TIME", 4, 205, "B1"),
+        StagedSpec("TIME_DEADLINE", "Deadline and completion: к, за, на", "TIME", 5, 245, "B2"),
+        StagedSpec("PREFIX_SEMANTICS", "Productive verb-prefix meanings", "WORD_FORMATION", 1, 285, "B2"),
+        StagedSpec("SUFFIX_OST", "Abstract nouns in -ость", "WORD_FORMATION", 2, 305, "B2"),
+        StagedSpec("SUFFIX_ENIE", "Event nouns in -ение", "WORD_FORMATION", 3, 325, "C1"),
+        StagedSpec("AGENT_SUFFIXES", "People and roles: -тель/-ник", "WORD_FORMATION", 4, 345, "C1"),
+        StagedSpec("DIMINUTIVES", "Diminutives and stance", "WORD_FORMATION", 5, 365, "C1"),
+        StagedSpec("ASPECT_PREFIXATION", "Building aspect through prefixation", "WORD_FORMATION", 6, 385, "C1"),
+        StagedSpec("INDEFINITE_TO", "Specific unknowns with -то", "INDEFINITES", 1, 275, "B2"),
+        StagedSpec("INDEFINITE_NIBUD", "Open-choice unknowns with -нибудь", "INDEFINITES", 2, 295, "B2"),
+        StagedSpec("NEGATIVE_NI", "Negative pronouns with ни-", "NEGATION", 1, 315, "B2"),
+        StagedSpec("NEGATION_GENITIVE", "Genitive under negation", "NEGATION", 2, 335, "C1"),
+        StagedSpec("THEME_RHEME", "Theme and new information", "INFORMATION_STRUCTURE", 1, 315, "B2"),
+        StagedSpec("FOCUS_ORDER", "Word order for contrastive focus", "INFORMATION_STRUCTURE", 2, 345, "C1"),
+        StagedSpec("PARTICIPLE_FORM", "Forming participles", "PARTICIPLE", 1, 295, "B2"),
+        StagedSpec("PARTICIPLE_RECOGNIZE", "Reading participial phrases", "PARTICIPLE", 2, 325, "C1"),
+        StagedSpec("PARTICIPLE_RELATIVE_TRANSFORM", "Participle and который transformations", "PARTICIPLE", 3, 355, "C1"),
+        StagedSpec("PARTICIPLE_PRODUCE", "Producing formal participial clauses", "PARTICIPLE", 4, 405, "C2"),
+        StagedSpec("GERUND_SIMULTANEOUS", "Simultaneous verbal adverbs", "GERUND", 1, 325, "C1"),
+        StagedSpec("GERUND_ANTERIOR", "Prior-action verbal adverbs", "GERUND", 2, 365, "C1"),
+        StagedSpec("CONCESSIVE_HOTYA", "Concession with хотя", "CONCESSIVES", 1, 305, "B2"),
+        StagedSpec("CONCESSIVE_NESMOTRYA", "Concession with несмотря на", "CONCESSIVES", 2, 345, "C1"),
+        StagedSpec("CONNECTIVES_FORMAL", "Formal connective contrasts", "CONCESSIVES", 3, 385, "C1"),
+        StagedSpec("PARTICLE_ZHE", "Discourse particle же", "PARTICLES", 1, 335, "C1"),
+        StagedSpec("PARTICLE_VED", "Discourse particle ведь", "PARTICLES", 2, 365, "C1"),
+        StagedSpec("PARTICLE_TO", "Contrastive particle -то", "PARTICLES", 3, 395, "C2"),
+        StagedSpec("PARTICLE_UZH", "Stance particle уж", "PARTICLES", 4, 425, "C2"),
+        StagedSpec("FORMAL_NEWS", "News-report register", "FORMAL_GENRES", 1, 355, "C1"),
+        StagedSpec("FORMAL_OFFICIAL", "Official-statement register", "FORMAL_GENRES", 2, 395, "C2"),
+        StagedSpec("FORMAL_ACADEMIC", "Academic hedging and argumentation", "FORMAL_GENRES", 3, 435, "C2")
+    )
+
+    private val SPINE_2: List<GrammarConcept> = stagedSpecs.map { spec ->
+        val familyRoots = mapOf(
+            "ASPECT" to "ASPECT", "MOTION" to "MOTION", "MOTION_PREFIX" to "MOTION_PREFIX",
+            "TIME" to "TIME_TELLING", "PARTICIPLE" to "PARTICIPLE_ACTIVE", "GERUND" to "GERUND"
+        )
+        val previous = stagedSpecs.firstOrNull { it.family == spec.family && it.stage == spec.stage - 1 }?.id
+            ?: if (spec.stage > 1) familyRoots[spec.family] else null
+        val interferenceFamilies = setOf("ASPECT", "MOTION", "MOTION_PREFIX", "CASE_PLURAL", "GOVERNMENT", "NEGATION")
+        val interference = if (spec.family in interferenceFamilies) stagedSpecs
+            .filter { it.family == spec.family && it.id != spec.id }.map { it.id }.take(4) else emptyList()
+        GrammarConcept(
+            id = spec.id, title = spec.title,
+            lesson = "This stage develops ${spec.title.lowercase()} as a reusable contrast in connected Russian.",
+            exampleRu = spec.title, exampleEn = spec.title,
+            hint = spec.title,
+            order = spec.order, spine = false, cefrLevel = spec.band,
+            prerequisites = listOfNotNull(previous), interferesWith = interference,
+            family = spec.family, stage = spec.stage
+        )
+    }
+
     val ALL: List<GrammarConcept> =
         listOf(
             // A1 core spine
-            GENDER, NOM_PL, ACC, GEN, PREP, DAT, INS, PAST, PRESENT, ADJ_AGREE, ASPECT,
+            GENDER, NOM_PL, ACC, GEN_CHUNK_POSSESSION, GEN_CHUNK_ABSENCE,
+            PREP_CHUNK_LOCATION, DAT_CHUNK_EXPERIENCER, INS_CHUNK_WITH,
+            GEN, PREP, DAT, INS, PAST, PRESENT, ADJ_AGREE, ASPECT,
             // A2
             FUTURE, IMPERATIVE, REFLEXIVE, COMPARATIVE, MODAL, MOTION, POSSESSIVE_SVOJ,
             // B1
@@ -568,9 +698,25 @@ object GrammarConcepts {
             COMPLEX_SYNTAX, NOMINALIZATION, ASPECT_NUANCE, REGISTER, IDIOM,
             // C2
             DISCOURSE_PARTICLES, EMPHATIC_PARTICLES, BOOKISH_SUBORDINATION, INVERSION_EMPHASIS, SUBJUNCTIVE_NUANCE
-        )
+        ) + SPINE_2
 
     private val byId: Map<String, GrammarConcept> = ALL.associateBy { it.id }
+
+    init {
+        require(byId.size == ALL.size) { "Duplicate grammar concept id" }
+        val ids = byId.keys
+        ALL.forEach { concept ->
+            require(concept.prerequisites.all(ids::contains)) { "Unknown prerequisite on ${concept.id}" }
+            require(concept.interferesWith.all(ids::contains)) { "Unknown interference edge on ${concept.id}" }
+        }
+        fun visit(id: String, visiting: MutableSet<String>, visited: MutableSet<String>) {
+            if (id in visited) return
+            require(visiting.add(id)) { "Grammar prerequisite cycle at $id" }
+            byId.getValue(id).prerequisites.forEach { visit(it, visiting, visited) }
+            visiting.remove(id); visited.add(id)
+        }
+        ALL.forEach { visit(it.id, mutableSetOf(), mutableSetOf()) }
+    }
 
     fun byId(id: String?): GrammarConcept? = id?.let { byId[it] }
 

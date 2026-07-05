@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import hashlib
 from pathlib import Path
 
 from russian_morph import (decline_adjective, decline_noun,
@@ -557,7 +558,7 @@ def main():
     a1_readers = []
     a1_lemmas = set()
     try:
-        from curriculum_common import build_level
+        from curriculum_common import build_level, spine2_rows
         import a1_starter, a2_starter, b1_starter, b2_starter, c1_starter, c2_starter
         seen = set()
         a1_notes = (
@@ -567,6 +568,7 @@ def main():
             + build_level(b2_starter.UNITS, "B2", seen)
             + build_level(c1_starter.UNITS, "C1", seen)
             + build_level(c2_starter.UNITS, "C2", seen)
+            + spine2_rows()
         )
         a1_readers = (
             a1_starter.a1_reader_texts() + a2_starter.a2_reader_texts()
@@ -663,6 +665,43 @@ def main():
     reader_texts = a1_readers + all_reader_texts() + textbook_readers
     write_jsonl(ASSETS / "bootstrap_notes.jsonl", notes)
     write_jsonl(ASSETS / "bootstrap_reader_texts.jsonl", reader_texts)
+    from build_stories import build as build_stories
+    story_result = build_stories(
+        HERE / "stories", ASSETS / "bootstrap_notes.jsonl", ASSETS / "bootstrap_reader_texts.jsonl"
+    )
+    print(f"story chapters appended: {story_result['appended']}")
+    from build_curriculum_metadata import main as build_curriculum_metadata
+    build_curriculum_metadata()
+    notes_bytes = (ASSETS / "bootstrap_notes.jsonl").read_bytes()
+    checksum = hashlib.sha256(notes_bytes).hexdigest()
+    counts = {}
+    tiers = {}
+    for note in notes:
+        band = note.get("cefrLevel") or "UNSPECIFIED"
+        counts[band] = counts.get(band, 0) + 1
+        tier = str(note.get("tier", 0))
+        tiers[tier] = tiers.get(tier, 0) + 1
+    def asset_version(name):
+        path = HERE / name
+        return hashlib.sha256(path.read_bytes()).hexdigest()[:16] if path.exists() else "absent"
+    manifest = {
+        "curriculumVersion": f"2026-07-g12-{checksum[:8]}",
+        "schemaVersion": 2,
+        "contentChecksum": checksum,
+        "noteCountsByBand": dict(sorted(counts.items())),
+        "noteCountsByTier": dict(sorted(tiers.items())),
+        "assets": {
+            "frames": asset_version("frames.json"),
+            "stories": asset_version("stories/anna_i_ivan_a1.json") + ":" + asset_version("stories/maria_i_petr_a2.json"),
+            "dialogues": asset_version("dialogues.json"),
+            "units": asset_version("units.yaml"),
+            "phonology": asset_version("phonology.json"),
+            "transformations": asset_version("transformations.json"),
+        },
+    }
+    (ASSETS / "curriculum_manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     nominal = len(nouns) + len(adjs)
     aspect_ready = sum(1 for v in verbs if "aspectPartner" in v)
     a1_lessons = sum(1 for n in a1_notes if n.get("pos") == "lesson")

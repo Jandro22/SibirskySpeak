@@ -46,9 +46,18 @@ UNITS = [
         ],
     },
     {
+        # G8 spiral resequencing: the five A1 case-family concepts (ACC,
+        # GEN_CHUNK_POSSESSION/ABSENCE, PREP_CHUNK_LOCATION, DAT_CHUNK_EXPERIENCER,
+        # INS_CHUNK_WITH) used to sit in five back-to-back units — textbook
+        # blocked/blocked practice, the sequencing choice SLA interleaving
+        # research consistently finds worse than spacing same-family concepts
+        # apart. GENDER's vocabulary got split across two units (GEN1 here,
+        # "More things around us" below) purely to create enough non-case
+        # material to interleave with; no words moved levels or were dropped.
         "unit": 1,
         "title": "Things around us",
         "concept": "GENDER",
+        "topic": "home",
         "nouns": [
             ("стол", "m_hard", "M", False, "table", "Э́то стол.", "This is a table.", None,
              [("Вот мой стол.", "Here is my table.")]),
@@ -57,12 +66,32 @@ UNITS = [
              [("Э́то мой стул.", "This is my chair.")]),
             ("кни́га", "f_a", "F", False, "book", "Э́то кни́га.", "This is a book.", None,
              [("Вот моя́ кни́га.", "Here is my book.")]),
-            ("окно́", "n_o", "N", False, "window", "Э́то окно́.", "This is a window.", {"GEN_PL": "окон"},
-             [("Вот окно́.", "Here is a window.")]),
+            ("окно́", "n_o", "N", False, "window", "Вот окно́.", "Here is a window.", {"GEN_PL": "окон"},
+             [("Э́то окно́.", "This is a window.")]),
             ("вода́", "f_a", "F", False, "water", "Вот вода́.", "Here is water.", None,
              [("Э́то вода́.", "This is water.")]),
             ("ко́мната", "f_a", "F", False, "room", "Э́то ко́мната.", "This is a room.", None,
              [("Вот моя́ ко́мната.", "Here is my room.")]),
+        ],
+        "adjs": [
+            ("ру́сский", "Russian", "Э́то ру́сская кни́га.", "This is a Russian book.",
+             [("Вот ру́сский стол.", "Here is a Russian table.")]),
+        ],
+        "words": [
+            ("вот", "particle", "here is", "Вот кни́га.", "Here is the book.",
+             [("Вот стол.", "Here is a table.")]),
+            ("мой", "pronoun", "my", "Э́то мой стол.", "This is my table.",
+             [("Вот мой стул.", "Here is my chair.")]),
+            ("моя́", "pronoun", "my (f.)", "Э́то моя́ кни́га.", "This is my book.",
+             [("Вот моя́ ко́мната.", "Here is my room.")]),
+        ],
+    },
+    {
+        "unit": 2,
+        "title": "More things around us",
+        "concept": None,
+        "topic": "home",
+        "nouns": [
             ("сло́во", "n_o", "N", False, "word", "Э́то ру́сское сло́во.", "This is a Russian word.", None,
              [("Э́то сло́во.", "This is a word.")]),
             ("ма́ма", "f_a", "F", True, "mum", "Э́то моя́ ма́ма.", "This is my mum.", None,
@@ -76,27 +105,15 @@ UNITS = [
             ("стена́", "f_a", "F", False, "wall", "Вот стена́.", "Here is a wall.", {"NOM_PL": "стены", "ACC_PL": "стены", "GEN_PL": "стен"},
              [("Э́то стена́.", "This is a wall.")]),
         ],
-        "adjs": [
-            ("ру́сский", "Russian", "Э́то ру́сское сло́во.", "This is a Russian word.",
-             [("Вот ру́сская кни́га.", "Here is a Russian book.")]),
-        ],
-        "words": [
-            ("вот", "particle", "here is", "Вот кни́га.", "Here is the book.",
-             [("Вот стол.", "Here is a table.")]),
-            ("мой", "pronoun", "my", "Э́то мой стол.", "This is my table.",
-             [("Вот мой стул.", "Here is my chair.")]),
-            ("моя́", "pronoun", "my (f.)", "Э́то моя́ кни́га.", "This is my book.",
-             [("Вот моя́ дверь.", "Here is my door.")]),
-        ],
     },
     {
         # Adjective agreement depends on knowing noun gender, so it's taught
-        # immediately after GENDER (unit 1) and before anything else — every
+        # immediately after GENDER (units 1-2) and before anything else — every
         # example sentence from here on can lean on it. Previously this concept
         # had a full Kotlin lesson (GrammarConcepts.ADJ_AGREE) but no curriculum
         # unit ever taught it, so CardType.ADJ_AGREE drills fired with no lesson
         # ever shown first, silently violating teach-before-test.
-        "unit": 2,
+        "unit": 3,
         "title": "Describing things",
         "concept": "ADJ_AGREE",
         "adjs": [
@@ -107,7 +124,7 @@ UNITS = [
         ],
     },
     {
-        "unit": 3,
+        "unit": 4,
         "title": "More than one",
         "concept": "NOM_PL",
         "nouns": [
@@ -132,7 +149,29 @@ UNITS = [
         ],
     },
     {
-        "unit": 4,
+        # First case-family unit of the spiral (see G8 note on unit 1).
+        "unit": 5,
+        "title": "Having and not having",
+        "concept": "GEN_CHUNK_POSSESSION",
+        "extraConcepts": ["GEN_CHUNK_ABSENCE"],
+        "words": [
+            ("у", "preposition", "at, by (have)", "У ма́мы есть кни́га.", "Mum has a book.",
+             [("У меня́ есть друг.", "I have a friend.")]),
+            ("меня́", "pronoun", "me (gen.)", "У меня́ есть чай.", "I have tea.",
+             [("У меня́ нет воды́.", "I have no water.")]),
+            ("без", "preposition", "without", "Чай без воды́.", "Tea without water.",
+             [("Стол без воды́.", "A table without water.")]),
+            ("чай", "noun", "tea", "Я пью чай.", "I am drinking tea.",
+             [("Я люблю́ чай.", "I love tea.")]),
+        ],
+        "nouns": [
+            ("друг", "m_hard", "M", True, "friend", "У меня́ есть друг.", "I have a friend.",
+             {"NOM_PL": "друзья", "GEN_PL": "друзей", "DAT_PL": "друзьям", "INS_PL": "друзьями", "PREP_PL": "друзьях", "ACC_PL": "друзей"},
+             [("У ма́мы есть друг.", "Mum has a friend.")]),
+        ],
+    },
+    {
+        "unit": 6,
         "title": "Everyday actions",
         "concept": "PRESENT",
         "nouns": [
@@ -148,12 +187,6 @@ UNITS = [
              [("Я де́лаю рабо́ту.", "I am doing the work.")]),
             ("рабо́тать", "to work", "Ма́ма рабо́тает.", "Mum is working.", "IPF", "activity", None,
              [("Я рабо́таю в шко́ле.", "I work at school.")]),
-            ("жить", "to live", "Я живу́ и рабо́таю.", "I live and work.", "IPF", "state", None,
-             [("Она́ живёт в шко́ле?", "Does she live at school?")]),
-            ("игра́ть", "to play", "Я игра́ю.", "I am playing.", "IPF", "activity", None,
-             [("Он игра́ет в па́рке.", "He plays in the park.")]),
-            ("гуля́ть", "to walk, to stroll", "Я гуля́ю в па́рке.", "I walk in the park.", "IPF", "activity", None,
-             [("Мы гуля́ем в па́рке.", "We walk in the park.")]),
         ],
         "words": [
             ("он", "pronoun", "he", "Он чита́ет кни́гу.", "He is reading a book.",
@@ -164,20 +197,15 @@ UNITS = [
              [("Мы зна́ем э́то сло́во.", "We know this word.")]),
             ("что", "pronoun", "what", "Что э́то?", "What is this?",
              [("Что ты чита́ешь?", "What are you reading?")]),
-            ("мно́го", "adverb", "much, a lot", "Я мно́го рабо́таю.", "I work a lot.",
-             [("Он мно́го чита́ет.", "He reads a lot.")]),
-            ("ма́ло", "adverb", "little, few", "Я ма́ло чита́ю.", "I read little.",
-             [("Он ма́ло рабо́тает.", "He works little.")]),
-            ("то́же", "adverb", "also, too", "Я то́же чита́ю.", "I read too.",
-             [("Он то́же рабо́тает.", "He works too.")]),
-            ("сейча́с", "adverb", "now", "Я сейча́с рабо́таю.", "I am working now.",
-             [("Он сейча́с чита́ет.", "He is reading now.")]),
         ],
     },
     {
-        "unit": 5,
+        # Second case-family unit of the spiral (see G8 note on unit 1) —
+        # spaced from GEN_CHUNK_POSSESSION (unit 5) by PRESENT (unit 6).
+        "unit": 7,
         "title": "Doing something to things",
         "concept": "ACC",
+        "topic": "food_drink",
         "nouns": [
             ("соба́ка", "f_a", "F", True, "dog", "Я люблю́ соба́ку.", "I love the dog.", None,
              [("Соба́ка пьёт молоко́.", "The dog is drinking milk.")]),
@@ -203,29 +231,35 @@ UNITS = [
         ],
     },
     {
-        "unit": 6,
-        "title": "Having and not having",
-        "concept": "GEN",
-        "words": [
-            ("у", "preposition", "at, by (have)", "У ма́мы есть кни́га.", "Mum has a book.",
-             [("У меня́ есть друг.", "I have a friend.")]),
-            ("меня́", "pronoun", "me (gen.)", "У меня́ есть соба́ка.", "I have a dog.",
-             [("У меня́ есть чай.", "I have tea.")]),
-            ("без", "preposition", "without", "Чай без воды́.", "Tea without water.",
-             [("Суп без воды́.", "Soup without water.")]),
-            ("чай", "noun", "tea", "Я пью чай.", "I am drinking tea.",
-             [("Я люблю́ чай.", "I love tea.")]),
+        "unit": 8,
+        "title": "More everyday actions",
+        "concept": None,
+        "verbs": [
+            ("жить", "to live", "Я живу́ и рабо́таю.", "I live and work.", "IPF", "state", None,
+             [("Она́ живёт в шко́ле?", "Does she live at school?")]),
+            ("игра́ть", "to play", "Я игра́ю.", "I am playing.", "IPF", "activity", None,
+             [("Он игра́ет в па́рке.", "He plays in the park.")]),
+            ("гуля́ть", "to walk, to stroll", "Я гуля́ю в па́рке.", "I walk in the park.", "IPF", "activity", None,
+             [("Мы гуля́ем в па́рке.", "We walk in the park.")]),
         ],
-        "nouns": [
-            ("друг", "m_hard", "M", True, "friend", "У меня́ есть друг.", "I have a friend.",
-             {"NOM_PL": "друзья", "GEN_PL": "друзей", "DAT_PL": "друзьям", "INS_PL": "друзьями", "PREP_PL": "друзьях", "ACC_PL": "друзей"},
-             [("Мой друг чита́ет.", "My friend is reading.")]),
+        "words": [
+            ("мно́го", "adverb", "much, a lot", "Я мно́го рабо́таю.", "I work a lot.",
+             [("Он мно́го чита́ет.", "He reads a lot.")]),
+            ("ма́ло", "adverb", "little, few", "Я ма́ло чита́ю.", "I read little.",
+             [("Он ма́ло рабо́тает.", "He works little.")]),
+            ("то́же", "adverb", "also, too", "Я то́же чита́ю.", "I read too.",
+             [("Он то́же рабо́тает.", "He works too.")]),
+            ("сейча́с", "adverb", "now", "Я сейча́с рабо́таю.", "I am working now.",
+             [("Он сейча́с чита́ет.", "He is reading now.")]),
         ],
     },
     {
-        "unit": 7,
+        # Third case-family unit of the spiral (see G8 note on unit 1) —
+        # spaced from ACC (unit 7) by "More everyday actions" (unit 8).
+        "unit": 9,
         "title": "Where things are",
-        "concept": "PREP",
+        "concept": "PREP_CHUNK_LOCATION",
+        "topic": "city_transport",
         "nouns": [
             ("го́род", "m_hard", "M", False, "city", "Я живу́ в го́роде.", "I live in the city.", {"NOM_PL": "города", "ACC_PL": "города"},
              [("Я зна́ю э́тот го́род.", "I know this city.")]),
@@ -244,9 +278,24 @@ UNITS = [
         ],
     },
     {
-        "unit": 8,
+        "unit": 10,
+        "title": "Talking about the past",
+        "concept": "PAST",
+        "topic": "time",
+        "words": [
+            ("вчера́", "adverb", "yesterday", "Вчера́ я чита́л кни́гу.", "Yesterday I read a book.",
+             [("Вчера́ я рабо́тал.", "Yesterday I worked.")]),
+            ("они́", "pronoun", "they", "Они́ рабо́тали.", "They worked.",
+             [("Они́ чита́ли кни́гу.", "They read a book.")]),
+        ],
+    },
+    {
+        # Fourth case-family unit of the spiral (see G8 note on unit 1) —
+        # spaced from PREP_CHUNK_LOCATION (unit 9) by PAST (unit 10). Needs
+        # "друг" (introduced unit 5, GEN_CHUNK_POSSESSION) for the dative form.
+        "unit": 11,
         "title": "Giving and telling",
-        "concept": "DAT",
+        "concept": "DAT_CHUNK_EXPERIENCER",
         "verbs": [
             ("писа́ть", "to write", "Я пишу́ ма́ме.", "I am writing to mum.", "IPF", "accomplishment", "написать",
              [("Я пишу́ дру́гу.", "I am writing to a friend.")]),
@@ -267,9 +316,27 @@ UNITS = [
         ],
     },
     {
-        "unit": 9,
+        # Depends on DAT_CHUNK_EXPERIENCER (unit 11): написать's aspect
+        # partner писать is taught there.
+        "unit": 12,
+        "title": "Finished or ongoing",
+        "concept": "ASPECT",
+        "verbs": [
+            ("прочита́ть", "to read (finish)", "Вчера́ я прочита́л кни́гу.", "Yesterday I read the whole book.", "PF", "accomplishment", "читать",
+             [("Я прочита́л сло́во.", "I read the word.")]),
+            ("сде́лать", "to do (finish)", "Я сде́лал рабо́ту.", "I finished the work.", "PF", "accomplishment", "делать",
+             [("Он сде́лал рабо́ту.", "He did the work.")]),
+            ("написа́ть", "to write (finish)", "Я написа́л сло́во.", "I wrote the word.", "PF", "accomplishment", "писать",
+             [("Он написа́л сло́во.", "He wrote the word.")]),
+        ],
+    },
+    {
+        # Fifth case-family unit of the spiral (see G8 note on unit 1) —
+        # spaced from DAT_CHUNK_EXPERIENCER (unit 11) by ASPECT (unit 12).
+        # Needs "друг" (unit 5) and "ма́ма" (unit 2) for instrumental forms.
+        "unit": 13,
         "title": "With what, with whom",
-        "concept": "INS",
+        "concept": "INS_CHUNK_WITH",
         "nouns": [
             ("ру́чка", "f_a", "F", False, "pen", "Я пишу́ ру́чкой.", "I write with a pen.", {"GEN_PL": "ручек"},
              [("Э́то моя́ ру́чка.", "This is my pen.")]),
@@ -280,27 +347,219 @@ UNITS = [
         ],
     },
     {
-        "unit": 10,
-        "title": "Talking about the past",
-        "concept": "PAST",
+        # G9: cardinals 0 and 11-20 as chunk-first vocabulary. 1-10 already
+        # exist as notes at B1 unit 26 (concept NUMERAL_CASE, which teaches the
+        # productive numeral+noun government system: 2-4 + genitive singular,
+        # 5+ + genitive plural — NUMERAL_GOV_234/NUMERAL_GOV_5 in
+        # GrammarConcepts.kt); re-declaring those lemmas here would just waste
+        # review budget (see test_authored_lemmas_are_unique_across_levels), so
+        # this unit only adds the numerals B1 doesn't already cover. At A1
+        # these are memorized as invariant counting words, not yet combined
+        # live with declined nouns. CARDINALS (the G7 spine lesson introducing
+        # numerals as a topic) is scheduled at unit 11 by spine2_rows(), so it
+        # leads this vocabulary.
+        "unit": 14,
+        "title": "Counting: 0, and 11-20",
+        "concept": None,
+        "topic": "numerals",
         "words": [
-            ("вчера́", "adverb", "yesterday", "Вчера́ я чита́л кни́гу.", "Yesterday I read a book.",
-             [("Вчера́ я рабо́тал.", "Yesterday I worked.")]),
-            ("они́", "pronoun", "they", "Они́ рабо́тали.", "They worked.",
-             [("Они́ чита́ли кни́гу.", "They read a book.")]),
+            ("ноль", "numeral", "zero", "У меня́ ноль книг.", "I have zero books.",
+             [("Здесь ноль столо́в.", "There are zero tables here.")]),
+            ("оди́ннадцать", "numeral", "eleven", "У меня́ оди́ннадцать книг.", "I have eleven books.",
+             [("Здесь оди́ннадцать столо́в.", "There are eleven tables here.")]),
+            ("двена́дцать", "numeral", "twelve", "У меня́ двена́дцать книг.", "I have twelve books.",
+             [("Здесь двена́дцать о́кон.", "There are twelve windows here.")]),
+            ("трина́дцать", "numeral", "thirteen", "У меня́ трина́дцать книг.", "I have thirteen books.",
+             [("Здесь трина́дцать столо́в.", "There are thirteen tables here.")]),
+            ("четы́рнадцать", "numeral", "fourteen", "У меня́ четы́рнадцать книг.", "I have fourteen books.",
+             [("Здесь четы́рнадцать о́кон.", "There are fourteen windows here.")]),
+            ("пятна́дцать", "numeral", "fifteen", "У меня́ пятна́дцать книг.", "I have fifteen books.",
+             [("Здесь пятна́дцать столо́в.", "There are fifteen tables here.")]),
+            ("шестна́дцать", "numeral", "sixteen", "У меня́ шестна́дцать книг.", "I have sixteen books.",
+             [("Здесь шестна́дцать о́кон.", "There are sixteen windows here.")]),
+            ("семна́дцать", "numeral", "seventeen", "У меня́ семна́дцать книг.", "I have seventeen books.",
+             [("Здесь семна́дцать столо́в.", "There are seventeen tables here.")]),
+            ("восемна́дцать", "numeral", "eighteen", "У меня́ восемна́дцать книг.", "I have eighteen books.",
+             [("Здесь восемна́дцать о́кон.", "There are eighteen windows here.")]),
+            ("девятна́дцать", "numeral", "nineteen", "У меня́ девятна́дцать книг.", "I have nineteen books.",
+             [("Здесь девятна́дцать столо́в.", "There are nineteen tables here.")]),
+            ("два́дцать", "numeral", "twenty", "У меня́ два́дцать книг.", "I have twenty books.",
+             [("Здесь два́дцать о́кон.", "There are twenty windows here.")]),
         ],
     },
     {
-        "unit": 11,
-        "title": "Finished or ongoing",
-        "concept": "ASPECT",
+        # G9: tens and hundreds 30-1000, plus a chunk-first price phrase
+        # (numeral + ruble/cost as fixed memorized phrases, per the numerals
+        # topic checklist). Government of the following noun's case is not
+        # explained here — see NUMERAL_GOV_234/5 (B1).
+        "unit": 15,
+        "title": "Counting: tens and prices",
+        "concept": None,
+        "topic": "numerals",
+        "nouns": [
+            ("рубль", "m_soft", "M", False, "ruble", "Кни́га сто́ит два́дцать рубле́й.", "The book costs twenty rubles.", "sg",
+             [("Хлеб сто́ит два́дцать рубле́й.", "The bread costs twenty rubles.")]),
+        ],
         "verbs": [
-            ("прочита́ть", "to read (finish)", "Вчера́ я прочита́л кни́гу.", "Yesterday I read the whole book.", "PF", "accomplishment", "читать",
-             [("Я прочита́л сло́во.", "I read the word.")]),
-            ("сде́лать", "to do (finish)", "Я сде́лал рабо́ту.", "I finished the work.", "PF", "accomplishment", "делать",
-             [("Он сде́лал рабо́ту.", "He did the work.")]),
-            ("написа́ть", "to write (finish)", "Я написа́л сло́во.", "I wrote the word.", "PF", "accomplishment", "писать",
-             [("Он написа́л сло́во.", "He wrote the word.")]),
+            ("сто́ить", "to cost", "Кни́га сто́ит два́дцать рубле́й.", "The book costs twenty rubles.", "IPF", "state", None,
+             [("Хлеб сто́ит два́дцать рубле́й.", "The bread costs twenty rubles.")]),
+        ],
+        "words": [
+            ("три́дцать", "numeral", "thirty", "У меня́ три́дцать рубле́й.", "I have thirty rubles.",
+             [("Кни́га сто́ит три́дцать рубле́й.", "The book costs thirty rubles.")]),
+            ("со́рок", "numeral", "forty", "У меня́ со́рок рубле́й.", "I have forty rubles.",
+             [("Хлеб сто́ит со́рок рубле́й.", "The bread costs forty rubles.")]),
+            ("пятьдеся́т", "numeral", "fifty", "У меня́ пятьдеся́т рубле́й.", "I have fifty rubles.",
+             [("Кни́га сто́ит пятьдеся́т рубле́й.", "The book costs fifty rubles.")]),
+            ("шестьдеся́т", "numeral", "sixty", "У меня́ шестьдеся́т рубле́й.", "I have sixty rubles.",
+             [("Хлеб сто́ит шестьдеся́т рубле́й.", "The bread costs sixty rubles.")]),
+            ("се́мьдесят", "numeral", "seventy", "У меня́ се́мьдесят рубле́й.", "I have seventy rubles.",
+             [("Кни́га сто́ит се́мьдесят рубле́й.", "The book costs seventy rubles.")]),
+            ("во́семьдесят", "numeral", "eighty", "У меня́ во́семьдесят рубле́й.", "I have eighty rubles.",
+             [("Хлеб сто́ит во́семьдесят рубле́й.", "The bread costs eighty rubles.")]),
+            ("девяно́сто", "numeral", "ninety", "У меня́ девяно́сто рубле́й.", "I have ninety rubles.",
+             [("Кни́га сто́ит девяно́сто рубле́й.", "The book costs ninety rubles.")]),
+            ("сто", "numeral", "one hundred", "У меня́ сто рубле́й.", "I have one hundred rubles.",
+             [("Хлеб сто́ит сто рубле́й.", "The bread costs one hundred rubles.")]),
+            ("две́сти", "numeral", "two hundred", "Кни́га сто́ит две́сти рубле́й.", "The book costs two hundred rubles.",
+             [("У меня́ две́сти рубле́й.", "I have two hundred rubles.")]),
+            ("три́ста", "numeral", "three hundred", "Кни́га сто́ит три́ста рубле́й.", "The book costs three hundred rubles.",
+             [("У меня́ три́ста рубле́й.", "I have three hundred rubles.")]),
+            ("пятьсо́т", "numeral", "five hundred", "Кни́га сто́ит пятьсо́т рубле́й.", "The book costs five hundred rubles.",
+             [("У меня́ пятьсо́т рубле́й.", "I have five hundred rubles.")]),
+            ("ты́сяча", "numeral", "one thousand", "У меня́ ты́сяча рубле́й.", "I have one thousand rubles.",
+             [("Здесь ты́сяча книг.", "There are a thousand books here.")]),
+        ],
+    },
+    {
+        # G9: time-telling chunks (hour + parts of the day) — the "few
+        # time-telling/price chunks" the numerals checklist item calls for, so
+        # this unit counts toward both the "numerals" and "time" thematic
+        # fields (see build_level's list-valued "topic" support).
+        "unit": 16,
+        "title": "Telling time",
+        "concept": None,
+        "topic": ["numerals", "time"],
+        "nouns": [
+            ("час", "m_hard", "M", False, "hour, o'clock", "Сейча́с оди́н час.", "It is one o'clock now.", "sg",
+             [("У меня́ уро́к в час.", "I have a lesson at one o'clock.")]),
+        ],
+        "words": [
+            ("по́лдень", "noun", "noon", "Сейча́с по́лдень.", "It is noon now.",
+             [("У меня́ уро́к в по́лдень.", "I have a lesson at noon.")]),
+            ("по́лночь", "noun", "midnight", "Сейча́с по́лночь.", "It is midnight now.",
+             [("У меня́ уро́к в по́лночь.", "I have a lesson at midnight.")]),
+            ("у́тро", "noun", "morning", "Сейча́с у́тро.", "It is morning now.",
+             [("Здесь тёплое у́тро.", "It's a warm morning here.")]),
+            ("ве́чер", "noun", "evening", "Сейча́с ве́чер.", "It is evening now.",
+             [("Здесь тёплый ве́чер.", "It's a warm evening here.")]),
+        ],
+    },
+    {
+        # G9 thematic-coverage repair: a dedicated family unit (unit 2 already
+        # has ма́ма/па́па but is tagged "home" for its other nouns; "сестра́" is
+        # already an A2 note, so it isn't repeated here — see
+        # test_authored_lemmas_are_unique_across_levels).
+        "unit": 17,
+        "title": "Family",
+        "concept": None,
+        "topic": "family",
+        "nouns": [
+            ("брат", "m_hard", "M", True, "brother", "Э́то мой брат.", "This is my brother.",
+             {"NOM_PL": "братья", "GEN_PL": "братьев", "DAT_PL": "братьям", "INS_PL": "братьями", "PREP_PL": "братьях", "ACC_PL": "братьев"},
+             [("У меня́ есть брат.", "I have a brother.")]),
+            ("ба́бушка", "f_a", "F", True, "grandmother", "Э́то моя́ ба́бушка.", "This is my grandmother.", {"GEN_PL": "бабушек"},
+             [("У меня́ есть ба́бушка.", "I have a grandmother.")]),
+            ("де́душка", "f_a", "M", True, "grandfather", "Э́то мой де́душка.", "This is my grandfather.", {"GEN_PL": "дедушек"},
+             [("У меня́ есть де́душка.", "I have a grandfather.")]),
+            ("семья́", "f_ya", "F", False, "family", "Э́то моя́ семья́.", "This is my family.", None,
+             [("У меня́ хоро́шая семья́.", "I have a good family.")]),
+        ],
+    },
+    {
+        # G9 thematic-coverage repair: body/health field (previously absent
+        # from A1). боле́ть used impersonally (У меня́ боли́т голова́) is a
+        # very common A1 chunk; the full dative-experiencer pattern echoes
+        # DAT_CHUNK_EXPERIENCER (unit 11).
+        "unit": 18,
+        "title": "Body and health",
+        "concept": None,
+        "topic": "body_health",
+        "nouns": [
+            ("голова́", "f_a", "F", False, "head", "У меня́ боли́т голова́.", "My head hurts.",
+             {"NOM_PL": "головы", "ACC_PL": "головы", "GEN_PL": "голов"},
+             [("Голова́ не боли́т.", "My head doesn't hurt.")]),
+            ("рука́", "f_a", "F", False, "hand, arm", "У меня́ боли́т рука́.", "My hand hurts.",
+             {"NOM_PL": "руки", "ACC_PL": "руки", "GEN_PL": "рук"},
+             [("Вот моя́ рука́.", "Here is my hand.")]),
+            ("нога́", "f_a", "F", False, "leg, foot", "У меня́ боли́т нога́.", "My leg hurts.",
+             {"NOM_PL": "ноги", "ACC_PL": "ноги", "GEN_PL": "ног"},
+             [("Вот моя́ нога́.", "Here is my leg.")]),
+        ],
+        "verbs": [
+            ("боле́ть", "to hurt, to ache", "У меня́ боли́т голова́.", "My head hurts.", "IPF", "state", None,
+             [("У меня́ боли́т нога́.", "My leg hurts.")]),
+        ],
+    },
+    {
+        # G9 thematic-coverage repair: weather field (previously absent).
+        # Reuses тёплый/холо́дный (ADJ_AGREE, unit 3) instead of new adjectives.
+        "unit": 19,
+        "title": "Weather",
+        "concept": None,
+        "topic": "weather",
+        "nouns": [
+            ("пого́да", "f_a", "F", False, "weather", "Сего́дня хоро́шая пого́да.", "The weather is good today.", None,
+             [("Здесь тёплая пого́да.", "The weather is warm here.")]),
+            ("со́лнце", "n_o", "N", False, "sun", "Сего́дня есть со́лнце.", "There is sun today.", "sg",
+             [("Со́лнце тёплое.", "The sun is warm.")]),
+            ("дождь", "m_hard", "M", False, "rain", "Сего́дня дождь.", "It is raining today.", None,
+             [("Вчера́ был дождь.", "Yesterday there was rain.")]),
+            ("снег", "m_hard", "M", False, "snow", "Сего́дня снег.", "It is snowing today.", "sg",
+             [("Вчера́ был снег.", "Yesterday there was snow.")]),
+        ],
+        "words": [
+            ("сего́дня", "adverb", "today", "Сего́дня хоро́шая пого́да.", "The weather is good today.",
+             [("Сего́дня есть со́лнце.", "There is sun today.")]),
+        ],
+    },
+    {
+        # G9 thematic-coverage repair: clothing field (previously absent).
+        "unit": 20,
+        "title": "Clothing",
+        "concept": None,
+        "topic": "clothing",
+        "nouns": [
+            ("руба́шка", "f_a", "F", False, "shirt", "Э́то моя́ руба́шка.", "This is my shirt.", {"GEN_PL": "рубашек"},
+             [("Вот но́вая руба́шка.", "Here is a new shirt.")]),
+            ("пла́тье", "n_e", "N", False, "dress", "Э́то моё пла́тье.", "This is my dress.", None,
+             [("Вот но́вое пла́тье.", "Here is a new dress.")]),
+            ("ку́ртка", "f_a", "F", False, "jacket", "Э́то моя́ ку́ртка.", "This is my jacket.", {"GEN_PL": "курток"},
+             [("Вот тёплая ку́ртка.", "Here is a warm jacket.")]),
+            ("о́бувь", "f_soft", "F", False, "footwear, shoes", "Э́то моя́ о́бувь.", "This is my footwear.", "sg",
+             [("Вот но́вая о́бувь.", "Here is new footwear.")]),
+        ],
+    },
+    {
+        # G9 thematic-coverage repair: basic emotions field (previously
+        # absent). "счастли́вый" is already a B1 note (test_curriculum_quality
+        # forbids reintroducing a lemma), so distinct A1-appropriate emotion
+        # adjectives are used here instead.
+        "unit": 21,
+        "title": "Feelings",
+        "concept": None,
+        "topic": "emotions",
+        "adjs": [
+            ("ве́сёлый", "cheerful, happy", "Он ве́сёлый студе́нт.", "He is a cheerful student.",
+             [("Э́то ве́сёлая соба́ка.", "This is a cheerful dog.")]),
+            ("гру́стный", "sad", "Она́ гру́стная сего́дня.", "She is sad today.",
+             [("Э́то гру́стная кни́га.", "This is a sad book.")]),
+            ("уста́лый", "tired", "Я уста́лый сего́дня.", "I am tired today.",
+             [("Он уста́лый по́сле рабо́ты.", "He is tired after work.")]),
+        ],
+        "words": [
+            ("по́сле", "preposition", "after", "Он уста́лый по́сле рабо́ты.", "He is tired after work.",
+             [("По́сле шко́лы я гуля́ю.", "After school I go for a walk.")]),
         ],
     },
 ]

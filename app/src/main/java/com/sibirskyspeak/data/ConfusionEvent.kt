@@ -3,6 +3,7 @@ package com.sibirskyspeak.data
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.sibirskyspeak.review.ErrorCategory
 
 /**
  * One persisted "which wrong form did the learner produce" classification (P4.5),
@@ -17,7 +18,8 @@ data class ConfusionEvent(
     val expectedKey: String,
     val producedKey: String,
     val cardType: CardType,
-    val at: Long
+    val at: Long,
+    val category: ErrorCategory = ErrorCategory.ORTHOGRAPHY
 )
 
 /** Aggregate row for grouping confusion_events by pair (Room POJO, not an entity). */
@@ -25,5 +27,6 @@ data class ConfusionPairCount(
     val expectedKey: String,
     val producedKey: String,
     val cardType: CardType,
-    val count: Int
+    val count: Int,
+    val category: ErrorCategory = ErrorCategory.ORTHOGRAPHY
 )

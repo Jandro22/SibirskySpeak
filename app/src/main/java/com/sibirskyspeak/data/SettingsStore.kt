@@ -39,6 +39,9 @@ interface SettingsStore {
      * for. Suppresses re-showing that exact suggestion; a nudge in a different
      * direction still surfaces. Empty string = nothing dismissed. */
     var dismissedDoctrineNudge: String
+    /** Empty means the general inventory; otherwise a build-time validated domain tag. */
+    var preferredDomain: String
+    var preferredSessionMinutes: Int
     val learningExperimentVariant: String
     var unlockedAchievementIds: Set<String>
     fun newlyUnlocked(currentUnlocked: Set<String>): Set<String>
@@ -179,6 +182,14 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         get() = prefs.getString(KEY_DISMISSED_DOCTRINE_NUDGE, "") ?: ""
         set(value) = prefs.edit().putString(KEY_DISMISSED_DOCTRINE_NUDGE, value).apply()
 
+    override var preferredDomain: String
+        get() = prefs.getString(KEY_PREFERRED_DOMAIN, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_PREFERRED_DOMAIN, value.trim().lowercase()).apply()
+
+    override var preferredSessionMinutes: Int
+        get() = prefs.getInt(KEY_SESSION_MINUTES, 15).takeIf { it in setOf(5, 15, 45) } ?: 15
+        set(value) = prefs.edit().putInt(KEY_SESSION_MINUTES, value.takeIf { it in setOf(5, 15, 45) } ?: 15).apply()
+
     /** Stable, installation-local learning experiment. Never changes mid-course. */
     override val learningExperimentVariant: String
         get() {
@@ -241,5 +252,7 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         private const val KEY_LAST_ADAPTIVE_LOAD_DAY = "last_adaptive_load_day"
         private const val KEY_DISMISSED_DOCTRINE_NUDGE = "dismissed_doctrine_nudge"
         private const val KEY_LEARNING_EXPERIMENT = "learning_experiment_v1"
+        private const val KEY_PREFERRED_DOMAIN = "preferred_domain"
+        private const val KEY_SESSION_MINUTES = "preferred_session_minutes"
     }
 }

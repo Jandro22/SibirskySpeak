@@ -76,6 +76,24 @@ class LearningRepository(
     private val scheduler: Scheduler,
     private val bootstrapNotes: (suspend () -> String?)? = null,
     private val bootstrapReaderTexts: (suspend () -> String?)? = null,
+    private val bootstrapManifest: (suspend () -> String?)? = null,
+    // units.json (Phase G6, exit tickets): read-only curriculum manifest mapping
+    // each tier-0 unit to its "canDo" label. Optional/graceful — a missing or
+    // unparseable asset just means exit tickets show no can-do label, never a
+    // crash (same convention as bootstrapManifest above).
+    private val bootstrapUnits: (suspend () -> String?)? = null,
+    // transformations.json (Phase G6 §13.6, register ladder): authored neutral<->
+    // formal sentence pairs for B2+ TRANSFORM drills. Shipped by
+    // build_curriculum_metadata.py alongside units.json/curriculum_completeness.json.
+    private val bootstrapTransformations: (suspend () -> String?)? = null,
+    // curriculum_completeness.json (Phase G11): per-band % of the Tatoeba corpus
+    // fully parseable with the currently-shipped grammar+vocab spine. Read-only
+    // dashboard metric — never affects gating or scheduling.
+    private val bootstrapCompleteness: (suspend () -> String?)? = null,
+    // phonology.json (Phase G10): authored minimal-pair/rule/intonation/fast-speech/
+    // stress-mobility items. Only kind=MINIMAL_PAIR with requiresAudioPack=false
+    // becomes a real card today — see phonologyMinimalPairs().
+    private val bootstrapPhonology: (suspend () -> String?)? = null,
     // Runs a block inside a single DB transaction. Seeding inserts ~10k notes
     // and their cards; without this each insert auto-commits, making first
     // launch slow. Defaults to running the block directly (used by tests).
@@ -96,6 +114,7 @@ class LearningRepository(
     private val weeklyReportDao: WeeklyReportDao? = null,
     private val confusionEventDao: ConfusionEventDao? = null,
     private val checkpointResultDao: CheckpointResultDao? = null,
+    private val curriculumStateDao: CurriculumStateDao? = null,
     private val telemetryDao: TelemetryDao? = null,
     private val readingScheduleDao: ReadingScheduleDao? = null,
     private val readerEncounterDao: ReaderEncounterDao? = null,
@@ -132,6 +151,8 @@ class LearningRepository(
     @Volatile private var formIndexCache: Map<String, Note>? = null
     @Volatile private var knownIdsCache: Set<Long>? = null
     @Volatile private var frameInventoryCache: FrameInventory? = null
+    @Volatile private var unitCanDoCache: Map<Int, String>? = null
+    @Volatile private var registerPairsCache: List<com.sibirskyspeak.transform.RegisterPair>? = null
     private val modelTuningMutex = Mutex()
     @Volatile private var lastGraduationReviewCount: Int? = null
     @Volatile private var accuracyCacheReviewCount: Int? = null
@@ -223,6 +244,7 @@ class LearningRepository(
 
     suspend fun seedIfEmpty(runMaintenance: Boolean = true) {
         if (noteDao.count() > 0) {
+            syncCurriculumManifest()
             if (runMaintenance) performLaunchMaintenance()
             return
         }
@@ -249,6 +271,7 @@ class LearningRepository(
             bootstrapReaderTexts?.invoke()?.takeIf { it.isNotBlank() }?.let { importReaderTextsJsonLines(it) }
         }
         if (imported > 0) {
+            syncCurriculumManifest()
             runCatching { runner { seedConfusablePairs() } }
             runCatching { performDataMaintenance() }
             runCatching { mineExampleGaps(limit = 96) }
@@ -337,6 +360,113 @@ class LearningRepository(
         }
     }
 
+    private suspend fun syncCurriculumManifest() {
+        val dao = curriculumStateDao ?: return
+        val payload = bootstrapManifest?.invoke()?.takeIf { it.isNotBlank() } ?: return
+        val json = runCatching { JSONObject(payload) }.getOrNull() ?: return
+        val version = json.optString("curriculumVersion")
+        val checksum = json.optString("contentChecksum")
+        if (version.isBlank() || checksum.isBlank()) return
+        val previous = dao.current()
+        if (previous?.checksum == checksum) return
+        fun total(manifest: JSONObject): Int {
+            val counts = manifest.optJSONObject("noteCountsByBand") ?: return 0
+            return counts.keys().asSequence().sumOf { counts.optInt(it) }
+        }
+        val oldJson = previous?.manifestJson?.let { runCatching { JSONObject(it) }.getOrNull() }
+        val appeared = (total(json) - (oldJson?.let(::total) ?: 0)).coerceAtLeast(0)
+        val retired = ((oldJson?.let(::total) ?: 0) - total(json)).coerceAtLeast(0)
+        dao.upsert(CurriculumState(version = version, checksum = checksum, manifestJson = payload))
+        if (previous != null) dao.insertReport(CurriculumMigrationReport(
+            fromVersion = previous.version, toVersion = version, appeared = appeared,
+            moved = 0, retired = retired,
+            detailsJson = JSONObject().put("oldChecksum", previous.checksum).put("newChecksum", checksum).toString()
+        ))
+    }
+
+    /** Phase G11: per-band curriculum-completeness readout for the Lab dashboard —
+     * what fraction of the Tatoeba corpus is fully parseable with the shipped
+     * spine, by CEFR band. Read-only; never affects gating or scheduling. */
+    suspend fun curriculumCompleteness(): Map<String, CurriculumCompletenessBand> {
+        val payload = bootstrapCompleteness?.invoke()?.takeIf { it.isNotBlank() } ?: return emptyMap()
+        val json = runCatching { JSONObject(payload) }.getOrNull() ?: return emptyMap()
+        return json.keys().asSequence().mapNotNull { band ->
+            val obj = json.optJSONObject(band) ?: return@mapNotNull null
+            band to CurriculumCompletenessBand(
+                corpusSentences = obj.optInt("corpusSentences"),
+                parseableSentences = obj.optInt("parseableSentences"),
+                percent = obj.optDouble("percent")
+            )
+        }.toMap()
+    }
+
+    /** Phase G10: the phonology.json MINIMAL_PAIR items device TTS can render
+     * reliably (requiresAudioPack=false) — see docs/ADAPTIVE_TUTOR_FINAL_PLAN.md
+     * Phase G10 on why audio-pack-gated contrasts ship disabled rather than as a
+     * broken drill. */
+    private suspend fun phonologyMinimalPairs(): List<PhonologyMinimalPair> {
+        val payload = bootstrapPhonology?.invoke()?.takeIf { it.isNotBlank() } ?: return emptyList()
+        val json = runCatching { JSONObject(payload) }.getOrNull() ?: return emptyList()
+        val items = json.optJSONArray("items") ?: return emptyList()
+        return (0 until items.length()).mapNotNull { i ->
+            val item = items.optJSONObject(i) ?: return@mapNotNull null
+            if (item.optString("kind") != "MINIMAL_PAIR" || item.optBoolean("requiresAudioPack", false)) return@mapNotNull null
+            val forms = item.optJSONArray("forms") ?: return@mapNotNull null
+            if (forms.length() < 2) return@mapNotNull null
+            PhonologyMinimalPair(id = item.optString("id"), formA = forms.optString(0), formB = forms.optString(1))
+        }
+    }
+
+    /** Mints a PHONOLOGY_MINIMAL_PAIR card once one side of a shipped minimal
+     * pair exists as a mature tier-0 vocabulary note (same maturity bar as
+     * syncMissingTransformCards/syncMissingChunkCards) — never fabricates a note,
+     * only attaches the discrimination drill to real, already-known vocabulary. */
+    private suspend fun syncMissingPhonologyCards(limit: Int = 24) {
+        val pairs = phonologyMinimalPairs()
+        if (pairs.isEmpty()) return
+        val notes = allNotesCached()
+        val noteByRussian = notes.filter { it.tier == 0 }.associateBy { it.russian }
+        val existingItemIds = cardDao.getCardsForNotes(notes.map { it.id })
+            .filter { it.cardType == CardType.PHONOLOGY_MINIMAL_PAIR }
+            .mapNotNullTo(hashSetOf()) { it.gramConcept }
+        var minted = 0
+        for (pair in pairs) {
+            if (minted >= limit) break
+            val itemKey = "PHONOLOGY_${pair.id}"
+            if (itemKey in existingItemIds) continue
+            val anchor = noteByRussian[pair.formA] ?: noteByRussian[pair.formB] ?: continue
+            val otherForm = if (anchor.russian == pair.formA) pair.formB else pair.formA
+            val recognition = cardDao.getCardsForNotes(listOf(anchor.id))
+                .firstOrNull { it.cardType == CardType.RU_TO_MEANING }
+            val mature = recognition != null && recognition.reps >= 3 && recognition.consecutiveCorrect >= 2 &&
+                recognition.state in setOf(CardState.REVIEW, CardState.GRADUATED)
+            if (!mature) continue
+            cardDao.insert(
+                Card(
+                    noteId = anchor.id, cardType = CardType.PHONOLOGY_MINIMAL_PAIR, queue = Queue.VOCAB, due = 0L,
+                    gramContextCue = otherForm, gramConcept = itemKey
+                )
+            )
+            minted++
+        }
+    }
+
+    /** Deterministically picks which side of a minted minimal pair TTS plays for
+     * a given review (stable per card per day, same day/id-parity convention as
+     * registerLadderRealization), so repeated reviews exercise both directions
+     * over time instead of always drilling the same side. Returns
+     * (formToPlay, otherForm), or null if the card wasn't minted by
+     * syncMissingPhonologyCards (no gramContextCue). */
+    fun phonologyMinimalPairRealization(card: Card, note: Note, day: Long): Pair<String, String>? {
+        val other = card.gramContextCue ?: return null
+        return if ((day + card.id) % 2 == 0L) note.russian to other else other to note.russian
+    }
+
+    suspend fun pendingCurriculumMigrationReport(): CurriculumMigrationReport? = curriculumStateDao?.pendingReport()
+    suspend fun markCurriculumMigrationReportShown(id: Long) { curriculumStateDao?.markShown(id) }
+    suspend fun recordExitTicket(result: ExitTicketResult): Long = curriculumStateDao?.insertExitTicket(result) ?: 0L
+    suspend fun exitTicketResults(): List<ExitTicketResult> = curriculumStateDao?.exitTickets().orEmpty()
+
     /** Repairs and additive content syncs are useful, but none is required to draw
      * the first screen. Keep this work off the UI/startup critical path. */
     suspend fun performLaunchMaintenance() = withContext(computeDispatcher) {
@@ -348,6 +478,7 @@ class LearningRepository(
         runCatching { syncMissingChunkCards() }
         runCatching { syncMissingTransformCards() }
         runCatching { syncMissingSpeakSentenceCards() }
+        runCatching { syncMissingPhonologyCards() }
         runCatching { repairConcatenatedExamples() }
         runCatching { syncBootstrapTextbookNotes() }
         runCatching { retireRejectedBootstrapNotes() }
@@ -2118,7 +2249,8 @@ class LearningRepository(
     // reads still run correctly when dispatched from here.
     suspend fun sessionPlan(
         now: Long = System.currentTimeMillis(),
-        includeReaderInsights: Boolean = true
+        includeReaderInsights: Boolean = true,
+        timeBudgetMinutes: Int? = null
     ): SessionPlan = withContext(computeDispatcher) {
         refreshGraduationsIfNeeded()
         ensureDailyMicroReading(now)
@@ -2203,7 +2335,9 @@ class LearningRepository(
         val generatedNewBudget = adoptedPace.newBudget
         val generatedRetention = adoptedPace.retention
         val sessionMode = adoptedPace.mode
-        val cards = applyContrastivePairing(sessionCards(now, generatedCapacity, daily, mastery, generatedNewBudget), now)
+        val cards = applyInterferenceSeeding(
+            applyContrastivePairing(sessionCards(now, generatedCapacity, daily, mastery, generatedNewBudget), now)
+        )
         // Difficulty is only consumed for cards in today's bounded plan. Loading the
         // entire historical table made startup scale with lifetime deck size.
         val itemDifficultyMap = if (cards.isEmpty()) emptyMap() else {
@@ -2236,7 +2370,7 @@ class LearningRepository(
             }
         )
         val confusablePairs = confusablePairDao.getAll().mapTo(linkedSetOf()) { it.firstNoteId to it.secondNoteId }
-        val prompts = orderPrompts(
+        val orderedPrompts = orderPrompts(
             rawPrompts,
             blueprint,
             now,
@@ -2251,6 +2385,13 @@ class LearningRepository(
             },
             uncertaintyWeight = parametersByKey["tuned_uncertainty_weight"]?.value ?: 0.18
         )
+        val budgetMinutes = timeBudgetMinutes?.coerceIn(5, 180)
+        val costAllowance = budgetMinutes?.let { it / medianReviewMinutes.coerceAtLeast(0.08) }
+        var usedCost = 0.0
+        val prompts = if (costAllowance == null) orderedPrompts else orderedPrompts.takeWhile { prompt ->
+            val next = com.sibirskyspeak.learning.CardPedagogy.profile(prompt.card.cardType).cognitiveCost
+            (usedCost + next <= costAllowance || usedCost == 0.0).also { include -> if (include) usedCost += next }
+        }
         val readingAssignment = dueReadingAssignment(allTexts, consolidationReader, prompts.size, now, pace.readingInserts.firstOrNull())
         val introducedToday = reviewLogDao.countNewIntroducedSince(startOfLocalDay(now))
         val completion = when {
@@ -2265,7 +2406,10 @@ class LearningRepository(
             blockedGrammar = blocked,
             interleavedGrammar = interleavedGrammarPrompts(blocked.map { it.card.id }.toSet(), now, notesById),
             readerRecommendation = consolidationReader
-                ?: allTexts.minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTarget(it.coverage) }.thenByDescending { it.dueOverlap }.thenByDescending { it.coverage }),
+                ?: allTexts.minWithOrNull(
+                    compareBy<ReaderRecommendation> { domainBiasFor(it.text.source, config().preferredDomain) }
+                        .thenBy { distanceFromTarget(it.coverage) }.thenByDescending { it.dueOverlap }.thenByDescending { it.coverage }
+                ),
             dashboardStats = dashboardStatsFrom(now, allTexts),
             skillRatings = skillRatings,
             rivalState = rivalState,
@@ -2283,7 +2427,11 @@ class LearningRepository(
             blueprint = blueprint,
             pace = pace,
             confusablePairs = confusablePairs,
-            doctrineNudge = doctrineNudge
+            doctrineNudge = doctrineNudge,
+            timeBudget = budgetMinutes?.let {
+                SessionTimeBudget(it, usedCost, usedCost * medianReviewMinutes, orderedPrompts.size - prompts.size)
+            },
+            levelConstraint = effectiveLevelConstraint()
         )
     }
 
@@ -2355,8 +2503,12 @@ class LearningRepository(
         val due = dao.getAll().filter { it.due <= now }.associateBy { it.readerTextId }
         if (due.isEmpty()) return null
         val readable = texts.filter { it.text.id in due && it.coverage >= MIN_READER_COVERAGE }
+        val preferredDomain = config().preferredDomain
         val recommendation = consolidation?.takeIf { it.text.id in due && it.coverage >= MIN_READER_COVERAGE }
-            ?: readable.minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTarget(it.coverage) }.thenByDescending { it.dueOverlap }.thenBy { due[it.text.id]?.reps ?: 0 })
+            ?: readable.minWithOrNull(
+                compareBy<ReaderRecommendation> { domainBiasFor(it.text.source, preferredDomain) }
+                    .thenBy { distanceFromTarget(it.coverage) }.thenByDescending { it.dueOverlap }.thenBy { due[it.text.id]?.reps ?: 0 }
+            )
             ?: return null
         val insertion = forcedInsertion?.coerceIn(0, cardCount.coerceAtLeast(0))
             ?: when {
@@ -2537,6 +2689,130 @@ class LearningRepository(
         }
     }
 
+    /** unit -> canDo label, parsed once from the read-only units.json asset
+     *  (schema: {"units":[{"unit":N,"canDo":"..."},...]}). Falls back to an empty
+     *  map (never crashes) if the asset is missing or malformed. */
+    private suspend fun unitCanDoLabels(): Map<Int, String> = unitCanDoCache ?: run {
+        val payload = bootstrapUnits?.invoke()?.takeIf { it.isNotBlank() }
+        val parsed = runCatching {
+            val units = JSONObject(payload ?: return@runCatching emptyMap<Int, String>()).optJSONArray("units") ?: JSONArray()
+            (0 until units.length()).mapNotNull { i ->
+                val obj = units.optJSONObject(i) ?: return@mapNotNull null
+                val unit = obj.optInt("unit", -1).takeIf { it >= 0 } ?: return@mapNotNull null
+                val canDo = obj.optString("canDo").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                unit to canDo
+            }.toMap()
+        }.getOrDefault(emptyMap())
+        unitCanDoCache = parsed
+        parsed
+    }
+
+    /**
+     * Assembles a unit exit ticket (Phase G6 / P6.5): a short mixed proof session
+     * over just-completed unit's own inventory, built entirely from existing card
+     * types — never a new one. One recognition item (RU_TO_MEANING-style gloss
+     * recall), one production item (typed Russian from an English cue, reusing the
+     * MEANING_TO_RU direction), one listening item (reuses the AUDIO_TO_RU/DICTATION
+     * direction — the learner types the Russian for a played/shown form) and one
+     * reading/comprehension item (multiple-choice translation over a sentence-bearing
+     * note, mirroring ReviewViewModel.buildReaderCheckpoint). Returns null if the unit
+     * has too little inventory to build a meaningful mixed session (e.g. all its
+     * notes are IGNORED or newly seeded with no examples yet) — callers must treat
+     * that as "nothing to show", never a blocker.
+     */
+    suspend fun buildExitTicketSession(unit: Int): ExitTicketSession? {
+        val notes = allNotesCached().filter { it.tier == 0 && it.unit == unit && it.status != WordStatus.IGNORED }
+        if (notes.size < 2) return null
+        val pool = notes.shuffled(kotlin.random.Random(unit.toLong()))
+        val recognitionNote = pool.getOrNull(0) ?: return null
+        val productionNote = pool.getOrNull(1) ?: recognitionNote
+        val listeningNote = pool.getOrNull(2) ?: productionNote
+        val readingNote = pool.firstOrNull { !it.exampleSentence.isNullOrBlank() && !it.exampleTranslation.isNullOrBlank() }
+
+        val items = mutableListOf<ExitTicketItem>()
+        items += ExitTicketItem(
+            kind = "recognition",
+            noteId = recognitionNote.id,
+            prompt = recognitionNote.russian,
+            expectedAnswer = recognitionNote.translation
+        )
+        items += ExitTicketItem(
+            kind = "production",
+            noteId = productionNote.id,
+            prompt = productionNote.translation.split(',', ';').first().trim(),
+            expectedAnswer = productionNote.russian
+        )
+        items += ExitTicketItem(
+            kind = "listening",
+            noteId = listeningNote.id,
+            prompt = listeningNote.russian,
+            expectedAnswer = listeningNote.russian
+        )
+        if (readingNote != null) {
+            val expected = readingNote.exampleTranslation!!.trim()
+            val distractors = pool.mapNotNull { it.exampleTranslation?.trim() }
+                .filter { it.isNotBlank() && !it.equals(expected, ignoreCase = true) }
+                .distinct().take(3)
+            items += ExitTicketItem(
+                kind = "reading",
+                noteId = readingNote.id,
+                prompt = readingNote.exampleSentence!!,
+                expectedAnswer = expected,
+                choices = (listOf(expected) + distractors).distinct()
+            )
+        }
+        val canDo = unitCanDoLabels()[unit]
+        return ExitTicketSession(unit = unit, canDoLabel = canDo, items = items)
+    }
+
+    /** Grades one exit-ticket answer. Recognition/reading are English-gloss
+     * matches (lenient, same helper as the monthly checkpoint); production and
+     * listening expect the target Russian, matched modulo stress like any other
+     * typed Russian production answer. */
+    fun gradeExitTicketAnswer(item: ExitTicketItem, answer: String): Boolean = when (item.kind) {
+        "recognition", "reading" -> isEnglishAnswerCorrect(item.expectedAnswer, answer)
+        else -> normalizeRussian(item.expectedAnswer) == normalizeRussian(answer)
+    }
+
+    /**
+     * Records a completed exit ticket (never a hard lock — this is called only
+     * once the learner has answered every item or chosen to finish early) and
+     * feeds each involved note's evidence bus at PRACTICE strength, the same
+     * strength used for passive reading/listening credit (see
+     * creditReadingEvidence) — an exit ticket is a light proof-of-transfer signal,
+     * not a full graded review.
+     */
+    suspend fun completeExitTicket(session: ExitTicketSession, results: List<Boolean>, now: Long = System.currentTimeMillis()) {
+        val facets = mapOf(
+            "recognition" to com.sibirskyspeak.learning.LearningFacet.MEANING,
+            "production" to com.sibirskyspeak.learning.LearningFacet.FORM,
+            "listening" to com.sibirskyspeak.learning.LearningFacet.LISTENING,
+            "reading" to com.sibirskyspeak.learning.LearningFacet.CONTEXT
+        )
+        session.items.forEachIndexed { index, item ->
+            val noteId = item.noteId ?: return@forEachIndexed
+            val correct = results.getOrNull(index) ?: return@forEachIndexed
+            runCatching {
+                recordEvidence(EvidenceEvent(
+                    noteId = noteId,
+                    facet = facets[item.kind] ?: com.sibirskyspeak.learning.LearningFacet.CONTEXT,
+                    strength = EvidenceStrength.PRACTICE,
+                    correct = correct,
+                    source = ReviewSource.PRODUCTION,
+                    at = now
+                ))
+            }
+        }
+        recordExitTicket(ExitTicketResult(
+            unit = session.unit,
+            recognition = results.getOrNull(0) ?: false,
+            production = results.getOrNull(1) ?: false,
+            listening = results.getOrNull(2) ?: false,
+            reading = results.getOrNull(3) ?: false,
+            completedAt = now
+        ))
+    }
+
     /** How far into the CEFR scale (index into CEFR_LEVELS) new-card selection may
      *  reach right now, regardless of tier. Mirrors unitMastery()'s frontier logic —
      *  a level counts as cleared once its own tier-0 vocabulary is mostly mastered —
@@ -2545,6 +2821,15 @@ class LearningRepository(
      *  register) can never be selected as a "new card" before they're realistically
      *  ready for it, no matter how it sorts by frequency. */
     private suspend fun effectiveCefrOrdinal(): Int {
+        val spine = spineMasteryCefrOrdinal()
+        val core = learningModelDao?.skillRatings().orEmpty()
+            .filter { it.observations > 0 && it.skill in setOf("production", "listening") }
+        if (core.size < 2) return spine
+        val weakest = core.minOf { skillCefrOrdinal(it.mu) }
+        return minOf(spine, (weakest + 1).coerceAtMost(CEFR_LEVELS.lastIndex))
+    }
+
+    private suspend fun spineMasteryCefrOrdinal(): Int {
         val tier0Notes = allNotesCached().filter { it.tier == 0 && it.cefrLevel != null && it.status != WordStatus.IGNORED }
         val byLevel = tier0Notes.groupBy { it.cefrLevel!! }
         val vocabByNote = cardDao.getAllVocabCards()
@@ -2562,6 +2847,24 @@ class LearningRepository(
             }
         }
         return CEFR_LEVELS.lastIndex
+    }
+
+    private fun skillCefrOrdinal(mu: Double): Int = when {
+        mu < -5.0 -> 0
+        mu < 0.0 -> 1
+        mu < 5.0 -> 2
+        mu < 10.0 -> 3
+        mu < 15.0 -> 4
+        else -> 5
+    }
+
+    private suspend fun effectiveLevelConstraint(): String? {
+        val spine = spineMasteryCefrOrdinal()
+        val core = learningModelDao?.skillRatings().orEmpty()
+            .filter { it.observations > 0 && it.skill in setOf("production", "listening") }
+        if (core.size < 2) return null
+        val weakest = core.minBy { skillCefrOrdinal(it.mu) }
+        return if (skillCefrOrdinal(weakest.mu) + 1 < spine) "Level capped by ${weakest.skill}" else null
     }
 
     suspend fun gamificationStats(now: Long = System.currentTimeMillis()): GamificationStats {
@@ -2770,7 +3073,7 @@ class LearningRepository(
 
     /** Persists a confusion classification (P4.5, review/AnswerDiagnosis.kt). */
     suspend fun recordConfusionEvent(diagnosis: com.sibirskyspeak.review.Diagnosis, cardType: CardType, now: Long = System.currentTimeMillis()) {
-        confusionEventDao?.insert(ConfusionEvent(expectedKey = diagnosis.expectedKey, producedKey = diagnosis.producedKey, cardType = cardType, at = now))
+        confusionEventDao?.insert(ConfusionEvent(expectedKey = diagnosis.expectedKey, producedKey = diagnosis.producedKey, category = diagnosis.category, cardType = cardType, at = now))
     }
 
     /** The most-recurring (expectedKey, producedKey, cardType) confusion in the
@@ -2807,6 +3110,32 @@ class LearningRepository(
         val without = cards.filterNot { it.id == produced.id }
         val insertAt = without.indexOfFirst { it.id == expected.id } + 1
         return without.toMutableList().apply { add(insertAt, produced) }
+    }
+
+    /** Phase G2: seeds contrastive practice proactively from [GrammarConcept.
+     * interferesWith] edges as soon as both sides of an interference pair are
+     * introduced, instead of waiting for [CONFUSION_MIN_EVENTS] logged mistakes
+     * (P4.5's reactive path, [applyContrastivePairing], still runs first and
+     * takes priority on any card it already moved). Like the reactive path, this
+     * only reorders cards already selected for today — it never fabricates one. */
+    private suspend fun applyInterferenceSeeding(cards: List<Card>): List<Card> {
+        if (cards.size < 2) return cards
+        val introduced = cardDao.getIntroducedConceptIds().toHashSet()
+        if (introduced.size < 2) return cards
+        val byConcept = cards.groupBy { it.gramConcept }
+        for (concept in GrammarConcepts.ALL) {
+            if (concept.id !in introduced) continue
+            for (rivalId in concept.interferesWith) {
+                if (rivalId !in introduced) continue
+                val expected = byConcept[concept.id]?.firstOrNull() ?: continue
+                val produced = byConcept[rivalId]?.firstOrNull() ?: continue
+                if (expected.id == produced.id) continue
+                val without = cards.filterNot { it.id == produced.id }
+                val insertAt = without.indexOfFirst { it.id == expected.id } + 1
+                return without.toMutableList().apply { add(insertAt, produced) }
+            }
+        }
+        return cards
     }
 
     /**
@@ -3629,8 +3958,13 @@ class LearningRepository(
         return changed
     }
 
-    suspend fun readerRecommendation(): ReaderRecommendation? =
-        readerTexts().minWithOrNull(compareBy<ReaderRecommendation> { distanceFromTarget(it.coverage) }.thenByDescending { it.dueOverlap }.thenByDescending { it.coverage })
+    suspend fun readerRecommendation(): ReaderRecommendation? {
+        val preferredDomain = config().preferredDomain
+        return readerTexts().minWithOrNull(
+            compareBy<ReaderRecommendation> { domainBiasFor(it.text.source, preferredDomain) }
+                .thenBy { distanceFromTarget(it.coverage) }.thenByDescending { it.dueOverlap }.thenByDescending { it.coverage }
+        )
+    }
 
     @Suppress("UNUSED_PARAMETER")
     suspend fun readerLookup(token: String, text: ReaderText, now: Long = System.currentTimeMillis()): Note? {
@@ -4070,6 +4404,7 @@ class LearningRepository(
 
     private data class ConceptGate(
         val locked: Set<String>,
+        val prerequisitesLocked: Set<String> = emptySet(),
         // concept id -> the one drill card id still allowed to surface while that
         // concept is on probation (see probationaryConceptCards below).
         val probationCard: Map<String, Long>,
@@ -4095,11 +4430,14 @@ class LearningRepository(
     private suspend fun conceptGate(): ConceptGate {
         val tapered = cardDao.getTaperedConceptIds().toHashSet()
         val withLessons = cardDao.getConceptIdsWithLessons().toHashSet()
-        if (withLessons.isEmpty()) return ConceptGate(emptySet(), emptyMap(), tapered)
+        if (withLessons.isEmpty()) return ConceptGate(emptySet(), emptySet(), emptyMap(), tapered)
         val introduced = cardDao.getIntroducedConceptIds().toHashSet()
         val locked = withLessons - introduced
-        if (introduced.isEmpty()) return ConceptGate(locked, emptyMap(), tapered)
-        return ConceptGate(locked, probationaryConceptCards(), tapered)
+        val prerequisitesLocked = withLessons.filterTo(mutableSetOf()) { id ->
+            GrammarConcepts.byId(id)?.prerequisites?.any { it !in introduced } == true
+        }
+        if (introduced.isEmpty()) return ConceptGate(locked, prerequisitesLocked, emptyMap(), tapered)
+        return ConceptGate(locked, prerequisitesLocked, probationaryConceptCards(), tapered)
     }
 
     /** For every introduced concept with no drill card that has ever succeeded, the
@@ -4134,7 +4472,7 @@ class LearningRepository(
     /** True if [card] is a grammar drill whose teaching concept is still locked, or
      * whose concept is on probation and this isn't the one card admitted to prove it. */
     private fun isConceptLocked(card: Card, gate: ConceptGate): Boolean {
-        if (card.cardType == CardType.LESSON) return false
+        if (card.cardType == CardType.LESSON) return card.gramConcept in gate.prerequisitesLocked
         if (card.queue != Queue.GRAMMAR) return false
         val concept = GrammarConcepts.forCard(card)?.id ?: card.gramConcept ?: return false
         if (concept in gate.locked) return true
@@ -4263,6 +4601,29 @@ class LearningRepository(
         return null
     }
 
+    /** Lazily parses transformations.json once per process (see the
+     * bootstrapTransformations constructor param for the current shipping-gap
+     * caveat); an empty/missing asset just yields an empty list. */
+    private suspend fun registerPairs(): List<com.sibirskyspeak.transform.RegisterPair> = registerPairsCache ?: run {
+        val payload = bootstrapTransformations?.invoke()?.takeIf { it.isNotBlank() }
+        val parsed = payload?.let { Transformer.parseRegisterPairs(it) }.orEmpty()
+        registerPairsCache = parsed
+        parsed
+    }
+
+    /**
+     * Register-ladder TRANSFORM realization (Phase G6 §13.6): at B2+ effective
+     * CEFR, picks one authored neutral<->formal pair deterministically by
+     * (day, cardId) — same seeding idea as [transformRealization]'s sentence
+     * rotation, so a card doesn't reshuffle mid-review but does vary day to day.
+     * This is a second, additive source of TRANSFORM realizations; it never
+     * replaces the negation path, only takes priority over it once unlocked (see
+     * the CardType.TRANSFORM branch in promptFor). Returns null (falling back to
+     * negation) whenever no pairs are loaded yet.
+     */
+    private suspend fun registerLadderRealization(cardId: Long, epochDay: Long): com.sibirskyspeak.transform.RegisterPair? =
+        Transformer.pickRegisterPair(registerPairs(), epochDay, cardId)
+
     /**
      * Picks a real, unit-appropriate 5-9 token sentence containing this note's
      * lemma for elicited imitation (P6.1). Rotated deterministically by day for
@@ -4329,12 +4690,31 @@ class LearningRepository(
             }
         }
         if (card.cardType == CardType.TRANSFORM) {
-            transformRealization(note, now / DAY_MILLIS)?.let { realized ->
+            val registerPair = if (effectiveCefrOrdinal() >= B2_ORDINAL) registerLadderRealization(card.id, now / DAY_MILLIS) else null
+            if (registerPair != null) {
+                prompt = prompt.copy(
+                    prompt = "Rewrite in a more formal register.\n${registerPair.source}",
+                    expectedAnswer = registerPair.answer,
+                    answerMode = AnswerMode.RUSSIAN_TYPED,
+                    explanation = "Formal register avoids first-person narration; prefer nominalized, impersonal phrasing."
+                )
+            } else transformRealization(note, now / DAY_MILLIS)?.let { realized ->
                 prompt = prompt.copy(
                     prompt = "${realized.instruction}\n${realized.original}",
                     expectedAnswer = realized.result,
                     answerMode = AnswerMode.RUSSIAN_TYPED,
                     explanation = "Add «не» directly before the verb."
+                )
+            }
+        }
+        if (card.cardType == CardType.PHONOLOGY_MINIMAL_PAIR) {
+            phonologyMinimalPairRealization(card, note, now / DAY_MILLIS)?.let { (played, other) ->
+                prompt = prompt.copy(
+                    prompt = "",
+                    expectedAnswer = played,
+                    answerMode = AnswerMode.AUDIO_ONLY,
+                    teachingHint = "Minimal-pair listening — type the word you heard.",
+                    explanation = "Contrast: $played vs $other. ${meaningLine(note.translation)}"
                 )
             }
         }
@@ -4499,6 +4879,30 @@ class LearningRepository(
             else -> coverage - 0.96
         }
 
+    /**
+     * Phase G6 domain overlays, scaled down (see CLAUDE.md-adjacent plan doc
+     * Phase G6): the shipped frame table carries a `domain` column but every
+     * shipped frame is currently tagged "general" (tools/preprocess/build_frames.py
+     * hasn't authored domain variety yet), so there is no real per-slot domain
+     * signal to bias FrameRealizer fills with today. ReaderText.source DOES carry
+     * a real, rich domain signal already ("target:business", "target:science",
+     * "graded:travel", "target:kremlin", ...) — reused here as-is, no new tagging
+     * scheme invented. Returns 0 for an exact domain match (most preferred), 1 for
+     * an untagged/general text, 2 for a differently-domain-tagged text; used as a
+     * primary sort key ahead of the existing coverage-distance ranking so a
+     * preference nudges the choice without ever excluding non-matching text when
+     * nothing fits. No preference set (`preferredDomain` blank) is a no-op (all 0).
+     */
+    private fun domainBiasFor(source: String, preferredDomain: String): Int {
+        if (preferredDomain.isBlank()) return 0
+        val tag = source.substringAfter(':', missingDelimiterValue = "").lowercase()
+        return when {
+            tag.isEmpty() -> 1
+            tag == preferredDomain -> 0
+            else -> 2
+        }
+    }
+
     private fun tokenize(text: String): List<String> =
         Regex("""[\p{L}\u0301]+""").findAll(text).map { it.value }.toList()
 
@@ -4611,6 +5015,9 @@ class LearningRepository(
             // by MIGRATION_14_15, so it must not resurface as a deferred facet.
         )
         private val CEFR_LEVELS = listOf("A1", "A2", "B1", "B2", "C1", "C2")
+        // Register-ladder TRANSFORM drills (Phase G6 §13.6) only activate once the
+        // learner's effective CEFR reaches B2 — index 3 in CEFR_LEVELS above.
+        private const val B2_ORDINAL = 3
         // Same 60% bar unitMastery() uses for its own unit-unlock frontier, and the
         // same one-level-ahead stretch idea as UNIT_SLIDING_WINDOW — see
         // effectiveCefrOrdinal().

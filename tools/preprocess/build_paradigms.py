@@ -139,7 +139,7 @@ def build(db_path: Path, notes: Path, room_schema: Path) -> dict[str, int]:
     db.executemany("INSERT OR IGNORE INTO analysis VALUES(?,?,?,?)", sorted(analyses))
     db.execute("INSERT OR REPLACE INTO meta VALUES('paradigm_forms', ?)", (str(len(paradigms)),))
     db.execute("INSERT OR REPLACE INTO room_master_table VALUES(42, ?)", (identity,))
-    db.execute("PRAGMA user_version=5")
+    db.execute("PRAGMA user_version=6")
     db.commit()
     db.execute("ANALYZE")
     db.execute("VACUUM")
@@ -151,7 +151,7 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser()
     p.add_argument("--db", type=Path, default=ROOT / "app/src/main/assets/tatoeba.db")
     p.add_argument("--notes", type=Path, default=ROOT / "app/src/main/assets/bootstrap_notes.jsonl")
-    p.add_argument("--room-schema", type=Path, default=ROOT / "app/schemas/com.sibirskyspeak.data.ContentDatabase/5.json")
+    p.add_argument("--room-schema", type=Path, default=ROOT / "app/schemas/com.sibirskyspeak.data.ContentDatabase/6.json")
     return p
 
 

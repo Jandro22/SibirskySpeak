@@ -15,6 +15,7 @@ UNITS = [
         "unit": 12,
         "title": "Talking about tomorrow",
         "concept": "FUTURE",
+        "extraConcepts": ["GEN"],
         "nouns": [
             ("уро́к", "m_hard", "M", False, "lesson, class", "За́втра бу́дет уро́к.", "Tomorrow there will be a lesson.", None,
              [("Уро́к бу́дет за́втра.", "The lesson will be tomorrow.")]),
@@ -57,6 +58,7 @@ UNITS = [
         "unit": 14,
         "title": "Doing it to yourself",
         "concept": "REFLEXIVE",
+        "extraConcepts": ["PREP"],
         "verbs": [
             ("учи́ться", "to study, to learn", "Я учу́сь в шко́ле.", "I study at school.", "IPF", "activity", None,
              [("Я учу́сь и рабо́таю.", "I study and work.")]),
@@ -109,6 +111,7 @@ UNITS = [
         "unit": 16,
         "title": "Can, must, need",
         "concept": "MODAL",
+        "extraConcepts": ["DAT"],
         "verbs": [
             ("помога́ть", "to help", "Я помога́ю ма́ме.", "I help mum.", "IPF", "activity", "помочь",
              [("Друг помога́ет мне.", "A friend helps me.")]),
@@ -165,6 +168,7 @@ UNITS = [
         "unit": 18,
         "title": "More ways to move",
         "concept": None,
+        "extraConcepts": ["INS"],
         "verbs": [
             ("нести́", "to carry (on foot, now)", "Я несу́ кни́гу в шко́лу.", "I'm carrying a book to school.", "IPF", "activity", None,
              [("Он несёт су́мку в шко́лу.", "He's carrying a bag to school.")]),

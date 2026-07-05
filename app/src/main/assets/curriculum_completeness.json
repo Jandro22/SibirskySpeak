@@ -1,0 +1,22 @@
+{
+  "A1": {
+    "corpusSentences": 123616,
+    "parseableSentences": 19,
+    "percent": 0.02
+  },
+  "A2": {
+    "corpusSentences": 123616,
+    "parseableSentences": 4,
+    "percent": 0.0
+  },
+  "B1": {
+    "corpusSentences": 123616,
+    "parseableSentences": 19,
+    "percent": 0.02
+  },
+  "B2+": {
+    "corpusSentences": 123616,
+    "parseableSentences": 3077,
+    "percent": 2.49
+  }
+}

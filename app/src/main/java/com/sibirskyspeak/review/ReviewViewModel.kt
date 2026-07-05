@@ -130,6 +130,7 @@ data class ReviewUiState(
     // Settings mirror (persisted in SettingsStore; surfaced for the Settings UI).
     val dailyGoalSetting: Int = SettingsStore.DEFAULT_DAILY_GOAL,
     val sessionSizeSetting: Int = SettingsStore.DEFAULT_SESSION_SIZE,
+    val preferredSessionMinutes: Int = 15,
     val newCardsPerDaySetting: Int = SettingsStore.DEFAULT_NEW_CARDS_PER_DAY,
     val retentionSetting: Double = SettingsStore.DEFAULT_RETENTION,
     val doctrineSetting: Doctrine = Doctrine.BALANCED,
@@ -181,7 +182,24 @@ data class ReviewUiState(
     val placementCompleted: Boolean = false,
     // The suggested level once completed=true, or null meaning "no placement —
     // start from the true beginning" (distinct from "quiz not finished yet").
-    val placementResult: String? = null
+    val placementResult: String? = null,
+    // Phase G6 / P6.5: "Unit N complete — quick check?" offer shown on the
+    // session-complete screen once a unit first crosses the mastery threshold.
+    // Never a hard lock — dismissExitTicketOffer/skipExitTicket both let the
+    // learner continue with zero friction (see ReviewViewModel.maybeOfferExitTicket).
+    val exitTicketOfferUnit: Int? = null,
+    val exitTicketOfferCanDo: String? = null,
+    val exitTicketSession: com.sibirskyspeak.data.ExitTicketSession? = null,
+    val exitTicketIndex: Int = 0,
+    val exitTicketResults: List<Boolean> = emptyList(),
+    val exitTicketFeedback: String? = null,
+    val exitTicketComplete: Boolean = false,
+    // Phase G4: shown once when the bundled curriculum content changed since
+    // the last launch (LearningRepository.syncCurriculumManifest already
+    // records this on seed; this just surfaces the pending report, if any).
+    val curriculumMigrationReport: com.sibirskyspeak.data.CurriculumMigrationReport? = null,
+    // Phase G11: per-band curriculum-completeness dashboard readout, shown in Lab.
+    val curriculumCompleteness: Map<String, com.sibirskyspeak.data.CurriculumCompletenessBand> = emptyMap()
 )
 
 data class ReaderCheckpointQuestion(
@@ -256,6 +274,17 @@ class ReviewViewModel @javax.inject.Inject constructor(
     private val sessionShownHard = mutableListOf<Boolean>()
     private val sessionShownTypes = mutableListOf<CardType>()
     private val lapsedShownAt = mutableMapOf<Long, Int>()
+    // Phase G3: how many times each ErrorCategory has recurred this sitting —
+    // in-memory only, reset per session like the other per-sitting maps above.
+    // Drives immediateRepairIfRecurring's deterministic category->CardType
+    // repair injection, distinct from P4.5's DB-persisted, cross-session
+    // confusion-pair reordering (applyContrastivePairing/applyInterferenceSeeding).
+    private val sessionErrorCategoryCounts = mutableMapOf<com.sibirskyspeak.review.ErrorCategory, Int>()
+    // Units the learner has already been offered an exit ticket for this app
+    // session (skipped or completed) — in-memory only, so a skip never persists
+    // as a permanent block; the offer can resurface on a future app launch if the
+    // learner still hasn't taken it. Populated lazily from recorded results too.
+    private val exitTicketOfferedUnits = mutableSetOf<Int>()
     private var flowOffered = false
     private var lastPauseSignature: String? = null
     private val nextCardBandit = ContextualBandit(dimensions = 6)
@@ -276,6 +305,13 @@ class ReviewViewModel @javax.inject.Inject constructor(
                     mutableState.value = mutableState.value.copy(prompt=skeleton.first(),inStudySession=true,skeletonReady=true,sessionProgressTotal=skeleton.size)
                 }
                 loadSession(includeReaderInsights = false)
+                repository.pendingCurriculumMigrationReport()?.let { report ->
+                    mutableState.value = mutableState.value.copy(curriculumMigrationReport = report)
+                }
+                val completeness = repository.curriculumCompleteness()
+                if (completeness.isNotEmpty()) {
+                    mutableState.value = mutableState.value.copy(curriculumCompleteness = completeness)
+                }
             }.onFailure { error ->
                 mutableState.value = mutableState.value.copy(
                     statusMessage = "Couldn't load your session: ${error.message ?: "unknown error"}"
@@ -332,6 +368,12 @@ class ReviewViewModel @javax.inject.Inject constructor(
         settings.sessionSize = value
         mutableState.value = mutableState.value.copy(sessionSizeSetting = settings.sessionSize)
         viewModelScope.launch { loadSession() }
+    }
+
+    fun setPreferredSessionMinutes(value: Int) {
+        settings.preferredSessionMinutes = value
+        mutableState.value = mutableState.value.copy(preferredSessionMinutes = settings.preferredSessionMinutes)
+        viewModelScope.launch { runCatching { loadSession(preserveStudyQueue = false) } }
     }
 
     fun setNewCardsPerDay(value: Int) {
@@ -502,6 +544,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
         if (!evaluation.accepted) {
             classifyAnswer(prompt, typed)?.let { diagnosis ->
                 viewModelScope.launch { runCatching { repository.recordConfusionEvent(diagnosis, prompt.card.cardType) } }
+                immediateRepairIfRecurring(diagnosis, prompt)
             }
         }
         // A committed miss is auto-graded AGAIN (honest scheduling); a receptive
@@ -1366,6 +1409,121 @@ class ReviewViewModel @javax.inject.Inject constructor(
         )
     }
 
+    /**
+     * Phase G6 / P6.5: after a study session finishes, offer a quick exit-ticket
+     * check for the most recently completed unit (the frontier unit as soon as it
+     * first crosses the mastery threshold) — a lightweight surface, never a lock.
+     * Skips units already offered this app session or that already have a
+     * recorded ExitTicketResult (so re-finishing a session doesn't nag repeatedly).
+     */
+    /**
+     * Phase G3: the moment an [ErrorCategory] recurs a second time this sitting,
+     * pulls a card of that category's deterministic repair type
+     * ([repairCardTypeFor]) forward to be shown next — preferring one on the
+     * same note the miss just happened on, otherwise the first match already
+     * queued today. Never fabricates a card; a session with no matching card
+     * already in [activeStudyQueue] is a silent no-op.
+     */
+    private fun immediateRepairIfRecurring(diagnosis: com.sibirskyspeak.review.Diagnosis, missedPrompt: ReviewPrompt) {
+        val count = (sessionErrorCategoryCounts[diagnosis.category] ?: 0) + 1
+        sessionErrorCategoryCounts[diagnosis.category] = count
+        if (count < 2) return
+        val repairType = repairCardTypeFor(diagnosis.category) ?: return
+        val candidateIndex = activeStudyQueue.indexOfFirst {
+            it.card.cardType == repairType && it.card.noteId == missedPrompt.card.noteId
+        }.let { sameNote -> if (sameNote >= 0) sameNote else activeStudyQueue.indexOfFirst { it.card.cardType == repairType } }
+        if (candidateIndex <= 0) return
+        val repair = activeStudyQueue.removeAt(candidateIndex)
+        activeStudyQueue.add(0, repair)
+    }
+
+    private fun maybeOfferExitTicket() {
+        val mastery = mutableState.value.sessionPlan?.unitMastery.orEmpty()
+        val completedUnit = mastery.lastOrNull { it.progress >= 0.80 && it.vocabularyTotal + it.grammarTotal > 0 }?.unit ?: return
+        if (completedUnit in exitTicketOfferedUnits) return
+        viewModelScope.launch {
+            if (repository.exitTicketResults().any { it.unit == completedUnit }) {
+                exitTicketOfferedUnits += completedUnit
+                return@launch
+            }
+            val session = runCatching { repository.buildExitTicketSession(completedUnit) }.getOrNull()
+            if (session == null || session.items.isEmpty()) {
+                exitTicketOfferedUnits += completedUnit
+                return@launch
+            }
+            mutableState.value = mutableState.value.copy(
+                exitTicketOfferUnit = completedUnit,
+                exitTicketOfferCanDo = session.canDoLabel
+            )
+        }
+    }
+
+    /** Learner tapped "quick check" — assembles and starts the mixed proof session. */
+    fun startExitTicket() {
+        val unit = mutableState.value.exitTicketOfferUnit ?: return
+        viewModelScope.launch {
+            runCatching { repository.buildExitTicketSession(unit) }
+                .onSuccess { session ->
+                    if (session == null) { dismissExitTicketOffer(); return@onSuccess }
+                    mutableState.value = mutableState.value.copy(
+                        exitTicketSession = session,
+                        exitTicketIndex = 0,
+                        exitTicketResults = emptyList(),
+                        exitTicketFeedback = null,
+                        exitTicketComplete = false
+                    )
+                }
+                .onFailure { mutableState.value = mutableState.value.copy(statusMessage = it.message ?: "Could not start quick check") }
+        }
+    }
+
+    fun submitExitTicketAnswer(answer: String) {
+        val current = mutableState.value
+        val session = current.exitTicketSession ?: return
+        val item = session.items.getOrNull(current.exitTicketIndex) ?: return
+        val correct = repository.gradeExitTicketAnswer(item, answer)
+        val results = current.exitTicketResults + correct
+        val nextIndex = current.exitTicketIndex + 1
+        val done = nextIndex >= session.items.size
+        mutableState.value = mutableState.value.copy(
+            exitTicketIndex = nextIndex,
+            exitTicketResults = results,
+            exitTicketFeedback = if (correct) "Correct." else "Not quite — ${item.expectedAnswer}",
+            exitTicketComplete = done
+        )
+        if (done) viewModelScope.launch {
+            runCatching { repository.completeExitTicket(session, results) }
+            exitTicketOfferedUnits += session.unit
+            mutableState.value = mutableState.value.copy(exitTicketOfferUnit = null, exitTicketOfferCanDo = null)
+        }
+    }
+
+    /** Dismisses the offer banner with zero friction — this must never block the
+     * learner from continuing normally (Phase G6 requirement). */
+    fun dismissExitTicketOffer() {
+        val unit = mutableState.value.exitTicketOfferUnit
+        if (unit != null) exitTicketOfferedUnits += unit
+        mutableState.value = mutableState.value.copy(exitTicketOfferUnit = null, exitTicketOfferCanDo = null)
+    }
+
+    /** Marks the pending content-update report as shown so it never nags again. */
+    fun dismissCurriculumMigrationReport() {
+        val report = mutableState.value.curriculumMigrationReport ?: return
+        mutableState.value = mutableState.value.copy(curriculumMigrationReport = null)
+        viewModelScope.launch { runCatching { repository.markCurriculumMigrationReportShown(report.id) } }
+    }
+
+    /** Closes an in-progress or completed exit-ticket mini-session panel. */
+    fun closeExitTicket() {
+        mutableState.value = mutableState.value.copy(
+            exitTicketSession = null,
+            exitTicketIndex = 0,
+            exitTicketResults = emptyList(),
+            exitTicketFeedback = null,
+            exitTicketComplete = false
+        )
+    }
+
     private suspend fun openReaderTextNow(id: Long, inSession: Boolean) {
         val recommendation = mutableState.value.allReaderTexts.firstOrNull { it.text.id == id }
             ?: repository.readerTexts().firstOrNull { it.text.id == id }
@@ -1602,7 +1760,8 @@ class ReviewViewModel @javax.inject.Inject constructor(
         val current = mutableState.value
         val canReusePlan = preserveStudyQueue && studySessionActive && activeStudyQueue.isNotEmpty() && current.sessionPlan != null
         val freshPlan = if (canReusePlan) current.sessionPlan!! else repository.sessionPlan(
-            includeReaderInsights = includeReaderInsights
+            includeReaderInsights = includeReaderInsights,
+            timeBudgetMinutes = settings.preferredSessionMinutes
         )
         if (!canReusePlan) settings.planSkeletonCardIds = freshPlan.reviewQueue.take(5).joinToString(",") { it.card.id.toString() }
         // Study can be opened before the asynchronous startup plan is ready. In
@@ -1692,6 +1851,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
             canUndo = repository.canUndo(),
             dailyGoalSetting = settings.dailyGoal,
             sessionSizeSetting = settings.sessionSize,
+            preferredSessionMinutes = settings.preferredSessionMinutes,
             newCardsPerDaySetting = settings.newCardsPerDay,
             retentionSetting = settings.desiredRetention,
             doctrineSetting = settings.doctrine,
@@ -1823,6 +1983,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
             studySessionActive = false
             studyPausedAt = null
             mutableState.value = mutableState.value.copy(inStudySession = false, matchReport = report)
+            maybeOfferExitTicket()
         } else if (preserveStudyQueue && studySessionActive) {
             maybeStartScheduledReading()
         }
@@ -1990,6 +2151,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
         sessionShownHard.clear()
         sessionShownTypes.clear()
         lapsedShownAt.clear()
+        sessionErrorCategoryCounts.clear()
         fatigueAdjusted = false
         flowOffered = false
         scheduledReadingPresented = false

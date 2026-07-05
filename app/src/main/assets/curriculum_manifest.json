@@ -1,0 +1,26 @@
+{
+  "assets": {
+    "dialogues": "3a3b6d3b621d50a7",
+    "frames": "0de953603faf3195",
+    "phonology": "4cceb38d399c3cdb",
+    "stories": "eb3cc6a9f5d968c6:e09c86776a6b13aa",
+    "transformations": "f493258ec052e1d5",
+    "units": "c9de267d3e0766bb"
+  },
+  "contentChecksum": "75a7d9f5cb26c0dfb3b7dc69cdbd5266070e1060a9eca1817d6151db2fe628f6",
+  "curriculumVersion": "2026-07-g12-75a7d9f5",
+  "noteCountsByBand": {
+    "A1": 643,
+    "A2": 619,
+    "B1": 1107,
+    "B2": 1558,
+    "C1": 1187,
+    "C2": 4237
+  },
+  "noteCountsByTier": {
+    "0": 6272,
+    "1": 2364,
+    "2": 715
+  },
+  "schemaVersion": 2
+}

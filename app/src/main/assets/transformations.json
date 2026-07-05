@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "pairs": [
+    {"id":"formal_say","band":"B2","fromRegister":"neutral","toRegister":"formal","source":"Он сказал, что решение готово.","answer":"Он сообщил о готовности решения."},
+    {"id":"formal_due_to","band":"C1","fromRegister":"neutral","toRegister":"formal","source":"Мы отменили встречу, потому что он заболел.","answer":"Встреча была отменена вследствие его болезни."}
+  ]
+}

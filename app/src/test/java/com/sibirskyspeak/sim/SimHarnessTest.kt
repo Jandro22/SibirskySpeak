@@ -33,9 +33,15 @@ class SimHarnessTest {
     // sim-days run out is no longer reliable, the same throughput property the other
     // excluded types already have. Covered deterministically instead by
     // CardFactoryTest's case-pacing tests and ReviewViewModelTest's caseFillOnlyFixture.
+    // PHONOLOGY_MINIMAL_PAIR (Phase G10) is minted only from tools/preprocess/
+    // phonology.json content, which RepoFixture doesn't wire (same rationale as
+    // TRANSFORM's register-ladder path, which the fixture also leaves unwired —
+    // that type still surfaces here via its content-independent negation-only
+    // fallback, but PHONOLOGY_MINIMAL_PAIR has no such fallback). Covered
+    // deterministically instead by LearningRepositoryTest's phonology tests.
     private val organicGrowthTypes = CardType.entries - setOf(
         CardType.VERB_FORM, CardType.ASPECT_SELECT, CardType.CONCEPT_DRILL, CardType.TRANSFORM,
-        CardType.CASE_FILL
+        CardType.CASE_FILL, CardType.PHONOLOGY_MINIMAL_PAIR
     )
 
     @Test fun noDeadlockAcrossSeededLearners() = runTest {

@@ -25,7 +25,7 @@ def main():
         band='A1' if unit_min<=30 else 'A2' if unit_min<=60 else 'B1' if unit_min<=100 else 'B2+'
         rows.append((sid,unit_min,band,count,json.dumps(feats,separators=(',',':')),'tatoeba'))
     db.executemany('INSERT INTO sentence_bank VALUES(?,?,?,?,?,?)',rows)
-    schema=json.loads((ROOT/'app/schemas/com.sibirskyspeak.data.ContentDatabase/5.json').read_text(encoding='utf8'))
-    db.execute('INSERT OR REPLACE INTO room_master_table VALUES(42,?)',(schema['database']['identityHash'],)); db.execute('PRAGMA user_version=5'); db.commit(); db.execute('VACUUM'); db.close()
+    schema=json.loads((ROOT/'app/schemas/com.sibirskyspeak.data.ContentDatabase/6.json').read_text(encoding='utf8'))
+    db.execute('INSERT OR REPLACE INTO room_master_table VALUES(42,?)',(schema['database']['identityHash'],)); db.execute('PRAGMA user_version=6'); db.commit(); db.execute('VACUUM'); db.close()
     print(json.dumps({'sentences':len(rows)}))
 if __name__=='__main__': main()

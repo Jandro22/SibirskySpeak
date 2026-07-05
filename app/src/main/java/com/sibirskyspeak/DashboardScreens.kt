@@ -86,11 +86,16 @@ internal fun DashboardPanel(
     onStart: () -> Unit,
     onOpenReader: (Long) -> Unit,
     onRead: () -> Unit,
+    onTimeBudget: (Int) -> Unit = {},
     onLoadLeeches: () -> Unit = {},
     onReleaseLeech: (LeechItem) -> Unit = {},
     onSaveLeechEdit: (LeechItem, String?, String?, String?, String?) -> Unit = { _, _, _, _, _ -> },
     onApplyDoctrineNudge: () -> Unit = {},
-    onDismissDoctrineNudge: () -> Unit = {}
+    onDismissDoctrineNudge: () -> Unit = {},
+    onStartExitTicket: () -> Unit = {},
+    onDismissExitTicketOffer: () -> Unit = {},
+    onSubmitExitTicketAnswer: (String) -> Unit = {},
+    onCloseExitTicket: () -> Unit = {}
 ) {
     val stats = state.dashboardStats
     if (stats == null) {
@@ -117,7 +122,12 @@ internal fun DashboardPanel(
         state.sessionPlan?.doctrineNudge?.let { nudge ->
             DoctrineNudgeCard(nudge, onApplyDoctrineNudge, onDismissDoctrineNudge)
         }
-        DashboardNextActionCard(state, onStart, onOpenReader, onRead)
+        if (state.exitTicketSession != null) {
+            ExitTicketCard(state, onSubmitExitTicketAnswer, onCloseExitTicket)
+        } else if (state.exitTicketOfferUnit != null) {
+            ExitTicketOfferCard(state.exitTicketOfferUnit, state.exitTicketOfferCanDo, onStartExitTicket, onDismissExitTicketOffer)
+        }
+        DashboardNextActionCard(state, onStart, onOpenReader, onRead, onTimeBudget)
         stats.goalProgress?.let { goal ->
             SectionCard {
                 Text("${goal.unknownLemmaCount} words to «${goal.textTitle}»", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -164,6 +174,90 @@ internal fun DoctrineNudgeCard(
                 Text("Switch to ${nudge.suggested.name.lowercase().replaceFirstChar(Char::uppercase)}")
             }
             TextButton(onClick = onDismiss, modifier = Modifier.testTag(TestTags.DOCTRINE_NUDGE_DISMISS)) { Text("Not now") }
+        }
+    }
+}
+
+/**
+ * Phase G6 / P6.5: "Unit N complete — quick check?" offer, shown once a unit's
+ * own vocabulary/grammar first crosses the mastery threshold (see
+ * ReviewViewModel.maybeOfferExitTicket). Skipping this is always zero-friction —
+ * dismissing it never blocks the learner from continuing normally.
+ */
+@Composable
+internal fun ExitTicketOfferCard(
+    unit: Int,
+    canDo: String?,
+    onStart: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Unit $unit complete — quick check?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    canDo?.let { "Can you $it?" } ?: "A short mixed check over what you just learned.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onStart, modifier = Modifier.testTag(TestTags.EXIT_TICKET_START)) { Text("Quick check") }
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag(TestTags.EXIT_TICKET_DISMISS)) { Text("Skip") }
+        }
+    }
+}
+
+/**
+ * The exit ticket's mixed mini proof session (Phase G6 / P6.5): one item at a
+ * time, exactly like CheckpointCard, over the four facets units.json defines
+ * (recognition/production/listening/reading — see LearningRepository.
+ * buildExitTicketSession). Writes no FSRS state directly; ReviewViewModel feeds
+ * the result to the evidence bus at PRACTICE strength on completion.
+ */
+@Composable
+internal fun ExitTicketCard(
+    state: ReviewUiState,
+    onSubmit: (String) -> Unit,
+    onClose: () -> Unit
+) {
+    val session = state.exitTicketSession ?: return
+    val item = session.items.getOrNull(state.exitTicketIndex)
+    SectionCard {
+        Text("Unit ${session.unit} quick check", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        when {
+            item != null -> {
+                var answer by rememberSaveable(state.exitTicketIndex) { mutableStateOf("") }
+                Text("${state.exitTicketIndex + 1} / ${session.items.size} · ${item.kind}", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    when (item.kind) {
+                        "recognition", "reading" -> "What does this mean? ${item.prompt}"
+                        else -> "Say it in Russian: ${item.prompt}"
+                    },
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                androidx.compose.material3.OutlinedTextField(
+                    value = answer,
+                    onValueChange = { answer = it },
+                    modifier = Modifier.fillMaxWidth().testTag(TestTags.EXIT_TICKET_INPUT),
+                    label = { Text("Your answer") }
+                )
+                Button(onClick = { onSubmit(answer) }, modifier = Modifier.testTag(TestTags.EXIT_TICKET_SUBMIT)) { Text("Submit") }
+            }
+            else -> {
+                val correct = state.exitTicketResults.count { it }
+                Text(
+                    state.exitTicketFeedback ?: "Quick check complete: $correct/${session.items.size} correct.",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Button(onClick = onClose, modifier = Modifier.testTag(TestTags.EXIT_TICKET_CLOSE)) { Text("Done") }
+            }
+        }
+        state.exitTicketFeedback?.takeIf { item != null }?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -245,7 +339,8 @@ internal fun DashboardNextActionCard(
     state: ReviewUiState,
     onStart: () -> Unit,
     onOpenReader: (Long) -> Unit,
-    onRead: () -> Unit
+    onRead: () -> Unit,
+    onTimeBudget: (Int) -> Unit = {}
 ) {
     val prompts = state.sessionPlan?.reviewQueue.orEmpty()
     val reader = state.sessionPlan?.readingAssignment?.recommendation
@@ -277,6 +372,22 @@ internal fun DashboardNextActionCard(
             if (hasGrammar) PracticeFocusChip("Grammar", null)
             if (leechCount > 0) PracticeFocusChip("Repair needed", null)
             if (reader != null) PracticeFocusChip("${(reader.coverage * 100).toInt()}% reader fit", null)
+        }
+        Spacer(Modifier.height(14.dp))
+        Text("Time available", style = MaterialTheme.typography.labelMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(5, 15, 45).forEach { minutes ->
+                AssistChip(
+                    onClick = { onTimeBudget(minutes) },
+                    label = { Text("$minutes min") },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = if (state.preferredSessionMinutes == minutes) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface
+                    )
+                )
+            }
+        }
+        state.sessionPlan?.timeBudget?.let { budget ->
+            Text("${budget.spilledCards} cards safely spill beyond this session", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Spacer(Modifier.height(14.dp))
         // One action, same as the Practice screen: the session already interleaves

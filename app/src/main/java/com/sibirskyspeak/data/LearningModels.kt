@@ -69,6 +69,47 @@ data class CheckpointItem(
 
 data class CheckpointSession(val items: List<CheckpointItem>, val generatedAt: Long)
 
+/**
+ * One question in a unit exit ticket (Phase G6 / P6.5): a short mixed proof
+ * assembled from existing card/task types over a single unit's own vocabulary,
+ * never a new card type. [kind] mirrors the units.json exitTicket facets —
+ * "recognition" | "production" | "listening" | "reading" — and drives grading
+ * in LearningRepository.gradeExitTicketAnswer.
+ */
+data class ExitTicketItem(
+    val kind: String,
+    val noteId: Long?,
+    val prompt: String,
+    val expectedAnswer: String,
+    val choices: List<String> = emptyList()
+)
+
+/** A unit's assembled exit ticket (Phase G6): never a hard lock — see
+ * ReviewViewModel.dismissExitTicket, which lets the learner skip with zero
+ * friction. [canDoLabel] mirrors the unit's units.json "canDo" line. */
+data class ExitTicketSession(
+    val unit: Int,
+    val canDoLabel: String?,
+    val items: List<ExitTicketItem>
+)
+
+/** Phase G11: one CEFR band's row in the curriculum-completeness dashboard —
+ * see LearningRepository.curriculumCompleteness(). */
+data class CurriculumCompletenessBand(
+    val corpusSentences: Int,
+    val parseableSentences: Int,
+    val percent: Double
+)
+
+/** Phase G10: one phonology.json MINIMAL_PAIR item usable as a real on-device
+ * card today (requiresAudioPack=false only — see LearningRepository.
+ * phonologyMinimalPairs()). */
+data class PhonologyMinimalPair(
+    val id: String,
+    val formA: String,
+    val formB: String
+)
+
 data class ReaderToken(
     val surface: String,
     val normalized: String,
@@ -152,7 +193,16 @@ data class SessionPlan(
     val skillRatings: List<SkillRating> = emptyList(),
     val rivalState: RivalState? = null,
     val matchHistory: List<MatchHistory> = emptyList(),
-    val doctrineNudge: DoctrineNudge? = null
+    val doctrineNudge: DoctrineNudge? = null,
+    val timeBudget: SessionTimeBudget? = null,
+    val levelConstraint: String? = null
+)
+
+data class SessionTimeBudget(
+    val requestedMinutes: Int,
+    val plannedCognitiveCost: Double,
+    val estimatedMinutes: Double,
+    val spilledCards: Int
 )
 
 data class ProblemCardSummary(
@@ -247,5 +297,10 @@ data class LearningConfig(
     val newCardsPerDay: Int = 15,
     val desiredRetention: Double = 0.90,
     val doctrine: Doctrine = Doctrine.BALANCED,
-    val restDayCredits: Int = 0
+    val restDayCredits: Int = 0,
+    // Phase G6 (domain overlays, scaled down — see LearningRepository.
+    // domainBiasFor): SettingsStore.preferredDomain, a build-time validated
+    // domain tag (e.g. "business", "science") matched against the "target:"/
+    // "graded:" prefix on ReaderText.source. Empty means no preference.
+    val preferredDomain: String = ""
 )

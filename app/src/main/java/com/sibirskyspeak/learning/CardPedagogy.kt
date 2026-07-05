@@ -78,7 +78,10 @@ object CardPedagogy {
         CardType.NOVEL_PRODUCE to CardPedagogyProfile(LearningFacet.SYNTAX, EvidenceStrength.PRACTICE, 1.60, weights(0.10, 0.35, 0.90, 1.60), "produce a wholly novel sentence from an English cue alone"),
         // ASR noise plus the ceiling-probe nature of imitation ("you cannot repeat
         // above your competence") both argue for PRACTICE, not STRONG, evidence.
-        CardType.SPEAK_SENTENCE to CardPedagogyProfile(LearningFacet.PRONUNCIATION, EvidenceStrength.PRACTICE, 1.45, weights(0.20, 0.60, 1.05, 1.25), "repeat a full sentence from memory, proving you parsed it")
+        CardType.SPEAK_SENTENCE to CardPedagogyProfile(LearningFacet.PRONUNCIATION, EvidenceStrength.PRACTICE, 1.45, weights(0.20, 0.60, 1.05, 1.25), "repeat a full sentence from memory, proving you parsed it"),
+        // Phase G10: a single memorized-word carrier like GENDER_ID/STRESS_MARK, so
+        // low cognitive cost and MODERATE evidence (ear discrimination, not recall).
+        CardType.PHONOLOGY_MINIMAL_PAIR to CardPedagogyProfile(LearningFacet.LISTENING, EvidenceStrength.MODERATE, 0.55, weights(0.40, 0.80, 0.75, 0.55), "discriminate a minimal-pair contrast by ear")
     )
 
     fun profile(type: CardType): CardPedagogyProfile = profiles.getValue(type)

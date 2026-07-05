@@ -168,8 +168,11 @@ def build(db_path: Path, notes_path: Path, frames_path: Path, room_schema: Path)
     db.executescript("""
         DROP TABLE IF EXISTS frame;
         CREATE TABLE frame(id TEXT NOT NULL PRIMARY KEY, concept TEXT NOT NULL, band TEXT NOT NULL,
-          slots_json TEXT NOT NULL, ru_frame TEXT NOT NULL, en_frame TEXT NOT NULL);
+          slots_json TEXT NOT NULL, ru_frame TEXT NOT NULL, en_frame TEXT NOT NULL,
+          domain TEXT NOT NULL, register TEXT NOT NULL, minStage INTEGER NOT NULL,
+          tier INTEGER NOT NULL, requiresAudioPack INTEGER NOT NULL, contrastConcept TEXT);
         CREATE INDEX index_frame_concept ON frame(concept);
+        CREATE INDEX index_frame_domain ON frame(domain);
     """)
     pools = frames_doc["pools"]
 
@@ -184,13 +187,15 @@ def build(db_path: Path, notes_path: Path, frames_path: Path, room_schema: Path)
         return resolved
 
     rows = [
-        (f["id"], f["concept"], f["band"], json.dumps(inline_pools(f["slots"]), ensure_ascii=False), f["ruFrame"], f["enFrame"])
+        (f["id"], f["concept"], f["band"], json.dumps(inline_pools(f["slots"]), ensure_ascii=False), f["ruFrame"], f["enFrame"],
+         f.get("domain", "general"), f.get("register", "neutral"), f.get("minStage", 1), f.get("tier", 1),
+         1 if f.get("requiresAudioPack", False) else 0, f.get("contrastConcept"))
         for f in frames_doc["frames"]
     ]
-    db.executemany("INSERT INTO frame VALUES(?,?,?,?,?,?)", rows)
+    db.executemany("INSERT INTO frame VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     schema = json.loads(room_schema.read_text(encoding="utf-8"))
     db.execute("INSERT OR REPLACE INTO room_master_table VALUES(42, ?)", (schema["database"]["identityHash"],))
-    db.execute("PRAGMA user_version=5")
+    db.execute("PRAGMA user_version=6")
     db.commit()
     db.execute("VACUUM")
     db.close()
@@ -202,7 +207,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--db", type=Path, default=ROOT / "app/src/main/assets/tatoeba.db")
     p.add_argument("--notes", type=Path, default=ROOT / "app/src/main/assets/bootstrap_notes.jsonl")
     p.add_argument("--frames", type=Path, default=Path(__file__).parent / "frames.json")
-    p.add_argument("--room-schema", type=Path, default=ROOT / "app/schemas/com.sibirskyspeak.data.ContentDatabase/5.json")
+    p.add_argument("--room-schema", type=Path, default=ROOT / "app/schemas/com.sibirskyspeak.data.ContentDatabase/6.json")
     return p
 
 

@@ -68,12 +68,11 @@ def test_all_grammar_concepts_have_a_lesson_note():
 
 def test_lessons_lead_their_unit():
     rows = a1_rows()
-    first_index = {}
-    for i, note in enumerate(rows):
-        first_index.setdefault(note["unit"], i)
-    for i, note in enumerate(rows):
-        if note["pos"] == "lesson":
-            assert first_index[note["unit"]] == i, "lesson must be first in its unit"
+    for unit in {n["unit"] for n in rows}:
+        unit_rows = [n for n in rows if n["unit"] == unit]
+        first_content = next((i for i, n in enumerate(unit_rows) if n["pos"] != "lesson"), len(unit_rows))
+        assert all(n["pos"] == "lesson" for n in unit_rows[:first_content])
+        assert all(n["pos"] != "lesson" for n in unit_rows[first_content:])
 
 
 def test_readers_are_graded_a1():
