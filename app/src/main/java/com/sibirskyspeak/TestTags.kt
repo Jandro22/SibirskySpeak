@@ -33,4 +33,10 @@ internal object TestTags {
     const val RATE_EASY = "rate_easy"
     const val CORRECTION_CHECK = "correction_check"
     const val CORRECTION_NEXT_CARD = "correction_next_card"
+
+    // Lab: monthly checkpoint (P6.4)
+    const val CHECKPOINT_START = "checkpoint_start"
+    const val CHECKPOINT_INPUT = "checkpoint_input"
+    const val CHECKPOINT_SUBMIT = "checkpoint_submit"
+    const val CHECKPOINT_DISMISS = "checkpoint_dismiss"
 }

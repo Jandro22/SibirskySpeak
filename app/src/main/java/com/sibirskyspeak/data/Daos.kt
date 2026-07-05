@@ -92,10 +92,16 @@ interface CardDao {
     suspend fun getSampleCardsOfType(cardType: CardType, limit: Int = 5): List<Card>
 
     /**
-     * New cards in curriculum order: the A1 starter tier (tier 0) first, by unit,
-     * then everything else interleaved by frequency rank (the existing unified
-     * domain/general sequencing). This is what front-loads everyday A1 vocabulary
-     * ahead of the formal/political domain.
+     * New cards in curriculum order, CEFR-first: nothing above [maxCefrOrdinal] (the
+     * position of a note's cefrLevel in LearningRepository's CEFR_LEVELS list, kept in
+     * sync manually here since Room can't reference Kotlin constants in a `@Query`) is
+     * even eligible, regardless of tier —
+     * tier is provenance/pedagogy-type (hand-authored spine vs. reading matrix vs.
+     * formal/political domain), not a CEFR gate. Within the same band, tier 0 (the
+     * hand-authored spine) still leads by unit, then everything else interleaves by
+     * frequency rank. This is what keeps formal/political-domain vocabulary (tier 2,
+     * B2+ by construction) from surfacing before the learner's effective level reaches
+     * it, instead of merely being deprioritized behind tier 0 as before.
      */
     @Query("""
         SELECT c.* FROM cards c
@@ -105,32 +111,11 @@ interface CardDao {
           AND n.translation != 'lookup pending'
           AND (c.queue != 'GRAMMAR' OR c.cardType = 'LESSON' OR n.encounterCount > 0)
           AND (
-              c.cardType NOT IN ('MEANING_TO_RU', 'CLOZE', 'SPEAK', 'AUDIO_TO_RU', 'DICTATION', 'SENTENCE_BUILD', 'STRESS_MARK')
-              OR EXISTS (
-                  SELECT 1 FROM cards recognition
-                  WHERE recognition.noteId = c.noteId
-                    AND recognition.cardType = 'RU_TO_MEANING'
-                    AND recognition.reps >= 3
-                    AND recognition.consecutiveCorrect >= 2
-                    AND recognition.state IN ('REVIEW', 'GRADUATED')
-              )
-          )
-        ORDER BY
-            (CASE WHEN n.tier = 0 THEN 0 ELSE 1 END) ASC,
-            COALESCE(n.unit, 2147483647) ASC,
-            COALESCE(n.domainFreqRank, n.generalFreqRank, 2147483647) ASC,
-            c.id ASC
-        LIMIT :limit
-    """)
-    suspend fun getNewCardsOrdered(limit: Int): List<Card>
-
-    @Query("""
-        SELECT c.* FROM cards c
-        JOIN notes n ON c.noteId = n.id
-        WHERE c.state = 'NEW' AND c.suspended = 0
-          AND n.status NOT IN ('KNOWN', 'IGNORED')
-          AND n.translation != 'lookup pending'
-          AND (c.queue != 'GRAMMAR' OR c.cardType = 'LESSON' OR n.encounterCount > 0)
+              CASE n.cefrLevel
+                  WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2
+                  WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE 0
+              END
+          ) <= :maxCefrOrdinal
           AND (
               c.cardType NOT IN ('MEANING_TO_RU', 'CLOZE', 'SPEAK', 'AUDIO_TO_RU', 'DICTATION', 'SENTENCE_BUILD', 'STRESS_MARK')
               OR EXISTS (
@@ -143,13 +128,54 @@ interface CardDao {
               )
           )
         ORDER BY
+            (CASE n.cefrLevel
+                WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2
+                WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE 0
+            END) ASC,
+            (CASE WHEN n.tier = 0 THEN 0 ELSE 1 END) ASC,
+            COALESCE(n.unit, 2147483647) ASC,
+            COALESCE(n.domainFreqRank, n.generalFreqRank, 2147483647) ASC,
+            c.id ASC
+        LIMIT :limit
+    """)
+    suspend fun getNewCardsOrdered(limit: Int, maxCefrOrdinal: Int): List<Card>
+
+    @Query("""
+        SELECT c.* FROM cards c
+        JOIN notes n ON c.noteId = n.id
+        WHERE c.state = 'NEW' AND c.suspended = 0
+          AND n.status NOT IN ('KNOWN', 'IGNORED')
+          AND n.translation != 'lookup pending'
+          AND (c.queue != 'GRAMMAR' OR c.cardType = 'LESSON' OR n.encounterCount > 0)
+          AND (
+              CASE n.cefrLevel
+                  WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2
+                  WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE 0
+              END
+          ) <= :maxCefrOrdinal
+          AND (
+              c.cardType NOT IN ('MEANING_TO_RU', 'CLOZE', 'SPEAK', 'AUDIO_TO_RU', 'DICTATION', 'SENTENCE_BUILD', 'STRESS_MARK')
+              OR EXISTS (
+                  SELECT 1 FROM cards recognition
+                  WHERE recognition.noteId = c.noteId
+                    AND recognition.cardType = 'RU_TO_MEANING'
+                    AND recognition.reps >= 3
+                    AND recognition.consecutiveCorrect >= 2
+                    AND recognition.state IN ('REVIEW', 'GRADUATED')
+              )
+          )
+        ORDER BY
+            (CASE n.cefrLevel
+                WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2
+                WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE 0
+            END) ASC,
             (CASE WHEN n.tier = 0 THEN 0 ELSE 1 END) ASC,
             COALESCE(n.unit, 2147483647) ASC,
             COALESCE(n.domainFreqRank, n.generalFreqRank, 2147483647) ASC,
             c.id ASC
         LIMIT :limit OFFSET :offset
     """)
-    suspend fun getNewCardsOrderedPage(limit: Int, offset: Int): List<Card>
+    suspend fun getNewCardsOrderedPage(limit: Int, offset: Int, maxCefrOrdinal: Int): List<Card>
 
     /** Mark a single note's VOCAB cards known (graduated, pushed far out) — used when
      *  the learner marks the word KNOWN/IGNORED in the reader, so practice stops

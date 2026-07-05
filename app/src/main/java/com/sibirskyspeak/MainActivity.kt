@@ -79,8 +79,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.collectAsState
 import com.sibirskyspeak.audio.RussianTextToSpeech
 import com.sibirskyspeak.data.Achievement
+import com.sibirskyspeak.review.Dest
+import com.sibirskyspeak.review.NavState
+import com.sibirskyspeak.review.NavStateSaver
 import com.sibirskyspeak.review.ReviewViewModel
 import com.sibirskyspeak.review.SessionStep
 import kotlinx.coroutines.delay
@@ -141,25 +145,34 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
     // card-type jump, and got fixed by switching to pattern 2. `StudySessionScreen`'s own
     // `LaunchedEffect(Unit) { if (!state.inStudySession) onStartSession() }` is what makes
     // pattern-1 callers safe to set this eagerly without waiting a frame for the ViewModel.
-    var studyActive by rememberSaveable { mutableStateOf(false) }
+    // Single source of truth for top-level navigation (see NavState.kt). Tab
+    // switches replace() the current entry; entering study or the grammar
+    // reference push() an overlay atop whichever tab is current, so pop()
+    // (back gesture or explicit exit) always restores the right tab underneath.
+    // Saved via NavStateSaver so an active study session or an open reader text
+    // survives rotation/process death, matching what the old rememberSaveable
+    // booleans already gave studyActive/showReference individually.
+    val nav = rememberSaveable(saver = NavStateSaver) { NavState(Dest.Practice) }
+    val currentDest by nav.current.collectAsState()
+    val studyActive = currentDest is Dest.Study
+    val showReference = currentDest is Dest.Reference
     var autoStartedDueSession by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(state.skeletonReady) { if (state.skeletonReady) { studyActive = true; autoStartedDueSession = true } }
+    LaunchedEffect(state.skeletonReady) { if (state.skeletonReady) { nav.push(Dest.Study); autoStartedDueSession = true } }
     LaunchedEffect(launchMicro, state.sessionPlan) {
         if (launchMicro && !autoStartedDueSession && state.sessionPlan != null) {
             autoStartedDueSession = true
             viewModel.startMicroSession()
-            studyActive = true
+            nav.push(Dest.Study)
         }
     }
     var settingsArea by rememberSaveable { mutableStateOf(SettingsArea.STUDY) }
-    var showReference by rememberSaveable { mutableStateOf(false) }
-    val activeTab = state.sessionStep.mainTab()
+    val activeTab = nav.tabDest().toSessionStep()
     LaunchedEffect(state.dashboardStats?.dueVocab, state.dashboardStats?.dueGrammar) {
         val due = (state.dashboardStats?.dueVocab ?: 0) + (state.dashboardStats?.dueGrammar ?: 0)
         if (!launchMicro && !autoStartedDueSession && due > 0 && !state.inStudySession) {
             autoStartedDueSession = true
             viewModel.startStudySession()
-            studyActive = true
+            nav.push(Dest.Study)
         }
     }
     // Identifies the "page" the shared scroll container below is showing. Keying
@@ -184,10 +197,10 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
     // One ordered back policy; destinations no longer compete through stacked handlers.
     BackHandler(enabled = studyActive || showReference || activeTab == SessionStep.READER) {
         when {
-            studyActive -> { viewModel.recordStudyScreenExit(); studyActive = false }
-            showReference -> showReference = false
+            studyActive -> { viewModel.recordStudyScreenExit(); nav.pop() }
+            showReference -> nav.pop()
             state.selectedReaderTextId != null -> viewModel.closeReaderText()
-            else -> viewModel.setSessionStep(SessionStep.REVIEWS)
+            else -> { nav.replace(Dest.Practice); viewModel.setSessionStep(SessionStep.REVIEWS) }
         }
     }
 
@@ -220,7 +233,7 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                 },
                 onExit = {
                     viewModel.recordStudyScreenExit()
-                    studyActive = false
+                    nav.pop()
                 },
                 onUndo = viewModel::undoLastReview,
                 onKnewIt = viewModel::overrideKnewIt,
@@ -230,20 +243,22 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                 onSaveEdit = viewModel::editCurrentCard,
                 onReadNext = {
                     viewModel.startStudySession()
-                    studyActive = true
+                    nav.push(Dest.Study)
                 }
             )
             SessionStep.REVIEWS -> PracticeScreen(
                 state = state,
                 onStart = { mode ->
                     viewModel.startStudySession(mode)
-                    studyActive = true
+                    nav.push(Dest.Study)
                 },
                 onRead = {
                     settingsArea = SettingsArea.READER
+                    nav.replace(Dest.Import)
                     viewModel.setSessionStep(SessionStep.IMPORT)
                 },
                 onOpenReader = { id ->
+                    nav.replace(Dest.Reader(id))
                     viewModel.setSessionStep(SessionStep.READER)
                     viewModel.openReaderText(id)
                 }
@@ -259,19 +274,22 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                 onSetGoal = viewModel::setReaderGoal,
                 onAddText = {
                     settingsArea = SettingsArea.READER
+                    nav.replace(Dest.Import)
                     viewModel.setSessionStep(SessionStep.IMPORT)
                 },
                 onSpeakRussian = tts::speak
             )
             SessionStep.DASHBOARD -> DashboardPanel(
                 state = state,
-                onStart = { studyActive = true },
+                onStart = { nav.push(Dest.Study) },
                 onOpenReader = { id ->
+                    nav.replace(Dest.Reader(id))
                     viewModel.setSessionStep(SessionStep.READER)
                     viewModel.openReaderText(id)
                 },
                 onRead = {
                     settingsArea = SettingsArea.READER
+                    nav.replace(Dest.Import)
                     viewModel.setSessionStep(SessionStep.IMPORT)
                 },
                 onLoadLeeches = viewModel::loadLeeches,
@@ -280,7 +298,12 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                 onApplyDoctrineNudge = viewModel::applyDoctrineNudge,
                 onDismissDoctrineNudge = viewModel::dismissDoctrineNudge
             )
-            SessionStep.LAB -> LabPanel(state)
+            SessionStep.LAB -> LabPanel(
+                state = state,
+                onStartCheckpoint = viewModel::startCheckpoint,
+                onSubmitCheckpointAnswer = viewModel::submitCheckpointAnswer,
+                onDismissCheckpoint = viewModel::dismissCheckpoint
+            )
             SessionStep.IMPORT -> ImportExportPanel(
                 state = state,
                 selectedArea = settingsArea,
@@ -315,17 +338,19 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                 onSearch = viewModel::setSearchQuery,
                 onSpeakRussian = tts::speak,
                 onDebugStartCardType = { cardType ->
-                    viewModel.debugStartSessionWithCardType(cardType) { studyActive = true }
+                    viewModel.debugStartSessionWithCardType(cardType) { nav.push(Dest.Study) }
                 }
             )
             else -> PracticeScreen(
                 state = state,
-                onStart = { studyActive = true },
+                onStart = { nav.push(Dest.Study) },
                 onRead = {
                     settingsArea = SettingsArea.READER
+                    nav.replace(Dest.Import)
                     viewModel.setSessionStep(SessionStep.IMPORT)
                 },
                 onOpenReader = { id ->
+                    nav.replace(Dest.Reader(id))
                     viewModel.setSessionStep(SessionStep.READER)
                     viewModel.openReaderText(id)
                 }
@@ -372,7 +397,7 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                 ),
                 actions = {
                     if (!studyActive) {
-                        IconButton(onClick = { showReference = !showReference }) {
+                        IconButton(onClick = { if (showReference) nav.pop() else nav.push(Dest.Reference) }) {
                             Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "Grammar reference")
                         }
                     }
@@ -388,7 +413,7 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                 MainBottomBar(
                     selected = activeTab,
                     onSelect = { step ->
-                        studyActive = false
+                        nav.replace(step.toTabDest())
                         viewModel.setSessionStep(step)
                     }
                 )
@@ -470,7 +495,7 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                     results = state.referenceResults,
                     onQuery = viewModel::setReferenceQuery,
                     onSpeak = tts::speak,
-                    onClose = { showReference = false },
+                    onClose = { nav.pop() },
                     modifier = Modifier.matchParentSize()
                 )
             }

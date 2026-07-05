@@ -21,6 +21,7 @@ internal class FakeSettingsStore : SettingsStore {
     override var backupTreeUri: String = ""
     override var restDayCredits: Int = 0
     override var lastRestCreditAwardDay: Long = Long.MIN_VALUE
+    override var lastInsuredGapDay: Long = Long.MIN_VALUE
     override var planSkeletonCardIds: String = ""
     override var lastAdaptiveLoadDay: Long = Long.MIN_VALUE
     override var dismissedDoctrineNudge: String = ""

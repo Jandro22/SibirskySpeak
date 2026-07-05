@@ -52,6 +52,127 @@
           "nextIds": []
         }
       ]
+    },
+    {
+      "id": "at_the_shop",
+      "unitMin": 8,
+      "function": "shopping",
+      "title": "At the shop",
+      "nodes": [
+        {
+          "id": "at_the_shop:1",
+          "speaker": "npc",
+          "ru": "Здравствуйте! Что вы хотите?",
+          "en": "Hello! What would you like?",
+          "nextIds": ["at_the_shop:2"]
+        },
+        {
+          "id": "at_the_shop:2",
+          "speaker": "learner",
+          "ru": "Здравствуйте! У вас есть хлеб?",
+          "en": "Hello! Do you have bread?",
+          "acceptable": ["здравствуйте, у вас есть хлеб?", "у вас есть хлеб?", "у вас есть хлеб"],
+          "nextIds": ["at_the_shop:3"]
+        },
+        {
+          "id": "at_the_shop:3",
+          "speaker": "npc",
+          "ru": "Да, есть. Сколько вам нужно?",
+          "en": "Yes, we do. How much do you need?",
+          "nextIds": ["at_the_shop:4"]
+        },
+        {
+          "id": "at_the_shop:4",
+          "speaker": "learner",
+          "ru": "Один хлеб, пожалуйста.",
+          "en": "One bread, please.",
+          "acceptable": ["один хлеб, пожалуйста", "один хлеб пожалуйста", "один, пожалуйста"],
+          "nextIds": ["at_the_shop:5"]
+        },
+        {
+          "id": "at_the_shop:5",
+          "speaker": "npc",
+          "ru": "Вот, пожалуйста. Ещё что-нибудь?",
+          "en": "Here you go. Anything else?",
+          "nextIds": ["at_the_shop:6"]
+        },
+        {
+          "id": "at_the_shop:6",
+          "speaker": "learner",
+          "ru": "Нет, спасибо. Сколько это стоит?",
+          "en": "No, thanks. How much is it?",
+          "acceptable": ["нет, спасибо. сколько это стоит?", "сколько это стоит?", "сколько стоит?"],
+          "nextIds": ["at_the_shop:7"]
+        },
+        {
+          "id": "at_the_shop:7",
+          "speaker": "npc",
+          "ru": "Сто рублей.",
+          "en": "One hundred rubles.",
+          "nextIds": ["at_the_shop:8"]
+        },
+        {
+          "id": "at_the_shop:8",
+          "speaker": "learner",
+          "ru": "Спасибо большое! До свидания.",
+          "en": "Thank you very much! Goodbye.",
+          "acceptable": ["спасибо большое, до свидания", "спасибо большое! до свидания", "спасибо, до свидания"],
+          "nextIds": []
+        }
+      ]
+    },
+    {
+      "id": "asking_directions",
+      "unitMin": 12,
+      "function": "asking for directions",
+      "title": "Where is it?",
+      "nodes": [
+        {
+          "id": "asking_directions:1",
+          "speaker": "learner",
+          "ru": "Извините, где здесь магазин?",
+          "en": "Excuse me, where is the shop around here?",
+          "acceptable": ["извините, где здесь магазин?", "где здесь магазин?", "где магазин?"],
+          "nextIds": ["asking_directions:2"]
+        },
+        {
+          "id": "asking_directions:2",
+          "speaker": "npc",
+          "ru": "Магазин там, направо.",
+          "en": "The shop is over there, to the right.",
+          "nextIds": ["asking_directions:3"]
+        },
+        {
+          "id": "asking_directions:3",
+          "speaker": "learner",
+          "ru": "Это далеко отсюда?",
+          "en": "Is it far from here?",
+          "acceptable": ["это далеко отсюда?", "далеко отсюда?", "это далеко?"],
+          "nextIds": ["asking_directions:4"]
+        },
+        {
+          "id": "asking_directions:4",
+          "speaker": "npc",
+          "ru": "Нет, это близко. Пять минут пешком.",
+          "en": "No, it's close. Five minutes on foot.",
+          "nextIds": ["asking_directions:5"]
+        },
+        {
+          "id": "asking_directions:5",
+          "speaker": "learner",
+          "ru": "Спасибо за помощь!",
+          "en": "Thanks for the help!",
+          "acceptable": ["спасибо за помощь!", "спасибо за помощь", "большое спасибо"],
+          "nextIds": ["asking_directions:6"]
+        },
+        {
+          "id": "asking_directions:6",
+          "speaker": "npc",
+          "ru": "Пожалуйста! Хорошего дня.",
+          "en": "You're welcome! Have a good day.",
+          "nextIds": []
+        }
+      ]
     }
   ]
 }

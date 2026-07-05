@@ -19,7 +19,7 @@ WORD = re.compile(r"[А-Яа-яЁё]+(?:-[А-Яа-яЁё]+)?")
 # aren't meant to be — the app's own reader already exempts capitalized,
 # non-sentence-initial unknowns as likely names. Chapters may introduce a
 # small, fixed cast; list them once here instead of per-chapter.
-KNOWN_CHARACTER_NAMES = {"анна", "иван"}
+KNOWN_CHARACTER_NAMES = {"анна", "иван", "мария", "петр"}
 
 
 def norm(value: str) -> str:

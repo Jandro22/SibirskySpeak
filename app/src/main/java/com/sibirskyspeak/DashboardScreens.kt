@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -59,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -527,18 +530,22 @@ private fun SkillRadarChart(axes: List<AbilitySkill>, ratings: Map<String, Skill
     val outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
     val primaryColor = MaterialTheme.colorScheme.primary
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-    Box(modifier = Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
+    val density = LocalDensity.current
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth().height(300.dp)) {
+        val widthPx = with(density) { maxWidth.toPx() }
+        val heightPx = with(density) { maxHeight.toPx() }
+        val radiusPx = minOf(widthPx, heightPx) * 0.30f
+        val centerPx = androidx.compose.ui.geometry.Offset(widthPx / 2f, heightPx / 2f)
+        val angleStep = (2 * Math.PI / values.size).toFloat()
+        fun angleFor(index: Int) = -Math.PI.toFloat() / 2f + index * angleStep
+        fun point(index: Int, value: Float): androidx.compose.ui.geometry.Offset {
+            val angle = angleFor(index)
+            return androidx.compose.ui.geometry.Offset(
+                x = centerPx.x + kotlin.math.cos(angle) * radiusPx * value,
+                y = centerPx.y + kotlin.math.sin(angle) * radiusPx * value
+            )
+        }
         Canvas(Modifier.fillMaxSize()) {
-            val radius = size.minDimension * 0.36f
-            val center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
-            val angleStep = (2 * Math.PI / values.size).toFloat()
-            fun point(index: Int, value: Float): androidx.compose.ui.geometry.Offset {
-                val angle = -Math.PI.toFloat() / 2f + index * angleStep
-                return androidx.compose.ui.geometry.Offset(
-                    x = center.x + kotlin.math.cos(angle) * radius * value,
-                    y = center.y + kotlin.math.sin(angle) * radius * value
-                )
-            }
             repeat(4) { ring ->
                 val ringValue = (ring + 1) / 4f
                 values.indices.forEach { index ->
@@ -549,7 +556,7 @@ private fun SkillRadarChart(axes: List<AbilitySkill>, ratings: Map<String, Skill
             }
             values.indices.forEach { index ->
                 val p = point(index, 1f)
-                drawLine(outlineColor, center, p, strokeWidth = 1.2f)
+                drawLine(outlineColor, centerPx, p, strokeWidth = 1.2f)
             }
             fun pathFor(valueSelector: (Triple<AbilitySkill, Double, Double>) -> Double): androidx.compose.ui.graphics.Path {
                 val path = androidx.compose.ui.graphics.Path()
@@ -567,17 +574,58 @@ private fun SkillRadarChart(axes: List<AbilitySkill>, ratings: Map<String, Skill
                 drawCircle(primaryColor, radius = 6f, center = outer)
             }
         }
+        val labelBoxWidth = 78.dp
+        val labelBoxHeight = 32.dp
+        val labelBoxWidthPx = with(density) { labelBoxWidth.toPx() }
+        val labelBoxHeightPx = with(density) { labelBoxHeight.toPx() }
         values.forEachIndexed { index, triple ->
             val label = triple.first.name.lowercase().replace('_', ' ')
-            val angle = -Math.PI / 2 + index * (2 * Math.PI / values.size)
-            val labelRadius = 0.42f
+            val angle = angleFor(index)
+            val cosA = kotlin.math.cos(angle)
+            val sinA = kotlin.math.sin(angle)
+            val labelRadiusPx = radiusPx * 1.28f
+            val anchorXPx = centerPx.x + cosA * labelRadiusPx
+            val anchorYPx = centerPx.y + sinA * labelRadiusPx
+            // Anchor the box edge nearest the center at the octagon point so text radiates outward
+            // instead of overlapping its neighbors when points sit close together.
+            val hFraction = when {
+                cosA > 0.35f -> 0f
+                cosA < -0.35f -> 1f
+                else -> 0.5f
+            }
+            val vFraction = when {
+                sinA > 0.35f -> 0f
+                sinA < -0.35f -> 1f
+                else -> 0.5f
+            }
+            val offsetX = with(density) { (anchorXPx - labelBoxWidthPx * hFraction).toDp() }
+            val offsetY = with(density) { (anchorYPx - labelBoxHeightPx * vFraction).toDp() }
+            val textAlign = when (hFraction) {
+                0f -> TextAlign.Start
+                1f -> TextAlign.End
+                else -> TextAlign.Center
+            }
+            val boxAlignment = when (vFraction) {
+                0f -> Alignment.TopCenter
+                1f -> Alignment.BottomCenter
+                else -> Alignment.Center
+            }
             Box(
-                modifier = Modifier.graphicsLayer {
-                    translationX = ((kotlin.math.cos(angle) * 120f * labelRadius)).toFloat()
-                    translationY = ((kotlin.math.sin(angle) * 120f * labelRadius)).toFloat()
-                }
+                modifier = Modifier
+                    .offset(x = offsetX, y = offsetY)
+                    .width(labelBoxWidth)
+                    .height(labelBoxHeight),
+                contentAlignment = boxAlignment
             ) {
-                Text(label, style = MaterialTheme.typography.labelSmall, color = labelColor)
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = labelColor,
+                    textAlign = textAlign,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
@@ -585,27 +633,111 @@ private fun SkillRadarChart(axes: List<AbilitySkill>, ratings: Map<String, Skill
 
 @Composable
 internal fun RivalProgressCard(rivalState: com.sibirskyspeak.data.RivalState?, history: List<com.sibirskyspeak.data.MatchHistory>) {
+    // rival_state.mu/sigma is the AI opponent's own TrueSkill rating (see
+    // LearningRepository.finishAdaptiveSession: it's set from report.opponentAfter), not the
+    // learner's — using it here would show the learner their opponent's tier. The learner's own
+    // conservative rating (mu - 3*sigma) after each match is already stored as
+    // MatchHistory.ratingAfter, so the most recent match has exactly the right number.
+    val displayRating = history.firstOrNull()?.ratingAfter
     SectionCard {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(Icons.Filled.EmojiEvents, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.EmojiEvents,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
             Column(Modifier.weight(1f)) {
                 Text("Rival / season", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    rivalState?.let { "Tier ${Rival.tier(it.mu)} · streak ${it.winStreak} · persona ${it.persona}" }
-                        ?: "No ranked match yet",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    displayRating?.let { Rival.tier(it) } ?: "No ranked match yet",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.secondary
                 )
             }
+            if (rivalState != null) {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("Streak", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${rivalState.winStreak}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    Text(rivalState.persona, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        if (displayRating != null) {
+            Spacer(Modifier.height(14.dp))
+            val tierIdx = Rival.tierIndex(displayRating)
+            val lower = Rival.tierBoundaries[tierIdx]
+            val upper = Rival.tierBoundaries.getOrNull(tierIdx + 1)
+            val progress = when {
+                upper == null || !upper.isFinite() -> 1f
+                !lower.isFinite() -> 1f
+                else -> ((displayRating - lower) / (upper - lower)).toFloat().coerceIn(0f, 1f)
+            }
+            AppLinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)),
+                color = MaterialTheme.colorScheme.secondary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Rating ${"%.1f".format(displayRating)}" +
+                    (upper?.takeIf { it.isFinite() }?.let { " · ${"%.1f".format((it - displayRating).coerceAtLeast(0.0))} to next tier" } ?: " · top tier"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
         if (history.isNotEmpty()) {
-            Spacer(Modifier.height(10.dp))
-            history.take(4).forEach { match ->
-                Text(
-                    "${match.opponent} · ${match.outcome} · ${"%.1f".format(match.ratingBefore)} → ${"%.1f".format(match.ratingAfter)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            Spacer(Modifier.height(16.dp))
+            Text("Recent matches", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                history.take(4).forEach { match ->
+                    val won = match.outcome.equals("WIN", ignoreCase = true)
+                    val drew = match.outcome.equals("DRAW", ignoreCase = true)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    when {
+                                        won -> Color(0xFF3DAA6B)
+                                        drew -> MaterialTheme.colorScheme.outline
+                                        else -> MaterialTheme.colorScheme.error
+                                    }
+                                )
+                        )
+                        Text(
+                            match.opponent,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            "${"%.1f".format(match.ratingBefore)} → ${"%.1f".format(match.ratingAfter)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
     }

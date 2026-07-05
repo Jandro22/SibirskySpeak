@@ -13,6 +13,11 @@ import java.util.Locale
  * god object into cooperating pieces (see CLAUDE.md's architecture note).
  */
 object CardFactory {
+    // Kept in sync manually with LearningRepository.CEFR_LEVELS (this object is
+    // deliberately DAO/dependency-free, so it can't reference that private constant).
+    private val CEFR_ORDER = listOf("A1", "A2", "B1", "B2", "C1", "C2")
+    private fun cefrOrdinal(level: String?): Int = CEFR_ORDER.indexOf(level).let { if (it < 0) 0 else it }
+
     fun cardsFor(note: Note): List<Card> = buildList {
         // A lesson note (pos = "lesson") teaches one grammar concept and produces a
         // single LESSON card — no vocab/drill cards. Seeing it is what unlocks the
@@ -162,11 +167,28 @@ object CardFactory {
         return vowels >= 2 && '\u0301' in word
     }
 
+    // Russian case pedagogy pacing, keyed to the note's own cefrLevel (not tier):
+    // nominative+accusative singular are the A1 "core" (subject / direct object);
+    // the rest of the singular paradigm (genitive/dative/instrumental/prepositional)
+    // is the standard A2 milestone — real CEFR-Russian guidance is "by the end of A2
+    // you should have met all six cases" — and any plural declension, across every
+    // case, is deferred to B1, once longer sentences with plural referents are
+    // expected. This scopes an A1-tagged note's drills to what an A1 learner should
+    // actually be asked to produce; a B2+-tagged note (e.g. tier-2 domain vocabulary)
+    // still gets the full paradigm immediately, since B2/C1 production is expected to
+    // already command all of it.
+    private fun minCefrOrdinalForCase(gramCase: String, gramNumber: String): Int = when {
+        gramNumber == "PL" -> cefrOrdinal("B1")
+        gramCase == "ACC" -> cefrOrdinal("A1")
+        else -> cefrOrdinal("A2")
+    }
+
     private fun caseCards(note: Note): List<Card> {
         val json = note.declensionJson ?: return emptyList()
         val gender = note.gender ?: return emptyList()
         val table = runCatching { JSONObject(json) }.getOrNull() ?: return emptyList()
         val source = if (table.has("cases")) table.getJSONObject("cases") else table
+        val noteCefrOrdinal = cefrOrdinal(note.cefrLevel)
         val nominativeByNumber = mapOf(
             "SG" to source.optString("NOM_SG"),
             "PL" to source.optString("NOM_PL")
@@ -178,6 +200,7 @@ object CardFactory {
                 val gramCase = parts.getOrNull(0)?.takeIf { it in CASES } ?: return@mapNotNull null
                 if (gramCase == "NOM") return@mapNotNull null
                 val gramNumber = parts.getOrNull(1)?.takeIf { it in NUMBERS } ?: if (gender == "PL") "PL" else "SG"
+                if (noteCefrOrdinal < minCefrOrdinalForCase(gramCase, gramNumber)) return@mapNotNull null
                 val answer = source.optString(key)
                 val nominative = nominativeByNumber[gramNumber].orEmpty()
                 if (answer.isBlank() || RussianForms.normalize(answer) == RussianForms.normalize(nominative)) return@mapNotNull null

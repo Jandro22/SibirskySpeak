@@ -168,13 +168,15 @@ internal class FakeCardDao(
                     everSucceeded = everSucceeded
                 )
             }
-    override suspend fun getNewCardsOrdered(limit: Int): List<Card> {
+    override suspend fun getNewCardsOrdered(limit: Int, maxCefrOrdinal: Int): List<Card> {
+        val cefrOrder = listOf("A1", "A2", "B1", "B2", "C1", "C2")
+        fun cefrOrdinal(n: Note?): Int = cefrOrder.indexOf(n?.cefrLevel).let { if (it < 0) 0 else it }
         fun rank(card: Card): IntArray {
             val n = notes.notes.firstOrNull { it.id == card.noteId }
             val tierPhase = if (n?.tier == 0) 0 else 1
             val unit = n?.unit ?: Int.MAX_VALUE
             val freq = n?.domainFreqRank ?: n?.generalFreqRank ?: Int.MAX_VALUE
-            return intArrayOf(tierPhase, unit, freq)
+            return intArrayOf(cefrOrdinal(n), tierPhase, unit, freq)
         }
         fun eligible(card: Card): Boolean {
             val n = notes.notes.firstOrNull { it.id == card.noteId }
@@ -189,17 +191,18 @@ internal class FakeCardDao(
             return card.state == CardState.NEW && !card.suspended &&
                 n?.status != WordStatus.KNOWN && n?.status != WordStatus.IGNORED &&
                 n?.translation != "lookup pending" &&
+                cefrOrdinal(n) <= maxCefrOrdinal &&
                 (card.queue != Queue.GRAMMAR || card.cardType == CardType.LESSON || (n?.encounterCount ?: 0) > 0) &&
                 (!advanced || matureRecognition)
         }
         return cards.filter { eligible(it) }
             .sortedWith(
-                compareBy<Card>({ rank(it)[0] }, { rank(it)[1] }, { rank(it)[2] }, { it.id })
+                compareBy<Card>({ rank(it)[0] }, { rank(it)[1] }, { rank(it)[2] }, { rank(it)[3] }, { it.id })
             )
             .take(limit)
     }
-    override suspend fun getNewCardsOrderedPage(limit: Int, offset: Int): List<Card> =
-        getNewCardsOrdered(Int.MAX_VALUE).drop(offset).take(limit)
+    override suspend fun getNewCardsOrderedPage(limit: Int, offset: Int, maxCefrOrdinal: Int): List<Card> =
+        getNewCardsOrdered(Int.MAX_VALUE, maxCefrOrdinal).drop(offset).take(limit)
     override suspend fun graduateVocabForNote(
         noteId: Long,
         due: Long,

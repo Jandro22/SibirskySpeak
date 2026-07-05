@@ -139,6 +139,15 @@ data class ReviewUiState(
     val backupTreeUri: String = "",
     val restDayCredits: Int = 0,
     val weeklyReports: List<WeeklyReport> = emptyList(),
+    // P6.4 monthly checkpoint (Lab): an independent assessment session that
+    // writes no FSRS state at all. checkpointSession is non-null exactly while
+    // one is in progress; checkpointCalibration is the historical predicted-vs-
+    // observed curve shown once at least one result exists.
+    val checkpointSession: com.sibirskyspeak.data.CheckpointSession? = null,
+    val checkpointIndex: Int = 0,
+    val checkpointResults: List<Boolean> = emptyList(),
+    val checkpointFeedback: String? = null,
+    val checkpointCalibration: List<com.sibirskyspeak.data.CalibrationBucket> = emptyList(),
     val skeletonReady: Boolean = false,
     // Deck search (Settings/Import area).
     val searchQuery: String = "",
@@ -207,10 +216,6 @@ class ReviewViewModel @javax.inject.Inject constructor(
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(ReviewUiState())
     val state: StateFlow<ReviewUiState> = mutableState.asStateFlow()
-    val studyState = state.map(::StudyUiState).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StudyUiState(state.value))
-    val readerState = state.map(::ReaderUiState).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReaderUiState(state.value))
-    val dashboardState = state.map(::DashboardUiState).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState(state.value))
-    val importState = state.map(::ImportUiState).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ImportUiState(state.value))
     // The in-progress typed answer lives in its own flow, not in ReviewUiState, so a
     // keystroke doesn't re-emit the whole 60-field state and recompose the entire
     // screen. Only the answer-input subtree (which collects this) recomposes while
@@ -1309,6 +1314,58 @@ class ReviewViewModel @javax.inject.Inject constructor(
         }
     }
 
+    /** P6.4: start a monthly checkpoint session (Lab). Independent of the study
+     * session — writes no FSRS state, so it can run any time without disturbing
+     * due dates or the regular queue. */
+    fun startCheckpoint() {
+        viewModelScope.launch {
+            runCatching { repository.buildCheckpointSession() }
+                .onSuccess { session ->
+                    mutableState.value = mutableState.value.copy(
+                        checkpointSession = session,
+                        checkpointIndex = 0,
+                        checkpointResults = emptyList(),
+                        checkpointFeedback = null
+                    )
+                }
+                .onFailure { mutableState.value = mutableState.value.copy(statusMessage = it.message ?: "Could not start checkpoint") }
+        }
+    }
+
+    fun submitCheckpointAnswer(answer: String) {
+        val current = mutableState.value
+        val session = current.checkpointSession ?: return
+        val item = session.items.getOrNull(current.checkpointIndex) ?: return
+        viewModelScope.launch {
+            val correct = repository.gradeCheckpointAnswer(item, answer)
+            runCatching { repository.recordCheckpointResult(item, correct) }
+            val nextIndex = current.checkpointIndex + 1
+            val done = nextIndex >= session.items.size
+            mutableState.value = mutableState.value.copy(
+                checkpointIndex = nextIndex,
+                checkpointResults = current.checkpointResults + correct,
+                checkpointFeedback = when {
+                    done -> {
+                        val results = current.checkpointResults + correct
+                        "Checkpoint complete: ${results.count { it }}/${results.size} correct."
+                    }
+                    correct -> "Correct."
+                    else -> "Not quite — ${item.expectedAnswer}"
+                },
+                checkpointCalibration = if (done) repository.checkpointCalibration() else current.checkpointCalibration
+            )
+        }
+    }
+
+    fun dismissCheckpoint() {
+        mutableState.value = mutableState.value.copy(
+            checkpointSession = null,
+            checkpointIndex = 0,
+            checkpointResults = emptyList(),
+            checkpointFeedback = null
+        )
+    }
+
     private suspend fun openReaderTextNow(id: Long, inSession: Boolean) {
         val recommendation = mutableState.value.allReaderTexts.firstOrNull { it.text.id == id }
             ?: repository.readerTexts().firstOrNull { it.text.id == id }
@@ -1527,7 +1584,19 @@ class ReviewViewModel @javax.inject.Inject constructor(
         keepStep: SessionStep = mutableState.value.sessionStep,
         status: String? = mutableState.value.statusMessage,
         preserveStudyQueue: Boolean = false,
-        includeReaderInsights: Boolean = true
+        // preserveStudyQueue means we're still mid-review, not on the dashboard/reader
+        // screen — the same reasoning startStudySession() already uses at cold start
+        // (see loadSession(includeReaderInsights = false) there): reader coverage
+        // needs a morphology index over the whole deck and a scan of every text, so it
+        // must never be the thing standing between a rating and the next prompt.
+        // Without this, canReusePlan going false right after a review (most visibly
+        // when the MPC's Protected Stop clears activeStudyQueue) forced that full
+        // reader-coverage rebuild on every single subsequent action — a ~4.5-5s stall
+        // with no loading indicator, during which a frustrated extra tap would land on
+        // whatever the rebuild produced once it finally finished, undoing the very
+        // stop the pacer had just decided to make. refreshReaderInsights() backfills
+        // this in the background the same way it does after cold start.
+        includeReaderInsights: Boolean = !preserveStudyQueue
     ) {
         val loadStartedAt = System.currentTimeMillis()
         val current = mutableState.value
@@ -1565,7 +1634,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
         recalibrateScheduling(plan.dashboardStats)
         adaptDailyLoad(plan)
         val step = keepStep
-        val allReaders = if (canReusePlan) current.allReaderTexts else repository.readerTexts()
+        val allReaders = if (canReusePlan || !includeReaderInsights) current.allReaderTexts else repository.readerTexts()
         val readerRecommendation = plan.readerRecommendation ?: recommendNextReader(allReaders)
         val readerProgressByText = allReaders.associate { it.text.id to settings.readerProgress(it.text.id) }
         val selectedReader = current.selectedReaderTextId?.let { id ->
@@ -1584,6 +1653,17 @@ class ReviewViewModel @javax.inject.Inject constructor(
             // its full body or build the morphology index. openReaderTextNow() does
             // that work when the learner actually opens a text.
             emptyList()
+        }
+        // Spend a streak-insurance credit exactly once per specific gap day: the
+        // repository's streak computation is a pure recomputation over config()
+        // snapshots (it can't write settings), so the actual deduction happens
+        // here, guarded by lastInsuredGapDay so re-loading the same already-
+        // charged gap (e.g. reopening the app the same day) can't double-spend.
+        plan.gamification.insuredGapDay?.let { gapDay ->
+            if (gapDay != settings.lastInsuredGapDay && settings.restDayCredits > 0) {
+                settings.restDayCredits -= 1
+                settings.lastInsuredGapDay = gapDay
+            }
         }
         // Detect achievements unlocked since last seen, for the celebratory toast.
         val unlockedIds = plan.gamification.achievements.filter { it.unlocked }.map { it.id }.toSet()
@@ -1621,6 +1701,11 @@ class ReviewViewModel @javax.inject.Inject constructor(
             backupTreeUri = settings.backupTreeUri,
             restDayCredits = settings.restDayCredits,
             weeklyReports = repository.weeklyReports(),
+            checkpointSession = current.checkpointSession,
+            checkpointIndex = current.checkpointIndex,
+            checkpointResults = current.checkpointResults,
+            checkpointFeedback = current.checkpointFeedback,
+            checkpointCalibration = repository.checkpointCalibration(),
             skeletonReady = current.skeletonReady,
             searchQuery = current.searchQuery,
             searchResults = current.searchResults,

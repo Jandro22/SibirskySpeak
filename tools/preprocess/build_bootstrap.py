@@ -46,6 +46,21 @@ def domain_rank(lemma: str, fallback: int) -> int:
     fallback that sorts after the ranked core (kept stable per call site)."""
     return DOMAIN_FREQ.get(lemma.lower(), fallback)
 
+
+# Tier-2 (formal/political/security-register) content is never A1/A2/B1 material —
+# it's institutional and abstract-topic vocabulary by nature (government, ministry,
+# sanctions, jurisdiction...), which is squarely a B2+ CEFR domain ("understand...
+# complex text on...abstract topics, including technical discussions" is the B2
+# descriptor). Band it B2/C1/C2 by real corpus rank (same DOMAIN_FREQ signal already
+# used for sequencing) instead of leaving it untagged — untagged content is invisible
+# to any CEFR-aware gate and was surfacing for A1 learners. Anything not found in the
+# domain frequency list at all (fallback ranks) is obscure enough to default to C2.
+TIER2_CEFR_BY_RANK = ((250, "B2"), (600, "C1"))
+
+
+def tier2_cefr_level(rank: int) -> str:
+    return next((lvl for thresh, lvl in TIER2_CEFR_BY_RANK if rank <= thresh), "C2")
+
 GENDER_BY_CLASS = {
     "m_hard": "M", "m_fleeting": "M", "m_j": "M", "m_iy": "M", "m_soft": "M",
     "f_a": "F", "f_ya": "F", "f_iya": "F", "f_soft": "F",
@@ -234,6 +249,7 @@ def noun_rows():
             nom = table.get("NOM_SG") or table.get("NOM_PL")
         ex_ru, ex_en = noun_example(table, nom, translation, animate, i)
         lemma = strip_stress(citation)
+        rank = domain_rank(lemma, 2000 + i)
         rows.append({
             "russian": citation,
             "lemma": lemma,
@@ -241,11 +257,12 @@ def noun_rows():
             "translation": translation,
             "gender": GENDER_BY_CLASS[cls],
             "declensionJson": table,
-            "domainFreqRank": domain_rank(lemma, 2000 + i),
+            "domainFreqRank": rank,
             "generalFreqRank": 1000 + i * 7,
             "exampleSentence": ex_ru,
             "exampleTranslation": ex_en,
             "tier": 2,
+            "cefrLevel": tier2_cefr_level(rank),
             "tags": "domain noun",
         })
     return rows
@@ -257,6 +274,7 @@ def adjective_rows(start_rank: int):
         table = decline_adjective(citation)
         lemma = strip_stress(citation)
         ex_ru, ex_en = adjective_example(table, citation, translation, i)
+        rank = domain_rank(lemma, start_rank + i)
         rows.append({
             "russian": citation,
             "lemma": lemma,
@@ -264,11 +282,12 @@ def adjective_rows(start_rank: int):
             "translation": translation,
             "gender": "M",
             "declensionJson": table,
-            "domainFreqRank": domain_rank(lemma, start_rank + i),
+            "domainFreqRank": rank,
             "generalFreqRank": 2000 + i * 9,
             "exampleSentence": ex_ru,
             "exampleTranslation": ex_en,
             "tier": 2,
+            "cefrLevel": tier2_cefr_level(rank),
             "tags": "domain adjective",
         })
     return rows
@@ -311,6 +330,7 @@ def _verb_note(citation, _unused, translation, aktionsart, aspect, partner_lemma
     inf = strip_stress(citation)
     ex_ru, ex_en = verb_example(citation, translation, rank)
     present_forms = present_forms_for(inf)
+    domain_freq = domain_rank(inf, 2000 + rank)
     note = {
         "russian": citation,
         "lemma": inf,
@@ -319,11 +339,12 @@ def _verb_note(citation, _unused, translation, aktionsart, aspect, partner_lemma
         "aspect": aspect,
         "aktionsart": aktionsart,
         "aktionsartConfidence": "manual",
-        "domainFreqRank": domain_rank(inf, 2000 + rank),
+        "domainFreqRank": domain_freq,
         "generalFreqRank": 1500 + rank,
         "exampleSentence": ex_ru,
         "exampleTranslation": ex_en,
         "tier": 2,
+        "cefrLevel": tier2_cefr_level(domain_freq),
         "tags": tags,
     }
     if present_forms:
@@ -578,6 +599,15 @@ def main():
     # words using deck-verified data.
     promoted, general = promote_to_course(general)
 
+    # The remaining (non-promoted) general-matrix words never left tier 1, so
+    # promote_to_course's per-word CEFR tagging never touched them either. Tag them
+    # too, by the same frequency benchmark, so "no cefrLevel at all" never becomes a
+    # way for content to dodge CEFR-aware gating — vocab-only reading fuel with no
+    # grammar drills still deserves an honest level for display and pacing.
+    for g in general:
+        rank = g.get("generalFreqRank") or 10 ** 9
+        g["cefrLevel"] = next((lvl for thresh, lvl in CEFR_BY_RANK if rank <= thresh), "C2")
+
     course = a1_notes + promoted
     notes = course + domain + general
 
@@ -592,6 +622,12 @@ def main():
             rank = DOMAIN_FREQ.get(r["lemma"])
             if rank is not None:
                 r["domainFreqRank"] = rank
+            # Reader-coverage words are pulled in only because they appear in the
+            # bundled (mostly domain-flavored) reader texts, with no frequency
+            # signal of their own to band by — tag them C1 rather than leave them
+            # untagged; they're vocab-only (no grammar drills) so the risk of an
+            # imprecise level is low, but "no tag at all" is worse than an estimate.
+            r.setdefault("cefrLevel", "C1")
         notes = notes + supplement
     except ImportError:
         supplement = []

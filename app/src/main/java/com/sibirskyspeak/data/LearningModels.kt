@@ -217,7 +217,14 @@ data class GamificationStats(
     val activeDays: Int,
     val last7Days: List<Boolean>,
     val achievements: List<Achievement>,
-    val restDayCredits: Int = 0
+    val restDayCredits: Int = 0,
+    // The specific day-bucket (see LearningRepository.startOfLocalDay) that streak
+    // insurance bridged to keep currentStreak alive, or null if no gap was insured.
+    // LearningRepository is a pure query over config() snapshots and can't write
+    // settings itself, so the actual credit deduction happens in ReviewViewModel
+    // (which owns the mutable SettingsStore) by comparing this against the last
+    // day it already charged for — see ReviewViewModel.loadSession.
+    val insuredGapDay: Long? = null
 ) {
     val goalReached: Boolean get() = dailyGoal > 0 && reviewedToday >= dailyGoal
 

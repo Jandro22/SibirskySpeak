@@ -57,7 +57,7 @@ class CardFactoryTest {
     fun caseFillOnlyGeneratesForAttestedFormsNeverNominative() {
         val note = Note(
             id = 1, russian = "стол", lemma = "стол", translation = "table", partOfSpeech = "noun",
-            gender = "M", tier = 0,
+            gender = "M", tier = 0, cefrLevel = "A2",
             declensionJson = """{"NOM_SG":"стол","GEN_SG":"стола","DAT_SG":"столу"}""",
             exampleSentence = "Я купил стола.", exampleTranslation = "I bought the table."
         )
@@ -67,6 +67,30 @@ class CardFactoryTest {
         assertTrue(caseCards.any { it.gramCase == "GEN" })
         assertFalse(caseCards.any { it.gramCase == "DAT" })
         assertFalse(caseCards.any { it.gramCase == "NOM" })
+    }
+
+    @Test
+    fun caseFillPacingRestrictsDepthByTheNotesOwnCefrLevel() {
+        // Same attested forms, three different declared levels: A1 should see only
+        // the accusative singular "core"; A2 unlocks the rest of the singular
+        // paradigm; B1 finally unlocks plural declension.
+        fun noteAt(level: String) = Note(
+            id = 1, russian = "кни́га", lemma = "книга", translation = "book", partOfSpeech = "noun",
+            gender = "F", tier = 0, cefrLevel = level,
+            declensionJson = """{"NOM_SG":"книга","ACC_SG":"книгу","GEN_SG":"книги","NOM_PL":"книги","GEN_PL":"книг"}""",
+            exampleSentence = "Я купил книгу, прочитал книги, а теперь у меня нет книг.",
+            exampleTranslation = "I bought a book, read some books, and now I have no books."
+        )
+        val a1Cases = CardFactory.cardsFor(noteAt("A1")).filter { it.cardType == CardType.CASE_FILL }
+        assertTrue(a1Cases.any { it.gramCase == "ACC" && it.gramNumber == "SG" })
+        assertFalse(a1Cases.any { it.gramCase == "GEN" })
+
+        val a2Cases = CardFactory.cardsFor(noteAt("A2")).filter { it.cardType == CardType.CASE_FILL }
+        assertTrue(a2Cases.any { it.gramCase == "GEN" && it.gramNumber == "SG" })
+        assertFalse(a2Cases.any { it.gramNumber == "PL" })
+
+        val b1Cases = CardFactory.cardsFor(noteAt("B1")).filter { it.cardType == CardType.CASE_FILL }
+        assertTrue(b1Cases.any { it.gramCase == "GEN" && it.gramNumber == "PL" })
     }
 
     @Test

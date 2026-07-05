@@ -50,7 +50,7 @@ class LearningRepositoryTest {
         val jsonl = """
             {"russian":"писа́ть","lemma":"писать","pos":"verb","translation":"to write","aspect":"IPF","aspectPartner":"написать","aktionsart":"activity","aktionsartConfidence":"high","exampleSentence":"Я писал письмо."}
             {"russian":"написа́ть","lemma":"написать","pos":"verb","translation":"to write completely","aspect":"PF","aspectPartner":"писать","aktionsart":"accomplishment","aktionsartConfidence":"high","exampleSentence":"Я написал письмо."}
-            {"russian":"войска́","lemma":"войска","pos":"noun","translation":"troops","gender":"PL","declensionJson":{"NOM_PL":"войска","GEN_PL":"войск"},"domainFreqRank":10,"exampleSentence":"Здесь нет войск."}
+            {"russian":"войска́","lemma":"войска","pos":"noun","translation":"troops","gender":"PL","declensionJson":{"NOM_PL":"войска","GEN_PL":"войск"},"domainFreqRank":10,"cefrLevel":"B2","exampleSentence":"Здесь нет войск."}
         """.trimIndent()
 
         assertEquals(3, fixture.repository.importJsonLines(jsonl))
@@ -69,7 +69,7 @@ class LearningRepositoryTest {
     fun seedUsesBootstrapAssetsWhenProvided() = runTest {
         val fixture = RepoFixture(
             bootstrapNotes = """
-                {"russian":"санкции","lemma":"санкция","pos":"noun","translation":"sanctions","gender":"F","declensionJson":{"NOM_PL":"санкции","GEN_PL":"санкций"},"domainFreqRank":1,"exampleSentence":"Здесь нет санкций."}
+                {"russian":"санкции","lemma":"санкция","pos":"noun","translation":"sanctions","gender":"F","declensionJson":{"NOM_PL":"санкции","GEN_PL":"санкций"},"domainFreqRank":1,"cefrLevel":"B2","exampleSentence":"Здесь нет санкций."}
             """.trimIndent(),
             bootstrapReaderTexts = """
                 {"title":"Target","source":"target:test","body":"санкции санкции неизвестно"}
@@ -489,6 +489,38 @@ class LearningRepositoryTest {
             "new cards should blend in after due reviews (no SRS treadmill)",
             session.reviewQueue.drop(1).any { it.card.id == newCardId }
         )
+    }
+
+    @Test
+    fun sessionOrderVariesAcrossEquallyEligibleDueCards() = runTest {
+        // Six same-difficulty, same-facet due cards give the balanceSkills zigzag two
+        // full shuffle bands to work with. Anki shuffles its due queue so the same set
+        // of cards doesn't drill in the exact same order every time; this asserts this
+        // app's now-seeded shuffle actually varies the slot order (not a no-op) while
+        // still returning the identical set of cards either way.
+        val fixture = RepoFixture()
+        val cardIds = (1..6).map { index ->
+            val noteId = fixture.notes.insert(
+                Note(russian = "due$index", lemma = "due$index", translation = "due $index", partOfSpeech = "noun")
+            )
+            fixture.cards.insert(
+                Card(
+                    noteId = noteId,
+                    cardType = CardType.RU_TO_MEANING,
+                    queue = Queue.VOCAB,
+                    due = 100L,
+                    state = CardState.REVIEW,
+                    lastReview = 0L
+                )
+            )
+        }.toSet()
+
+        val orderA = fixture.repository.sessionPlan(now = 5_000L).reviewQueue.map { it.card.id }
+        val orderB = fixture.repository.sessionPlan(now = 8_765_432L).reviewQueue.map { it.card.id }
+
+        assertEquals("both sessions should surface the same due cards", cardIds, orderA.toSet())
+        assertEquals("both sessions should surface the same due cards", cardIds, orderB.toSet())
+        assertTrue("the two now-seeded sessions should not always produce the same order", orderA != orderB)
     }
 
     @Test
@@ -2480,4 +2512,226 @@ class LearningRepositoryTest {
             source = if (card.queue == Queue.GRAMMAR) ReviewSource.GRAMMAR_DRILL else ReviewSource.SRS_REVIEW
         )
 
+    /**
+     * P0.3 "no starvation" coverage, done deterministically rather than by hoping a
+     * multi-hundred-day organic simulation happens to reach every type: each of the
+     * card types with non-trivial minting/selection preconditions (grammar concept
+     * gating, recognition-maturity re-checks, parent-chunk maturity) gets its own
+     * minimal precondition-satisfying fixture, mirroring the individual minting
+     * tests above. If any of these regress to ungated-but-unselectable, this fails
+     * fast instead of only showing up as silence in a long-running simulation.
+     */
+    @Test
+    fun everyNewerCardTypeSurfacesOnceItsPreconditionsAreMet() = runTest {
+        val fixture = RepoFixture(
+            contentDao = FakeContentDao(mapOf("GEN" to listOf(testFrame("gen_negation_net", "GEN"))))
+        )
+
+        // CONCEPT_APPLY / NOVEL_PRODUCE: concept introduced (LESSON graduated) with a
+        // shipped frame; CONCEPT_APPLY already has reps so NOVEL_PRODUCE is unlocked.
+        val lessonId = fixture.notes.insert(
+            Note(russian = "Genitive", lemma = "lesson_gen", translation = "Genitive", partOfSpeech = "lesson", conceptId = "GEN", encounterCount = 1)
+        )
+        fixture.cards.insert(Card(noteId = lessonId, cardType = CardType.LESSON, queue = Queue.GRAMMAR, gramConcept = "GEN", state = CardState.GRADUATED, reps = 1))
+        // state=NEW (default): CONCEPT_APPLY is inserted directly here rather than via
+        // syncMissingNovelProduceCards' auto-mint path, so it doesn't need reps>=2 —
+        // that precondition only matters for NOVEL_PRODUCE's own *minting* trigger,
+        // which this test bypasses by inserting NOVEL_PRODUCE directly too.
+        fixture.cards.insert(Card(noteId = lessonId, cardType = CardType.CONCEPT_APPLY, queue = Queue.GRAMMAR, gramConcept = "GEN"))
+        fixture.cards.insert(Card(noteId = lessonId, cardType = CardType.NOVEL_PRODUCE, queue = Queue.GRAMMAR, gramConcept = "GEN"))
+
+        // CONCEPT_DRILL: an upper-level concept ConceptDrills actually covers, LESSON graduated.
+        val conditionalId = fixture.notes.insert(
+            Note(russian = "Conditional", lemma = "lesson_conditional", translation = "Conditional", partOfSpeech = "lesson", conceptId = GrammarConcepts.CONDITIONAL.id, encounterCount = 1)
+        )
+        fixture.cards.insert(Card(noteId = conditionalId, cardType = CardType.LESSON, queue = Queue.GRAMMAR, gramConcept = GrammarConcepts.CONDITIONAL.id, state = CardState.GRADUATED, reps = 1))
+        fixture.repository.seedIfEmpty()
+
+        // Concept-probation ("only one unproven drill per concept surfaces at a
+        // time") would otherwise block one of {CONCEPT_APPLY, NOVEL_PRODUCE} and
+        // the auto-minted CONCEPT_DRILL card here — that gate is intentional and
+        // has its own dedicated tests; record a prior success per concept so this
+        // test isolates "does the card type's own pipeline work" from probation.
+        fixture.logs.insert(goodLog(fixture.cards.cards.first { it.cardType == CardType.CONCEPT_APPLY }, time = 1L))
+        fixture.cards.cards.firstOrNull { it.noteId == conditionalId && it.cardType == CardType.CONCEPT_DRILL }?.let {
+            fixture.logs.insert(goodLog(it, time = 1L))
+        }
+
+        // VERB_FORM: any grammar-queue drill just needs its own note's first encounter.
+        val verbId = fixture.notes.insert(Note(russian = "делать", lemma = "делать", translation = "to do", partOfSpeech = "verb", tier = 0, unit = 1, encounterCount = 1))
+        fixture.cards.insert(Card(noteId = verbId, cardType = CardType.VERB_FORM, queue = Queue.GRAMMAR, gramContextCue = "PRES_3SG"))
+
+        // ASPECT_SELECT: aspect-paired verbs via the real import path, then first encounter.
+        fixture.repository.importJsonLines(
+            """
+            {"russian":"писа́ть","lemma":"писать","pos":"verb","translation":"to write","aspect":"IPF","aspectPartner":"написать","aktionsart":"activity","aktionsartConfidence":"high"}
+            {"russian":"написа́ть","lemma":"написать","pos":"verb","translation":"to write completely","aspect":"PF","aspectPartner":"писать","aktionsart":"accomplishment","aktionsartConfidence":"high"}
+            """.trimIndent()
+        )
+        listOfNotNull(fixture.notes.getByLemma("писать"), fixture.notes.getByLemma("написать")).forEach {
+            fixture.notes.update(it.copy(encounterCount = 1))
+        }
+
+        // TRANSFORM / SPEAK_SENTENCE: re-checked at selection time, so both need their
+        // own mature RU_TO_MEANING recognition, not just a first encounter.
+        val transformVerbId = fixture.notes.insert(Note(russian = "читать", lemma = "читать_cov", translation = "to read", partOfSpeech = "verb", tier = 0, unit = 1))
+        fixture.cards.insert(Card(noteId = transformVerbId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.REVIEW, reps = 3, consecutiveCorrect = 2))
+        fixture.cards.insert(Card(noteId = transformVerbId, cardType = CardType.TRANSFORM, queue = Queue.VOCAB))
+
+        val speakNoteId = fixture.notes.insert(Note(russian = "стол", lemma = "стол_cov", translation = "table", partOfSpeech = "noun", tier = 0, unit = 1))
+        fixture.cards.insert(Card(noteId = speakNoteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.REVIEW, reps = 3, consecutiveCorrect = 2))
+        fixture.cards.insert(Card(noteId = speakNoteId, cardType = CardType.SPEAK_SENTENCE, queue = Queue.VOCAB))
+
+        // CHUNK: maturity is judged on the *parent* word, not the chunk note itself.
+        val chunkParentId = fixture.notes.insert(Note(russian = "диван", lemma = "диван_cov", translation = "sofa", partOfSpeech = "noun", tier = 0, unit = 1))
+        fixture.cards.insert(Card(noteId = chunkParentId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.REVIEW, reps = 3, consecutiveCorrect = 2))
+        val chunkNoteId = fixture.notes.insert(Note(russian = "на диване", lemma = "на диване", translation = "", partOfSpeech = "chunk", tier = 0, chunkParentNoteId = chunkParentId))
+        fixture.cards.insert(Card(noteId = chunkNoteId, cardType = CardType.CHUNK, queue = Queue.VOCAB))
+
+        val plan = fixture.repository.sessionPlan(now = 0L, includeReaderInsights = false)
+        val seen = plan.reviewQueue.map { it.card.cardType }.toSet()
+
+        val expected = setOf(
+            CardType.CONCEPT_APPLY, CardType.NOVEL_PRODUCE, CardType.CONCEPT_DRILL,
+            CardType.VERB_FORM, CardType.ASPECT_SELECT, CardType.TRANSFORM,
+            CardType.SPEAK_SENTENCE, CardType.CHUNK
+        )
+        val missing = expected - seen
+        assertTrue("card types gated/unselectable despite satisfied preconditions: $missing", missing.isEmpty())
+    }
+
+    /**
+     * P6.5: direct, fast regression proof for unitMastery()'s sliding-window unlock
+     * (replaces a slow multi-day-simulation attempt at the same proof — see
+     * SimHarnessTest's comment on why organic-growth throughput makes that
+     * comparison unreliable). Unit 1 is "started" (one note mastered) but
+     * incomplete, so the frontier sits at unit 1; units 2 and 3 (within
+     * UNIT_SLIDING_WINDOW=2) must open too, while unit 4 stays locked — proving
+     * the old "every prior unit 100% first" chain was actually replaced, not just
+     * relabeled.
+     */
+    @Test
+    fun slidingWindowUnlocksUnitsAheadOfAnIncompleteFrontier() = runTest {
+        val fixture = RepoFixture()
+        suspend fun vocabNote(unit: Int, mastered: Boolean): Long {
+            val noteId = fixture.notes.insert(
+                Note(russian = "word$unit${if (mastered) "a" else "b"}", lemma = "word$unit${if (mastered) "a" else "b"}", translation = "word", partOfSpeech = "noun", tier = 0, unit = unit)
+            )
+            fixture.cards.insert(
+                Card(
+                    noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB,
+                    state = if (mastered) CardState.GRADUATED else CardState.NEW,
+                    reps = if (mastered) 3 else 0, consecutiveCorrect = if (mastered) 3 else 0
+                )
+            )
+            return noteId
+        }
+        vocabNote(unit = 1, mastered = true)
+        vocabNote(unit = 1, mastered = false)
+        vocabNote(unit = 2, mastered = false)
+        vocabNote(unit = 3, mastered = false)
+        vocabNote(unit = 4, mastered = false)
+
+        val plan = fixture.repository.sessionPlan(now = 0L, includeReaderInsights = false)
+        val byUnit = plan.unitMastery.associateBy { it.unit }
+
+        assertTrue("frontier unit (started but incomplete) must stay unlocked", byUnit.getValue(1).unlocked)
+        assertTrue("one unit ahead of an incomplete-but-started frontier must open", byUnit.getValue(2).unlocked)
+        assertTrue("two units ahead (the sliding window) must open", byUnit.getValue(3).unlocked)
+        assertFalse("three units ahead is past the sliding window and must stay locked", byUnit.getValue(4).unlocked)
+    }
+
+    // --- P2.5 streak insurance -------------------------------------------------
+
+    /** Builds review-day buckets using the exact same (now + tzOffset) / DAY_MILLIS
+     * arithmetic gamificationStats itself uses, so the test's notion of "which
+     * epoch-day a timestamp falls in" can never drift from the production code's
+     * regardless of the machine's local timezone. */
+    private fun dayBucketTimestamp(now: Long, bucket: Long): Long {
+        val dayMillis = 86_400_000L
+        val tzOffset = java.util.TimeZone.getDefault().getOffset(now)
+        return bucket * dayMillis - tzOffset + dayMillis / 2
+    }
+
+    @Test
+    fun streakInsuranceBridgesAOneDayGapAndReportsWhichDayItInsured() = runTest {
+        val fixture = RepoFixture()
+        val noteId = fixture.notes.insert(Note(russian = "тест", lemma = "тест", translation = "test", partOfSpeech = "noun"))
+        val card = fixture.cards.insert(Card(noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB)).let { id ->
+            fixture.cards.cards.first { it.id == id }
+        }
+        val fixedNow = 2000L * 86_400_000L + 12 * 3_600_000L
+        val tzOffset = java.util.TimeZone.getDefault().getOffset(fixedNow)
+        val todayBucket = (fixedNow + tzOffset) / 86_400_000L
+        // Active today and two days ago; yesterday has no activity at all — a
+        // genuine one-day gap for insurance to bridge.
+        fixture.logs.insert(goodLog(card, dayBucketTimestamp(fixedNow, todayBucket)))
+        fixture.logs.insert(goodLog(card, dayBucketTimestamp(fixedNow, todayBucket - 2)))
+
+        val withoutCredits = fixture.repository.gamificationStats(fixedNow)
+        assertEquals("no credits available: the gap must break the streak", 1, withoutCredits.currentStreak)
+        assertEquals(null, withoutCredits.insuredGapDay)
+
+        val insuredFixture = RepoFixture(config = { LearningConfig(restDayCredits = 1) })
+        val insuredNoteId = insuredFixture.notes.insert(Note(russian = "тест", lemma = "тест", translation = "test", partOfSpeech = "noun"))
+        val insuredCard = insuredFixture.cards.insert(Card(noteId = insuredNoteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB)).let { id ->
+            insuredFixture.cards.cards.first { it.id == id }
+        }
+        insuredFixture.logs.insert(goodLog(insuredCard, dayBucketTimestamp(fixedNow, todayBucket)))
+        insuredFixture.logs.insert(goodLog(insuredCard, dayBucketTimestamp(fixedNow, todayBucket - 2)))
+
+        val withCredits = insuredFixture.repository.gamificationStats(fixedNow)
+        assertEquals("a spent credit must bridge the gap into one continuous streak", 3, withCredits.currentStreak)
+        assertEquals(todayBucket - 1, withCredits.insuredGapDay)
+    }
+
+    @Test
+    fun streakInsuranceConsumptionIsIdempotentPerGapDay() = runTest {
+        // Mirrors ReviewViewModel.loadSession's guard: recomputing gamificationStats
+        // for the SAME already-insured gap (e.g. reopening the app later the same
+        // day) must report the same insuredGapDay, not a fresh one each time —
+        // the caller (which owns settings) is what makes the actual spend
+        // idempotent by comparing against lastInsuredGapDay, but that only works
+        // if the repository consistently reports the identical day here.
+        val fixture = RepoFixture(config = { LearningConfig(restDayCredits = 1) })
+        val noteId = fixture.notes.insert(Note(russian = "тест", lemma = "тест", translation = "test", partOfSpeech = "noun"))
+        val card = fixture.cards.insert(Card(noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB)).let { id ->
+            fixture.cards.cards.first { it.id == id }
+        }
+        val fixedNow = 2000L * 86_400_000L + 12 * 3_600_000L
+        val tzOffset = java.util.TimeZone.getDefault().getOffset(fixedNow)
+        val todayBucket = (fixedNow + tzOffset) / 86_400_000L
+        fixture.logs.insert(goodLog(card, dayBucketTimestamp(fixedNow, todayBucket)))
+        fixture.logs.insert(goodLog(card, dayBucketTimestamp(fixedNow, todayBucket - 2)))
+
+        val first = fixture.repository.gamificationStats(fixedNow)
+        val second = fixture.repository.gamificationStats(fixedNow)
+        assertEquals(first.insuredGapDay, second.insuredGapDay)
+        assertEquals(todayBucket - 1, first.insuredGapDay)
+    }
+
+    // --- P2.4 goal coverage -----------------------------------------------------
+
+    @Test
+    fun dashboardReportsGoalProgressForAReaderTextMarkedAsATarget() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """{"russian":"иду","lemma":"иду-goal","pos":"verb","translation":"I go","tier":0,"unit":1}"""
+        )
+        val known = fixture.notes.getByLemma("иду-goal")!!
+        fixture.notes.update(known.copy(status = WordStatus.KNOWN))
+        val textId = fixture.repository.addReaderText("Diplomatic briefing", "иду вижу", "local")
+
+        assertEquals(null, fixture.repository.dashboardStats().goalProgress)
+
+        assertTrue(fixture.repository.setReaderGoal(textId))
+        val goal = fixture.repository.dashboardStats().goalProgress
+
+        assertNotNull(goal)
+        assertEquals("Diplomatic briefing", goal!!.textTitle)
+        assertEquals(textId, goal.textId)
+        // One of two tokens ("иду") is known: 50% coverage, one lemma still unknown.
+        assertEquals(50, goal.coveragePct)
+        assertEquals(1, goal.unknownLemmaCount)
+    }
 }

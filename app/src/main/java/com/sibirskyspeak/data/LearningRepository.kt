@@ -7,6 +7,7 @@ import com.sibirskyspeak.review.buildPrompt
 import com.sibirskyspeak.review.meaningLine
 import com.sibirskyspeak.review.mnemonicLine
 import com.sibirskyspeak.review.isEnglishAnswerCorrect
+import com.sibirskyspeak.review.normalizeRussian
 import com.sibirskyspeak.scheduler.FsrsScheduler
 import com.sibirskyspeak.scheduler.Scheduler
 import com.sibirskyspeak.learning.AbilitySkill
@@ -265,7 +266,8 @@ class LearningRepository(
                 exampleSentence = "Я пью молоко́.",
                 exampleTranslation = "I drink milk.",
                 generalFreqRank = 795,
-                domainFreqRank = 1800
+                domainFreqRank = 1800,
+                cefrLevel = "A2"
             )
         )
         addNote(
@@ -281,7 +283,8 @@ class LearningRepository(
                 exampleSentence2 = "Здесь нет войск.",
                 exampleTranslation2 = "There are no troops here.",
                 generalFreqRank = 2600,
-                domainFreqRank = 120
+                domainFreqRank = 120,
+                cefrLevel = "B1"
             )
         )
         val pisat = addNote(
@@ -296,7 +299,8 @@ class LearningRepository(
                 exampleSentence = "Вчера я писал письмо.",
                 exampleTranslation = "Yesterday I was writing a letter.",
                 generalFreqRank = 380,
-                domainFreqRank = 900
+                domainFreqRank = 900,
+                cefrLevel = "A1"
             )
         )
         val napisat = addNote(
@@ -311,7 +315,8 @@ class LearningRepository(
                 exampleSentence = "Вчера я написал письмо.",
                 exampleTranslation = "Yesterday I wrote a letter.",
                 generalFreqRank = 620,
-                domainFreqRank = 950
+                domainFreqRank = 950,
+                cefrLevel = "A1"
             )
         )
 
@@ -2251,7 +2256,7 @@ class LearningRepository(
         val completion = when {
             daily.triageMode || daily.overdueBacklog -> DailyCompletion(DailyLearningStatus.BACKLOG_REMAINING, "Overdue review backlog remaining — new material is paused.", allTexts.isNotEmpty())
             prompts.isNotEmpty() || readingAssignment != null -> DailyCompletion(DailyLearningStatus.WORK_REMAINING, "Scheduled cards and connected reading are still available.", readingAssignment != null)
-            introducedToday >= generatedNewBudget || cardDao.getNewCardsOrdered(1).isNotEmpty() -> DailyCompletion(DailyLearningStatus.NEW_LIMIT_REACHED, "Scheduled work complete; today's generated new-word budget is exhausted or remaining siblings are buried.", allTexts.isNotEmpty())
+            introducedToday >= generatedNewBudget || cardDao.getNewCardsOrdered(1, effectiveCefrOrdinal()).isNotEmpty() -> DailyCompletion(DailyLearningStatus.NEW_LIMIT_REACHED, "Scheduled work complete; today's generated new-word budget is exhausted or remaining siblings are buried.", allTexts.isNotEmpty())
             else -> DailyCompletion(DailyLearningStatus.SCHEDULED_COMPLETE, "Scheduled work complete for today.", allTexts.isNotEmpty())
         }
         SessionPlan(
@@ -2532,6 +2537,33 @@ class LearningRepository(
         }
     }
 
+    /** How far into the CEFR scale (index into CEFR_LEVELS) new-card selection may
+     *  reach right now, regardless of tier. Mirrors unitMastery()'s frontier logic —
+     *  a level counts as cleared once its own tier-0 vocabulary is mostly mastered —
+     *  plus one level of stretch headroom (same idea as UNIT_SLIDING_WINDOW), so
+     *  tier-1/2 content above the learner's actual level (e.g. tier-2's B2+ formal
+     *  register) can never be selected as a "new card" before they're realistically
+     *  ready for it, no matter how it sorts by frequency. */
+    private suspend fun effectiveCefrOrdinal(): Int {
+        val tier0Notes = allNotesCached().filter { it.tier == 0 && it.cefrLevel != null && it.status != WordStatus.IGNORED }
+        val byLevel = tier0Notes.groupBy { it.cefrLevel!! }
+        val vocabByNote = cardDao.getAllVocabCards()
+            .filter { it.cardType == CardType.RU_TO_MEANING && !it.suspended }
+            .associateBy { it.noteId }
+        for ((ordinal, level) in CEFR_LEVELS.withIndex()) {
+            val levelNotes = byLevel[level].orEmpty()
+            if (levelNotes.isEmpty()) continue
+            val mastered = levelNotes.count { note ->
+                val card = vocabByNote[note.id]
+                card != null && (card.state == CardState.GRADUATED || (card.reps >= 2 && card.consecutiveCorrect >= 2))
+            }
+            if (mastered.toDouble() / levelNotes.size < CEFR_GATE_MASTERY_THRESHOLD) {
+                return (ordinal + CEFR_STRETCH_LEVELS).coerceAtMost(CEFR_LEVELS.lastIndex)
+            }
+        }
+        return CEFR_LEVELS.lastIndex
+    }
+
     suspend fun gamificationStats(now: Long = System.currentTimeMillis()): GamificationStats {
         val dailyGoal = config().dailyGoal
         val tzOffset = java.util.TimeZone.getDefault().getOffset(now).toLong()
@@ -2543,11 +2575,12 @@ class LearningRepository(
 
         // Current streak: count back from today (or yesterday, if nothing yet today).
         var currentStreak = 0
+        var insuredGapDay: Long? = null
         if (todayBucket in daySet || (todayBucket - 1) in daySet) {
             var day = if (todayBucket in daySet) todayBucket else todayBucket - 1
             var insuredGap = config().restDayCredits > 0
             while (day in daySet || (insuredGap && (day - 1) in daySet)) {
-                if (day in daySet) currentStreak += 1 else { currentStreak += 1; insuredGap = false }
+                if (day in daySet) currentStreak += 1 else { currentStreak += 1; insuredGap = false; insuredGapDay = day }
                 day -= 1
             }
         }
@@ -2686,7 +2719,8 @@ class LearningRepository(
             activeDays = days.size,
             last7Days = last7,
             achievements = achievements,
-            restDayCredits = config().restDayCredits
+            restDayCredits = config().restDayCredits,
+            insuredGapDay = insuredGapDay
         )
     }
 
@@ -2782,9 +2816,16 @@ class LearningRepository(
      * card here is ever reviewed by [recordCheckpointResult]; only [checkpointResultDao]
      * is written), so it's the sole honest measure of whether "known" is real.
      */
-    suspend fun buildCheckpointSession(now: Long = System.currentTimeMillis(), graduatedSampleSize: Int = 20, novelFrameSampleSize: Int = 10): CheckpointSession {
+    suspend fun buildCheckpointSession(now: Long = System.currentTimeMillis(), graduatedSampleSize: Int = 20, novelFrameSampleSize: Int = 10): CheckpointSession = withContext(computeDispatcher) {
+        // Off the caller's dispatcher, same as sessionPlan(): novelFrameCheckpointItems
+        // calls FrameRealizer.realize -> MorphologyEngine.inflect, a synchronous Room
+        // query. Called directly from a viewModelScope.launch (Main dispatcher) this
+        // trips Room's main-thread guard (IllegalStateException) the moment a real
+        // ContentDao/FrameRealizer is wired — invisible in unit tests, where fixtures
+        // either lack a real Looper's main-thread assertion or short-circuit before
+        // reaching contentDao at all.
         val items = graduatedRecallCheckpointItems(now, graduatedSampleSize) + novelFrameCheckpointItems(now, novelFrameSampleSize)
-        return CheckpointSession(items = items, generatedAt = now)
+        CheckpointSession(items = items, generatedAt = now)
     }
 
     /** 20 graduated notes sampled uniformly over graduation age (stratified across
@@ -2828,6 +2869,15 @@ class LearningRepository(
      * [checkpointResultDao] — no card, no review log, no FSRS state of any kind. */
     suspend fun recordCheckpointResult(item: CheckpointItem, correct: Boolean, now: Long = System.currentTimeMillis()) {
         checkpointResultDao?.insert(CheckpointResult(at = now, itemKey = item.itemKey, kind = item.kind, predictedP = item.predictedP, correct = correct))
+    }
+
+    /** Grades a checkpoint answer against its expected value: graduated_recall
+     * items expect the English gloss (same lenient match as inline notification
+     * review); novel_frame items expect the realized Russian sentence, matched
+     * modulo stress marks like any other typed Russian production answer. */
+    fun gradeCheckpointAnswer(item: CheckpointItem, answer: String): Boolean = when (item.kind) {
+        "graduated_recall" -> isEnglishAnswerCorrect(item.expectedAnswer, answer)
+        else -> normalizeRussian(item.expectedAnswer) == normalizeRussian(answer)
     }
 
     /** Predicted-vs-observed retrievability, bucketed in deciles — the calibration
@@ -3671,7 +3721,7 @@ class LearningRepository(
         // the backlog must be cleared first.
         if (plan.triageMode || plan.overdueBacklog) {
             val practiced = reviewedToday.groupingBy(::skillBucket).eachCount()
-            return finishWithConsolidation(warmStart(balanceSkills(dueSession, practiced))).take(limit)
+            return finishWithConsolidation(warmStart(balanceSkills(dueSession, practiced, now))).take(limit)
         }
         // Otherwise BLEND: scheduled reviews come first (priority), then we top the
         // session up with new cards. This prevents the spaced-repetition "treadmill"
@@ -3680,7 +3730,7 @@ class LearningRepository(
         // never increases load beyond `newCardsPerDay` fresh words.
         if (dueSession.size >= limit) return finishWithConsolidation(warmStart(dueSession)).take(limit)
         val fresh = newCardSession(now, limit - dueSession.size, reviewedNotes, mastery, generatedNewBudget)
-        val mixed = interleaveDailyCards(dueSession, fresh, reviewedToday)
+        val mixed = interleaveDailyCards(dueSession, fresh, reviewedToday, now)
         return finishWithConsolidation(ensureGrammarShare(mixed, now, limit)).take(limit)
     }
 
@@ -3719,13 +3769,13 @@ class LearningRepository(
 
     /** Two secure recalls to start, then a 3-review / 1 established-facet /
      * 1-new-lexeme rhythm. This keeps urgency without producing a review wall. */
-    private fun interleaveDailyCards(due: List<Card>, fresh: List<Card>, reviewedToday: List<Card>): List<Card> {
+    private fun interleaveDailyCards(due: List<Card>, fresh: List<Card>, reviewedToday: List<Card>, now: Long): List<Card> {
         val warm = due.filter { it.reps >= 3 && it.consecutiveCorrect >= 2 }.take(2)
         val practiced = reviewedToday.groupingBy(::skillBucket).eachCount()
-        val remainingDue = ArrayDeque(balanceSkills(due.filterNot { it.id in warm.map { c -> c.id }.toSet() }, practiced))
+        val remainingDue = ArrayDeque(balanceSkills(due.filterNot { it.id in warm.map { c -> c.id }.toSet() }, practiced, now))
         val establishedList = fresh.filter { it.reps > 0 || it.cardType != CardType.RU_TO_MEANING }
-        val established = ArrayDeque(balanceSkills(establishedList, practiced))
-        val newLexemes = ArrayDeque(balanceSkills(fresh.filterNot { it in establishedList }, practiced))
+        val established = ArrayDeque(balanceSkills(establishedList, practiced, now))
+        val newLexemes = ArrayDeque(balanceSkills(fresh.filterNot { it in establishedList }, practiced, now))
         return buildList {
             addAll(warm)
             while (remainingDue.isNotEmpty() || established.isNotEmpty() || newLexemes.isNotEmpty()) {
@@ -3736,27 +3786,55 @@ class LearningRepository(
         }
     }
 
+    /** Wall-clock millisecond timestamps used as a shuffle seed are numerically close
+     * across calls a few seconds or minutes apart, and a simple seeded PRNG can produce
+     * correlated small-bound draws (e.g. `nextInt(3)` for a 3-card shuffle band) for such
+     * similar seeds — verified directly: `Random(5_000L)` and `Random(8_765_432L)`
+     * produced the *same* 3-card permutation before this mix was added. The splitmix64
+     * finalizer decorrelates nearby longs into well-mixed 64-bit seeds. */
+    private fun shuffleSeed(now: Long): Long {
+        val phi = 0x9E3779B97F4A7C15UL.toLong()
+        val mix1 = 0xBF58476D1CE4E5B9UL.toLong()
+        val mix2 = 0x94D049BB133111EBUL.toLong()
+        var z = now + phi
+        z = (z xor (z ushr 30)) * mix1
+        z = (z xor (z ushr 27)) * mix2
+        return z xor (z ushr 31)
+    }
+
     /** Round-robin skill domains; within each domain zig-zag easy/hard so neither
-     * grammar nor high-effort production can form an exhausting cluster. */
-    private fun balanceSkills(cards: List<Card>, practicedToday: Map<Int, Int> = emptyMap()): List<Card> {
+     * grammar nor high-effort production can form an exhausting cluster. The zigzag
+     * source order and the tie-break between equally-neglected skill domains are
+     * shuffled with a [now]-seeded Random — same idea as Anki shuffling its new/review
+     * queues — so the exact slot order doesn't repeat session to session even when the
+     * same cards are eligible, without disturbing the easy-then-hard progression or the
+     * "practice the most-neglected skill first" priority (same difficulty bands and
+     * same practiced-today counts still win; only ties among them are randomized). */
+    private fun balanceSkills(cards: List<Card>, practicedToday: Map<Int, Int> = emptyMap(), now: Long = 0L): List<Card> {
         // Authored aspect-pair contrast sets depend on adjacency; preserve their
         // pedagogical order rather than "balancing" it.
         if (cards.isNotEmpty() && cards.all { it.cardType == CardType.ASPECT_SELECT }) return cards
+        val random = kotlin.random.Random(shuffleSeed(now))
         val queues = cards.groupBy(::skillBucket).mapValues { (_, bucket) ->
             val sorted = bucket.sortedBy { it.difficulty + if (it.queue == Queue.GRAMMAR) 1.0 else 0.0 }
+            // Shuffle within small same-difficulty bands rather than the whole list, so
+            // the broad easy-to-hard shape survives but which specific card fills a
+            // given slot varies.
+            val banded = sorted.chunked(3).flatMap { it.shuffled(random) }
             val zigzag = mutableListOf<Card>()
             var low = 0
-            var high = sorted.lastIndex
+            var high = banded.lastIndex
             var easyTurn = true
             while (low <= high) {
-                zigzag += if (easyTurn) sorted[low++] else sorted[high--]
+                zigzag += if (easyTurn) banded[low++] else banded[high--]
                 easyTurn = !easyTurn
             }
             ArrayDeque(zigzag)
         }.toMutableMap()
+        val tieBreak = queues.keys.associateWith { random.nextInt() }
         return buildList {
             while (queues.values.any { it.isNotEmpty() }) {
-                queues.keys.sortedWith(compareBy<Int> { practicedToday[it] ?: 0 }.thenBy { it })
+                queues.keys.sortedWith(compareBy<Int> { practicedToday[it] ?: 0 }.thenBy { tieBreak.getValue(it) })
                     .forEach { key -> queues[key]?.removeFirstOrNull()?.let(::add) }
             }
         }
@@ -3861,8 +3939,9 @@ class LearningRepository(
         val pageSize = 200
         var offset = 0
         val pool = mutableListOf<Card>()
+        val maxCefrOrdinal = effectiveCefrOrdinal()
         while (pool.size < targetPoolSize) {
-            val candidateCards = cardDao.getNewCardsOrderedPage(pageSize, offset)
+            val candidateCards = cardDao.getNewCardsOrderedPage(pageSize, offset, maxCefrOrdinal)
             if (candidateCards.isEmpty()) break
             val cardsByNote = cardDao.getCardsForNotes(candidateCards.map { it.noteId }.distinct()).groupBy { it.noteId }
             for (card in candidateCards) {
@@ -4532,5 +4611,10 @@ class LearningRepository(
             // by MIGRATION_14_15, so it must not resurface as a deferred facet.
         )
         private val CEFR_LEVELS = listOf("A1", "A2", "B1", "B2", "C1", "C2")
+        // Same 60% bar unitMastery() uses for its own unit-unlock frontier, and the
+        // same one-level-ahead stretch idea as UNIT_SLIDING_WINDOW — see
+        // effectiveCefrOrdinal().
+        private const val CEFR_GATE_MASTERY_THRESHOLD = 0.6
+        private const val CEFR_STRETCH_LEVELS = 1
     }
 }

@@ -30,6 +30,9 @@ interface SettingsStore {
     var backupTreeUri: String
     var restDayCredits: Int
     var lastRestCreditAwardDay: Long
+    /** Day-bucket streak insurance last actually spent a credit on, so re-loading
+     * the same already-insured gap (a pure recomputation) doesn't re-charge it. */
+    var lastInsuredGapDay: Long
     var planSkeletonCardIds: String
     var lastAdaptiveLoadDay: Long
     /** Doctrine name (e.g. "RECOVERY") the learner last dismissed a pacing nudge
@@ -160,6 +163,9 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
     override var lastRestCreditAwardDay: Long
         get() = prefs.getLong(KEY_LAST_REST_AWARD_DAY, Long.MIN_VALUE)
         set(value) = prefs.edit().putLong(KEY_LAST_REST_AWARD_DAY, value).apply()
+    override var lastInsuredGapDay: Long
+        get() = prefs.getLong(KEY_LAST_INSURED_GAP_DAY, Long.MIN_VALUE)
+        set(value) = prefs.edit().putLong(KEY_LAST_INSURED_GAP_DAY, value).apply()
     override var planSkeletonCardIds: String
         get() = prefs.getString(KEY_PLAN_SKELETON, "") ?: ""
         set(value) = prefs.edit().putString(KEY_PLAN_SKELETON, value).apply()
@@ -227,6 +233,7 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         private const val KEY_BACKUP_TREE_URI = "backup_tree_uri"
         private const val KEY_REST_DAY_CREDITS = "rest_day_credits"
         private const val KEY_LAST_REST_AWARD_DAY = "last_rest_award_day"
+        private const val KEY_LAST_INSURED_GAP_DAY = "last_insured_gap_day"
         private const val KEY_PLAN_SKELETON = "plan_skeleton_card_ids"
         private const val KEY_INTERVAL_MODIFIER = "interval_modifier"
         private const val KEY_FSRS_WEIGHTS = "fsrs_weights_v1"

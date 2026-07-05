@@ -703,6 +703,29 @@ internal fun SessionStep.mainTab(): SessionStep =
         else -> SessionStep.REVIEWS
     }
 
+/** [NavState]'s tab-level Dest -> the SessionStep MainTabContent/MainBottomBar
+ * render against. [NavState.tabDest] never returns Study/Reference/Settings, so
+ * those fall back to REVIEWS only defensively; they're unreachable in practice. */
+internal fun com.sibirskyspeak.review.Dest.toSessionStep(): SessionStep = when (this) {
+    com.sibirskyspeak.review.Dest.Practice -> SessionStep.REVIEWS
+    com.sibirskyspeak.review.Dest.Dashboard -> SessionStep.DASHBOARD
+    is com.sibirskyspeak.review.Dest.Reader -> SessionStep.READER
+    com.sibirskyspeak.review.Dest.Lab -> SessionStep.LAB
+    com.sibirskyspeak.review.Dest.Import -> SessionStep.IMPORT
+    com.sibirskyspeak.review.Dest.Study,
+    com.sibirskyspeak.review.Dest.Reference,
+    com.sibirskyspeak.review.Dest.Settings -> SessionStep.REVIEWS
+}
+
+/** The inverse mapping, used when the bottom nav bar picks a new tab. */
+internal fun SessionStep.toTabDest(): com.sibirskyspeak.review.Dest = when (mainTab()) {
+    SessionStep.DASHBOARD -> com.sibirskyspeak.review.Dest.Dashboard
+    SessionStep.READER -> com.sibirskyspeak.review.Dest.Reader()
+    SessionStep.LAB -> com.sibirskyspeak.review.Dest.Lab
+    SessionStep.IMPORT -> com.sibirskyspeak.review.Dest.Import
+    else -> com.sibirskyspeak.review.Dest.Practice
+}
+
 internal fun reviewTaskTitle(prompt: ReviewPrompt): String =
     when (prompt.card.cardType) {
         CardType.RU_TO_MEANING -> "Translate this Russian word"

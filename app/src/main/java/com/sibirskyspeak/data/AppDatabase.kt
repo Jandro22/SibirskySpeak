@@ -11,7 +11,7 @@ import com.sibirskyspeak.scheduler.FsrsScheduler
 
 @Database(
     entities = [Note::class, Card::class, ReviewLog::class, ConfusablePair::class, ReaderText::class, ReadingSchedule::class, ReaderEncounter::class, ReadingActivity::class, TelemetryEvent::class, MinedExample::class, ItemDifficulty::class, ConceptMastery::class, OptimizerParameter::class, SkillRating::class, CapacityState::class, WillingnessState::class, RivalState::class, GhostSnapshot::class, MatchHistory::class, PaceLog::class, BanditPending::class, BanditArmState::class, WeeklyReport::class, ConfusionEvent::class, CheckpointResult::class],
-    version = 25,
+    version = 26,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -41,7 +41,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "sibirsky_speak.db"
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26)
                     // Only versions before the first real migration (7) are allowed to
                     // wipe destructively — those predate the JSON backup/restore safety
                     // net, so there's nothing worth preserving. Any version from 7 on
@@ -391,6 +391,83 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS `checkpoint_results` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `at` INTEGER NOT NULL, `itemKey` TEXT NOT NULL, `kind` TEXT NOT NULL, `predictedP` REAL, `correct` INTEGER NOT NULL)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_checkpoint_results_at` ON `checkpoint_results` (`at`)")
+            }
+        }
+        /** CEFR curriculum rework: `cefrLevel` existed on [Note] but tier-2 (formal/
+         *  political domain) and the non-promoted slice of tier-1 (general reading
+         *  matrix) were never tagged with one at all — seedIfEmpty() only imports the
+         *  bootstrap asset on a truly empty install, so a regenerated asset with the
+         *  new tags never reaches an install that already seeded its notes. Backfill
+         *  both tiers here with the exact same rank-threshold bands build_bootstrap.py
+         *  now uses (tier 2 floored at B2 — see tier2_cefr_level/CEFR_BY_RANK there),
+         *  so CardDao's new CEFR gate and CardFactory's case-pacing gate actually see a
+         *  level for every note instead of treating untagged content as ungated.
+         *
+         *  Then fix the *existing* debt directly: tier-2 cards already introduced
+         *  before this level even existed (state past NEW) get their due date pushed
+         *  out ~75 days, so a backlog built under the old "tier only deprioritizes,
+         *  never blocks" rule doesn't dump its entire formal/political-register
+         *  backlog into the very next few sessions. They still return — a learner who
+         *  is actually ready keeps that vocabulary — just not all at once, right when
+         *  the new CEFR gate is trying to let genuinely A1/A2 material catch up.
+         *
+         *  Finally, un-shown (state = NEW) CASE_FILL cards that violate the new
+         *  per-level case pacing (see CardFactory.minCefrOrdinalForCase — plural forms
+         *  wait for B1, non-accusative singular cases wait for A2) are suspended: this
+         *  mirrors exactly what a fresh install would generate today, for cards nobody
+         *  has seen yet, so there's no learning history to preserve. */
+        val MIGRATION_25_26 = object : Migration(25, 26) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    UPDATE notes SET cefrLevel =
+                        CASE
+                            WHEN COALESCE(domainFreqRank, 999999) <= 250 THEN 'B2'
+                            WHEN COALESCE(domainFreqRank, 999999) <= 600 THEN 'C1'
+                            ELSE 'C2'
+                        END
+                    WHERE tier = 2 AND cefrLevel IS NULL
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    UPDATE notes SET cefrLevel =
+                        CASE
+                            WHEN COALESCE(generalFreqRank, 999999999) <= 800 THEN 'A1'
+                            WHEN COALESCE(generalFreqRank, 999999999) <= 1500 THEN 'A2'
+                            WHEN COALESCE(generalFreqRank, 999999999) <= 2750 THEN 'B1'
+                            WHEN COALESCE(generalFreqRank, 999999999) <= 4500 THEN 'B2'
+                            WHEN COALESCE(generalFreqRank, 999999999) <= 5500 THEN 'C1'
+                            ELSE 'C2'
+                        END
+                    WHERE tier = 1 AND cefrLevel IS NULL
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    UPDATE cards SET due = due + (75 * 24 * 60 * 60 * 1000)
+                    WHERE suspended = 0 AND state != 'NEW' AND noteId IN (
+                        SELECT id FROM notes WHERE tier = 2
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    UPDATE cards SET suspended = 1
+                    WHERE cardType = 'CASE_FILL' AND state = 'NEW' AND noteId IN (
+                        SELECT id FROM notes WHERE cefrLevel = 'A1'
+                    ) AND (
+                        gramNumber = 'PL' OR gramCase != 'ACC'
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    UPDATE cards SET suspended = 1
+                    WHERE cardType = 'CASE_FILL' AND state = 'NEW' AND gramNumber = 'PL'
+                        AND noteId IN (SELECT id FROM notes WHERE cefrLevel = 'A2')
+                    """.trimIndent()
+                )
             }
         }
     }

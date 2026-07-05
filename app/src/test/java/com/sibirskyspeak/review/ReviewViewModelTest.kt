@@ -1,9 +1,15 @@
 package com.sibirskyspeak.review
 
 import com.sibirskyspeak.data.Card
+import com.sibirskyspeak.data.CardState
 import com.sibirskyspeak.data.CardType
+import com.sibirskyspeak.data.LearningConfig
+import com.sibirskyspeak.data.Note
+import com.sibirskyspeak.data.Queue
 import com.sibirskyspeak.data.RepoFixture
 import com.sibirskyspeak.data.Rating
+import com.sibirskyspeak.data.ReviewLog
+import com.sibirskyspeak.data.ReviewSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -54,7 +60,7 @@ class ReviewViewModelTest {
     private suspend fun caseFillOnlyFixture(lemma: String, freqRank: Int): Pair<RepoFixture, Card> {
         val fixture = RepoFixture()
         fixture.repository.importJsonLines(
-            """{"russian":"войска","lemma":"$lemma","pos":"noun","translation":"troops","gender":"PL","declensionJson":{"NOM_PL":"войска","GEN_PL":"войск"},"domainFreqRank":$freqRank,"exampleSentence":"Здесь нет войск."}"""
+            """{"russian":"войска","lemma":"$lemma","pos":"noun","translation":"troops","gender":"PL","declensionJson":{"NOM_PL":"войска","GEN_PL":"войск"},"domainFreqRank":$freqRank,"cefrLevel":"B1","exampleSentence":"Здесь нет войск."}"""
         )
         val note = fixture.notes.getByLemma(lemma)!!
         fixture.notes.update(note.copy(encounterCount = 5))
@@ -349,5 +355,102 @@ class ReviewViewModelTest {
         viewModel.rate(Rating.GOOD)
         advanceUntilIdle()
         assertEquals("", viewModel.typedAnswer.value)
+    }
+
+    private fun dayBucketTimestamp(now: Long, bucket: Long): Long {
+        val dayMillis = 86_400_000L
+        val tzOffset = java.util.TimeZone.getDefault().getOffset(now)
+        return bucket * dayMillis - tzOffset + dayMillis / 2
+    }
+
+    /** P2.5: the repository's gamificationStats only *reports* which gap day
+     * insurance bridged (see LearningRepositoryTest's streak-insurance tests) —
+     * this covers the other half, that ReviewViewModel (the only layer with a
+     * writable SettingsStore) actually spends the credit exactly once when it
+     * loads a session reflecting a freshly insured gap, then never spends it
+     * again for the same gap on a later reload (e.g. reopening the app). */
+    @Test
+    fun loadingASessionWithAnInsuredGapSpendsExactlyOneCreditOnce() = runTest(dispatcher) {
+        val settings = FakeSettingsStore()
+        settings.restDayCredits = 1
+        // Mirrors production di/AppModule.kt wiring: config() reads restDayCredits
+        // live from the same settings the ViewModel writes to.
+        val fixture = RepoFixture(config = { LearningConfig(restDayCredits = settings.restDayCredits) })
+        val noteId = fixture.notes.insert(Note(russian = "тест", lemma = "тест-vm-insure", translation = "test", partOfSpeech = "noun"))
+        val card = fixture.cards.insert(Card(noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB)).let { id ->
+            fixture.cards.cards.first { it.id == id }
+        }
+        val now = System.currentTimeMillis()
+        val tzOffset = java.util.TimeZone.getDefault().getOffset(now)
+        val todayBucket = (now + tzOffset) / 86_400_000L
+        fun log(bucket: Long) = ReviewLog(
+            cardId = card.id, reviewDatetime = dayBucketTimestamp(now, bucket), rating = Rating.GOOD,
+            stateBefore = CardState.NEW, scheduledDays = 1, elapsedDays = 0, source = ReviewSource.SRS_REVIEW
+        )
+        fixture.logs.insert(log(todayBucket))
+        fixture.logs.insert(log(todayBucket - 2))
+
+        val viewModel = ReviewViewModel(fixture.repository, settings, Dispatchers.Unconfined)
+        advanceUntilIdle()
+
+        assertEquals(3, viewModel.state.value.sessionPlan?.gamification?.currentStreak)
+        assertEquals("the one available credit must be spent on the insured gap", 0, settings.restDayCredits)
+        assertEquals(todayBucket - 1, settings.lastInsuredGapDay)
+
+        // Simulate reopening the app later the same day: a fresh ViewModel loads
+        // the same historical gap again. It must not find another credit to spend
+        // (there isn't one) or re-charge the already-insured day.
+        val reopened = ReviewViewModel(fixture.repository, settings, Dispatchers.Unconfined)
+        advanceUntilIdle()
+        assertEquals(0, settings.restDayCredits)
+        assertEquals(todayBucket - 1, settings.lastInsuredGapDay)
+        assertNotNull(reopened.state.value.sessionPlan)
+    }
+
+    /** P6.4: the monthly checkpoint must be independently gradable end-to-end
+     * (start -> answer -> completion summary) and, critically, must never touch
+     * the graded card's FSRS state or write a review log — its entire value is
+     * being unbiased by the regular scheduler. */
+    @Test
+    fun checkpointSessionGradesAnswersAndNeverTouchesFsrsState() = runTest(dispatcher) {
+        val fixture = RepoFixture()
+        val noteId = fixture.notes.insert(Note(russian = "стол", lemma = "стол-checkpoint", translation = "table", partOfSpeech = "noun"))
+        val graduatedCard = fixture.cards.insert(
+            Card(noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.GRADUATED, stability = 40.0, lastReview = 0L)
+        ).let { id -> fixture.cards.cards.first { it.id == id } }
+        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore(), Dispatchers.Unconfined)
+        advanceUntilIdle()
+
+        viewModel.startCheckpoint()
+        advanceUntilIdle()
+        val session = viewModel.state.value.checkpointSession
+        assertNotNull("expected at least the one graduated note as a checkpoint item", session)
+        assertTrue(session!!.items.isNotEmpty())
+        assertEquals(0, viewModel.state.value.checkpointIndex)
+
+        val item = session.items.first { it.itemKey == "note:${noteId}" }
+        viewModel.submitCheckpointAnswer(item.expectedAnswer)
+        advanceUntilIdle()
+
+        // The card itself must be exactly as it was: no review, no FSRS mutation.
+        val unchanged = fixture.cards.cards.first { it.id == graduatedCard.id }
+        assertEquals(graduatedCard, unchanged)
+        assertEquals(0, fixture.logs.logs.size)
+        assertEquals(1, viewModel.state.value.checkpointResults.size)
+        assertTrue(viewModel.state.value.checkpointResults.first())
+
+        // Answer every remaining item (wrong, to prove the summary counts failures too).
+        while (viewModel.state.value.checkpointSession != null &&
+            viewModel.state.value.checkpointIndex < session.items.size
+        ) {
+            viewModel.submitCheckpointAnswer("completely wrong answer")
+            advanceUntilIdle()
+        }
+        assertEquals(session.items.size, viewModel.state.value.checkpointResults.size)
+        assertTrue(viewModel.state.value.checkpointFeedback.orEmpty().startsWith("Checkpoint complete"))
+
+        viewModel.dismissCheckpoint()
+        advanceUntilIdle()
+        assertEquals(null, viewModel.state.value.checkpointSession)
     }
 }

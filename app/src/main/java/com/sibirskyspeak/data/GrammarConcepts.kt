@@ -29,7 +29,12 @@ data class GrammarConcept(
      * lesson has been seen.
      */
     val order: Int,
-    val spine: Boolean = true
+    val spine: Boolean = true,
+    /** The CEFR band this concept is introduced at — matches the `// --- A1/A2/... ---`
+     *  section each concept already lived in below; making it an explicit field (rather
+     *  than only a comment + [order] range) lets CEFR-aware gating/display read it
+     *  directly instead of re-deriving it from position. */
+    val cefrLevel: String
 )
 
 object GrammarConcepts {
@@ -43,7 +48,8 @@ object GrammarConcepts {
         exampleRu = "стол (masculine) · книга (feminine) · окно (neuter)",
         exampleEn = "table (masculine) · book (feminine) · window (neuter)",
         hint = "Ending → gender: consonant/-й = masculine, -а/-я = feminine, -о/-е = neuter.",
-        order = 10
+        order = 10,
+        cefrLevel = "A1"
     )
 
     val NOM_PL = GrammarConcept(
@@ -55,7 +61,8 @@ object GrammarConcepts {
         exampleRu = "стол → столы · книга → книги · окно → окна",
         exampleEn = "table → tables · book → books · window → windows",
         hint = "Plural: usually -ы/-и; neuter -о/-е → -а/-я.",
-        order = 30
+        order = 30,
+        cefrLevel = "A1"
     )
 
     val ACC = GrammarConcept(
@@ -67,7 +74,8 @@ object GrammarConcepts {
         exampleRu = "Я читаю книгу.",
         exampleEn = "I'm reading a book. (книга → книгу)",
         hint = "Direct object → accusative. Feminine -а → -у, -я → -ю.",
-        order = 50
+        order = 50,
+        cefrLevel = "A1"
     )
 
     val GEN = GrammarConcept(
@@ -79,7 +87,8 @@ object GrammarConcepts {
         exampleRu = "У меня нет времени.",
         exampleEn = "I have no time. (время → времени)",
         hint = "\"of\" / нет / без / из / у → genitive.",
-        order = 60
+        order = 60,
+        cefrLevel = "A1"
     )
 
     val PREP = GrammarConcept(
@@ -91,7 +100,8 @@ object GrammarConcepts {
         exampleRu = "Книга на столе.",
         exampleEn = "The book is on the table. (стол → столе)",
         hint = "After в/на (where) and о (about) → prepositional, usually -е.",
-        order = 70
+        order = 70,
+        cefrLevel = "A1"
     )
 
     val DAT = GrammarConcept(
@@ -103,7 +113,8 @@ object GrammarConcepts {
         exampleRu = "Я пишу другу.",
         exampleEn = "I'm writing to a friend. (друг → другу)",
         hint = "Recipient \"to/for\", к, по, age → dative.",
-        order = 80
+        order = 80,
+        cefrLevel = "A1"
     )
 
     val INS = GrammarConcept(
@@ -115,7 +126,8 @@ object GrammarConcepts {
         exampleRu = "Я пишу ручкой.",
         exampleEn = "I write with a pen. (ручка → ручкой)",
         hint = "Means \"by/with\", and с (together with) → instrumental.",
-        order = 90
+        order = 90,
+        cefrLevel = "A1"
     )
 
     val PAST = GrammarConcept(
@@ -127,7 +139,8 @@ object GrammarConcepts {
         exampleRu = "Он читал. Она читала. Они читали.",
         exampleEn = "He read. She read. They read.",
         hint = "Past = stem + -л/-ла/-ло/-ли (agrees with subject gender/number).",
-        order = 100
+        order = 100,
+        cefrLevel = "A1"
     )
 
     val ADJ_AGREE = GrammarConcept(
@@ -140,7 +153,8 @@ object GrammarConcepts {
         exampleEn = "new house · new book · new window · new houses",
         hint = "Adjective matches its noun: -ый/-ий/-ой (masculine), -ая/-яя (feminine), -ое/-ее (neuter), -ые/-ие (plural).",
         order = 20,
-        spine = false
+        spine = false,
+        cefrLevel = "A1"
     )
 
     val PRESENT = GrammarConcept(
@@ -150,7 +164,8 @@ object GrammarConcepts {
         exampleRu = "писать -> пишу, пишешь, пишет; любить -> люблю, любишь, любит",
         exampleEn = "to write -> I write, you write, he writes; to love -> I love, you love, he loves",
         hint = "Present: learn the stored stem pattern; watch mutations like писать -> пишу, любить -> люблю.",
-        order = 40
+        order = 40,
+        cefrLevel = "A1"
     )
 
     val ASPECT = GrammarConcept(
@@ -164,7 +179,8 @@ object GrammarConcepts {
         exampleEn = "I was writing a letter. / I wrote (finished) a letter.",
         hint = "Ongoing/repeated = imperfective; completed result = perfective.",
         order = 110,
-        spine = false
+        spine = false,
+        cefrLevel = "A1"
     )
 
     // --- A2 -----------------------------------------------------------------
@@ -178,7 +194,8 @@ object GrammarConcepts {
         exampleRu = "Я бу́ду чита́ть. / Я прочита́ю кни́гу.",
         exampleEn = "I will be reading. / I will read (finish) the book.",
         hint = "Future: буду + imperfective inf, OR conjugated perfective.",
-        order = 120, spine = false
+        order = 120, spine = false,
+        cefrLevel = "A2"
     )
     val IMPERATIVE = GrammarConcept(
         id = "IMPERATIVE",
@@ -189,7 +206,8 @@ object GrammarConcepts {
         exampleRu = "Чита́й! Чита́йте! Напиши́те письмо́.",
         exampleEn = "Read! Read (pl.)! Write the letter.",
         hint = "Command: stem + -й/-и(+те). Perfective = one result.",
-        order = 130, spine = false
+        order = 130, spine = false,
+        cefrLevel = "A2"
     )
     val REFLEXIVE = GrammarConcept(
         id = "REFLEXIVE",
@@ -201,7 +219,8 @@ object GrammarConcepts {
         exampleRu = "Я учу́сь. Уро́к начина́ется.",
         exampleEn = "I study. The lesson begins.",
         hint = "-ся/-сь = action on oneself / intransitive.",
-        order = 140, spine = false
+        order = 140, spine = false,
+        cefrLevel = "A2"
     )
     val COMPARATIVE = GrammarConcept(
         id = "COMPARATIVE",
@@ -212,7 +231,8 @@ object GrammarConcepts {
         exampleRu = "Э́та кни́га интере́снее. Москва́ бо́льше.",
         exampleEn = "This book is more interesting. Moscow is bigger.",
         hint = "More: adjective + -ее (лучше/больше). \"Than\" = чем or genitive.",
-        order = 150, spine = false
+        order = 150, spine = false,
+        cefrLevel = "A2"
     )
     val MODAL = GrammarConcept(
         id = "MODAL",
@@ -223,7 +243,8 @@ object GrammarConcepts {
         exampleRu = "Мне на́до рабо́тать. Здесь мо́жно кури́ть?",
         exampleEn = "I need to work. May one smoke here?",
         hint = "надо/нужно/можно/нельзя + dative person + infinitive.",
-        order = 160, spine = false
+        order = 160, spine = false,
+        cefrLevel = "A2"
     )
     val MOTION = GrammarConcept(
         id = "MOTION",
@@ -234,7 +255,8 @@ object GrammarConcepts {
         exampleRu = "Я иду́ в шко́лу. Я ча́сто хожу́ в парк.",
         exampleEn = "I'm going to school (now). I often go to the park.",
         hint = "идти/ехать = one trip now; ходить/ездить = repeated/round.",
-        order = 170, spine = false
+        order = 170, spine = false,
+        cefrLevel = "A2"
     )
     val POSSESSIVE_SVOJ = GrammarConcept(
         id = "POSSESSIVE_SVOJ",
@@ -245,7 +267,8 @@ object GrammarConcepts {
         exampleRu = "Он чита́ет свою́ кни́гу.",
         exampleEn = "He is reading his (own) book.",
         hint = "свой = belonging to the subject; agrees like мой.",
-        order = 180, spine = false
+        order = 180, spine = false,
+        cefrLevel = "A2"
     )
 
     // --- B1 -----------------------------------------------------------------
@@ -258,7 +281,8 @@ object GrammarConcepts {
         exampleRu = "Он пришёл домо́й и ушёл сно́ва.",
         exampleEn = "He came home and left again.",
         hint = "при-=arrive, у-=leave, в-=enter, вы-=exit, по-=set off.",
-        order = 190, spine = false
+        order = 190, spine = false,
+        cefrLevel = "B1"
     )
     val CONDITIONAL = GrammarConcept(
         id = "CONDITIONAL",
@@ -268,7 +292,8 @@ object GrammarConcepts {
         exampleRu = "Я бы помо́г. Е́сли бы я знал, я бы сказа́л.",
         exampleEn = "I would help. If I had known, I would have said.",
         hint = "бы + past = \"would\". Если бы … , … бы …",
-        order = 200, spine = false
+        order = 200, spine = false,
+        cefrLevel = "B1"
     )
     val RELATIVE = GrammarConcept(
         id = "RELATIVE",
@@ -279,7 +304,8 @@ object GrammarConcepts {
         exampleRu = "Кни́га, кото́рую я чита́ю, интере́сная.",
         exampleEn = "The book that I'm reading is interesting.",
         hint = "который: gender/number from antecedent, case from its own clause.",
-        order = 210, spine = false
+        order = 210, spine = false,
+        cefrLevel = "B1"
     )
     val SUPERLATIVE = GrammarConcept(
         id = "SUPERLATIVE",
@@ -289,7 +315,8 @@ object GrammarConcepts {
         exampleRu = "Э́то са́мый интере́сный го́род.",
         exampleEn = "This is the most interesting city.",
         hint = "самый + adjective = \"the most\".",
-        order = 220, spine = false
+        order = 220, spine = false,
+        cefrLevel = "B1"
     )
     val PURPOSE = GrammarConcept(
         id = "PURPOSE",
@@ -299,7 +326,8 @@ object GrammarConcepts {
         exampleRu = "Я чита́ю, что́бы учи́ться. Я хочу́, что́бы ты пришёл.",
         exampleEn = "I read in order to study. I want you to come.",
         hint = "чтобы + infinitive (same subj) / + past (different subj).",
-        order = 230, spine = false
+        order = 230, spine = false,
+        cefrLevel = "B1"
     )
     val NUMERAL_CASE = GrammarConcept(
         id = "NUMERAL_CASE",
@@ -310,7 +338,8 @@ object GrammarConcepts {
         exampleRu = "одна́ кни́га, две кни́ги, пять книг",
         exampleEn = "one book, two books, five books",
         hint = "1 → nom; 2–4 → gen sg; 5+ → gen pl.",
-        order = 240, spine = false
+        order = 240, spine = false,
+        cefrLevel = "B1"
     )
 
     val SHORT_FORM_ADJ = GrammarConcept(
@@ -324,7 +353,8 @@ object GrammarConcepts {
         exampleRu = "Он рад. Она́ ра́да. Мы ра́ды.",
         exampleEn = "He is glad. She is glad. We are glad.",
         hint = "Predicate-only form: masculine (bare stem), feminine -а, neuter -о, plural -ы/-и.",
-        order = 245, spine = false
+        order = 245, spine = false,
+        cefrLevel = "B1"
     )
 
     // --- B2 -----------------------------------------------------------------
@@ -337,7 +367,8 @@ object GrammarConcepts {
         exampleRu = "челове́к, чита́ющий кни́гу",
         exampleEn = "the person reading a book (who reads a book)",
         hint = "Active participle = \"who does X\"; agrees like an adjective.",
-        order = 250, spine = false
+        order = 250, spine = false,
+        cefrLevel = "B2"
     )
     val PARTICIPLE_PASSIVE = GrammarConcept(
         id = "PARTICIPLE_PASSIVE",
@@ -348,7 +379,8 @@ object GrammarConcepts {
         exampleRu = "кни́га, напи́санная им; письмо́ напи́сано",
         exampleEn = "the book written by him; the letter is written",
         hint = "Passive participle = \"X-ed\"; short form -н/-на/-но/-ны = result.",
-        order = 260, spine = false
+        order = 260, spine = false,
+        cefrLevel = "B2"
     )
     val GERUND = GrammarConcept(
         id = "GERUND",
@@ -359,7 +391,8 @@ object GrammarConcepts {
         exampleRu = "Чита́я письмо́, он молча́л.",
         exampleEn = "Reading the letter, he was silent.",
         hint = "Gerund: -я (while doing) / -в (having done); invariable.",
-        order = 270, spine = false
+        order = 270, spine = false,
+        cefrLevel = "B2"
     )
     val PASSIVE = GrammarConcept(
         id = "PASSIVE",
@@ -371,7 +404,8 @@ object GrammarConcepts {
         exampleRu = "Дом стро́ится рабо́чими. Догово́р подпи́сан.",
         exampleEn = "The house is being built by workers. The treaty is signed.",
         hint = "Passive: -ся verb (process) or short participle (result); agent = instrumental.",
-        order = 280, spine = false
+        order = 280, spine = false,
+        cefrLevel = "B2"
     )
     val REPORTED = GrammarConcept(
         id = "REPORTED",
@@ -382,7 +416,8 @@ object GrammarConcepts {
         exampleRu = "Он сказа́л, что рабо́тает. Я спроси́л, придёт ли он.",
         exampleEn = "He said (that) he works. I asked whether he would come.",
         hint = "Reported: что / ли / question word; tense doesn't shift.",
-        order = 290, spine = false
+        order = 290, spine = false,
+        cefrLevel = "B2"
     )
 
     // --- C1 -----------------------------------------------------------------
@@ -396,7 +431,8 @@ object GrammarConcepts {
         exampleRu = "Несмотря́ на то что бы́ло тру́дно, он успе́л.",
         exampleEn = "Despite the fact that it was hard, he made it in time.",
         hint = "однако / поэтому / несмотря на то что / в то время как.",
-        order = 300, spine = false
+        order = 300, spine = false,
+        cefrLevel = "C1"
     )
     val NOMINALIZATION = GrammarConcept(
         id = "NOMINALIZATION",
@@ -407,7 +443,8 @@ object GrammarConcepts {
         exampleRu = "приня́тие реше́ния заняло́ вре́мя",
         exampleEn = "taking the decision took time",
         hint = "Formal register nominalises verbs: решить → принятие решения.",
-        order = 310, spine = false
+        order = 310, spine = false,
+        cefrLevel = "C1"
     )
     val ASPECT_NUANCE = GrammarConcept(
         id = "ASPECT_NUANCE",
@@ -419,7 +456,8 @@ object GrammarConcepts {
         exampleRu = "Не чита́й э́то! / Прочита́й э́то!",
         exampleEn = "Don't read this! / Read this (through)!",
         hint = "Imperfective: process/fact/negated commands; perfective: single result.",
-        order = 320, spine = false
+        order = 320, spine = false,
+        cefrLevel = "C1"
     )
     val REGISTER = GrammarConcept(
         id = "REGISTER",
@@ -430,7 +468,8 @@ object GrammarConcepts {
         exampleRu = "в связи́ с да́нным реше́нием",
         exampleEn = "in connection with this decision (formal)",
         hint = "Match register: officialese (данный, осуществлять, в связи с) vs. neutral.",
-        order = 330, spine = false
+        order = 330, spine = false,
+        cefrLevel = "C1"
     )
     val IDIOM = GrammarConcept(
         id = "IDIOM",
@@ -441,7 +480,8 @@ object GrammarConcepts {
         exampleRu = "Я име́ю в виду́ друго́е.",
         exampleEn = "I mean something else.",
         hint = "Learn set phrases whole: иметь в виду, принять во внимание.",
-        order = 340, spine = false
+        order = 340, spine = false,
+        cefrLevel = "C1"
     )
 
     // --- C2 -----------------------------------------------------------------
@@ -456,7 +496,8 @@ object GrammarConcepts {
         exampleRu = "Он сказа́л, мол, всё гото́во, но э́то я́кобы непра́вда.",
         exampleEn = "He said - so he claims - everything's ready, but that's allegedly not true.",
         hint = "мол/дескать = casual reported speech; якобы = doubted claim; вроде бы = soft hedge.",
-        order = 350, spine = false
+        order = 350, spine = false,
+        cefrLevel = "C2"
     )
     val EMPHATIC_PARTICLES = GrammarConcept(
         id = "EMPHATIC_PARTICLES",
@@ -469,7 +510,8 @@ object GrammarConcepts {
         exampleRu = "Он ведь зна́л об э́том, но всё-та́ки не сказа́л ни сло́ва.",
         exampleEn = "He knew about it, after all, but still didn't say a word.",
         hint = "ведь = appeals to shared knowledge; всё-таки = despite that; уж = indeed; лишь = only.",
-        order = 360, spine = false
+        order = 360, spine = false,
+        cefrLevel = "C2"
     )
     val BOOKISH_SUBORDINATION = GrammarConcept(
         id = "BOOKISH_SUBORDINATION",
@@ -481,7 +523,8 @@ object GrammarConcepts {
         exampleRu = "Он не отве́тил, поско́льку не был уве́рен, и́бо вопро́с был сло́жным.",
         exampleEn = "He didn't answer, since he wasn't sure, for the question was complex.",
         hint = "ибо = for; дабы = in order that (archaic); поскольку = insofar as; вследствие того что = owing to.",
-        order = 370, spine = false
+        order = 370, spine = false,
+        cefrLevel = "C2"
     )
     val INVERSION_EMPHASIS = GrammarConcept(
         id = "INVERSION_EMPHASIS",
@@ -494,7 +537,8 @@ object GrammarConcepts {
         exampleRu = "И́менно он реши́л вопро́с; она́, в свою́ о́чередь, начала́ но́вый прое́кт.",
         exampleEn = "He specifically was the one who solved it; she, in turn, started a new project.",
         hint = "именно = precisely this one; недаром = no accident; тем не менее = nonetheless; в свою очередь = in turn.",
-        order = 380, spine = false
+        order = 380, spine = false,
+        cefrLevel = "C2"
     )
     val SUBJUNCTIVE_NUANCE = GrammarConcept(
         id = "SUBJUNCTIVE_NUANCE",
@@ -506,7 +550,8 @@ object GrammarConcepts {
         exampleRu = "Что бы ни случи́лось, е́сли бы не твоя́ по́мощь, я бы не спра́вился.",
         exampleEn = "Whatever happened, if not for your help, I wouldn't have managed.",
         hint = "что/как бы ни = no matter what/how; если бы не = if not for; хотя бы = at least.",
-        order = 390, spine = false
+        order = 390, spine = false,
+        cefrLevel = "C2"
     )
 
     val ALL: List<GrammarConcept> =
