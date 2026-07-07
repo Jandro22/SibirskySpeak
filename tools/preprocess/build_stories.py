@@ -19,7 +19,7 @@ WORD = re.compile(r"[А-Яа-яЁё]+(?:-[А-Яа-яЁё]+)?")
 # aren't meant to be — the app's own reader already exempts capitalized,
 # non-sentence-initial unknowns as likely names. Chapters may introduce a
 # small, fixed cast; list them once here instead of per-chapter.
-KNOWN_CHARACTER_NAMES = {"анна", "иван", "мария", "петр"}
+KNOWN_CHARACTER_NAMES = {"анна", "иван", "мария", "петр", "максим", "ольга", "ирина", "денис"}
 
 
 def norm(value: str) -> str:
@@ -53,6 +53,11 @@ def unknown_words(body: str, morph: pymorphy3.MorphAnalyzer, vocab: set[str]) ->
 
 
 def validate_series(doc: dict, vocab: set[str], morph: pymorphy3.MorphAnalyzer, gloss_budget: int = 3) -> None:
+    for field in ("seriesId", "band", "title", "targetMaxRank", "format", "topic"):
+        if field not in doc:
+            raise SystemExit(f"{doc.get('seriesId', '<unknown>')}: missing required metadata '{field}'")
+    if not isinstance(doc["targetMaxRank"], int) or doc["targetMaxRank"] <= 0:
+        raise SystemExit(f"{doc['seriesId']}: targetMaxRank must be a positive integer")
     chapters = doc["chapters"]
     if not chapters:
         raise SystemExit(f"{doc['seriesId']}: no chapters")
@@ -85,7 +90,14 @@ def build(stories_dir: Path, notes_path: Path, reader_texts_path: Path) -> dict:
                     "title": title,
                     "source": f"story:{doc['seriesId']}:{chapter['chapter']}",
                     "body": chapter["body"],
+                    # Static authoring intent for offline audits. The app still
+                    # computes live coverage from each learner's actual words.
+                    "targetMaxRank": doc["targetMaxRank"],
+                    "format": chapter.get("format", doc["format"]),
+                    "topic": chapter.get("topic", doc["topic"]),
                 }
+                if chapter.get("cast"):
+                    row["cast"] = chapter["cast"]
                 out.write(json.dumps(row, ensure_ascii=False) + "\n")
                 appended += 1
     return {"appended": appended}

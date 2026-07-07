@@ -5,6 +5,7 @@ from pathlib import Path
 import pymorphy3
 
 from build_stories import known_lemmas, unknown_words, validate_series
+from reader_gap_report import DEFAULT_BANDS, WORD_RE, coverage, known_lemmas_at_rank, load_ranked_tier0_notes, report
 
 ROOT = Path(__file__).resolve().parents[2]
 STORIES_DIR = Path(__file__).parent / "stories"
@@ -62,3 +63,28 @@ def test_bundled_reader_texts_include_the_story_installment():
     rows = [json.loads(line) for line in reader_texts_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     story_rows = [r for r in rows if r.get("source", "").startswith("story:")]
     assert len(story_rows) >= sum(len(doc["chapters"]) for doc in _stories())
+    assert all({"targetMaxRank", "format", "topic"} <= row.keys() for row in story_rows)
+    assert any(row.get("cast") == ["Максим", "Ольга"] for row in story_rows)
+    assert any(row.get("cast") == ["Денис", "Ирина"] for row in story_rows)
+
+
+def test_authored_target_rank_matches_measured_coverage():
+    notes = load_ranked_tier0_notes()
+    morph = pymorphy3.MorphAnalyzer()
+    for doc in _stories():
+        vocab = known_lemmas_at_rank(notes, doc["targetMaxRank"])
+        for chapter in doc["chapters"]:
+            score = coverage(WORD_RE.findall(chapter["body"]), vocab, morph)
+            assert score >= 0.90, (
+                f"{doc['seriesId']} ch.{chapter['chapter']} declares rank "
+                f"{doc['targetMaxRank']} but measures {score:.1%}"
+            )
+
+
+def test_every_known_vocabulary_band_has_enough_readable_texts():
+    # Regression guard for the 2026-07-06 gap: a learner who knew only the app's
+    # own tier-0 curriculum had ~0 texts clearing the reader's 90%-coverage bar
+    # below ~300 known words. See reader_gap_report.py for the full methodology
+    # and DEFAULT_BANDS for the per-band minimums this asserts.
+    text, any_gap = report(DEFAULT_BANDS)
+    assert not any_gap, f"reader coverage gap detected:\n{text}"

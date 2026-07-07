@@ -3,24 +3,24 @@
     "dialogues": "3a3b6d3b621d50a7",
     "frames": "0de953603faf3195",
     "phonology": "4cceb38d399c3cdb",
-    "stories": "eb3cc6a9f5d968c6:e09c86776a6b13aa",
+    "stories": "f10e652f00f46c23:540694ad66a28266",
     "transformations": "f493258ec052e1d5",
     "units": "c9de267d3e0766bb"
   },
-  "contentChecksum": "75a7d9f5cb26c0dfb3b7dc69cdbd5266070e1060a9eca1817d6151db2fe628f6",
-  "curriculumVersion": "2026-07-g12-75a7d9f5",
+  "contentChecksum": "67c1b06c3f5e13b9dce0bcad4f76cdda437dfc60c821f08591f9915a4f4ca783",
+  "curriculumVersion": "2026-07-g12-67c1b06c",
   "noteCountsByBand": {
-    "A1": 643,
-    "A2": 619,
-    "B1": 1107,
-    "B2": 1558,
-    "C1": 1187,
-    "C2": 4237
+    "A1": 685,
+    "A2": 638,
+    "B1": 1113,
+    "B2": 1562,
+    "C1": 1190,
+    "C2": 4264
   },
   "noteCountsByTier": {
-    "0": 6272,
-    "1": 2364,
-    "2": 715
+    "0": 6392,
+    "1": 2347,
+    "2": 713
   },
   "schemaVersion": 2
 }
