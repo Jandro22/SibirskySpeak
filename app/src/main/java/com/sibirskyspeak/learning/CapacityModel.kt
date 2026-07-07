@@ -35,12 +35,13 @@ object CapacityModel {
         return Normal.cdf((mu - effortAdjustedDemand(demand)) / scale).coerceIn(0.0, 1.0)
     }
 
-    fun update(capacity: CapacityBelief, observedGoodMinutes: Double): CapacityBelief {
+    fun update(capacity: CapacityBelief, observedGoodMinutes: Double, coldStartWeight: Double = 1.0): CapacityBelief {
         val priorMu = capacity.mu.takeIf(Double::isFinite) ?: 12.0
         val priorSigma = capacity.sigma.takeIf { it.isFinite() && it >= 0.0 } ?: 8.0
         val observation = observedGoodMinutes.takeIf(Double::isFinite)?.coerceAtLeast(0.0) ?: return CapacityBelief(priorMu, priorSigma)
         val predictedVariance = priorSigma * priorSigma + TAU * TAU
-        val gain = predictedVariance / (predictedVariance + OBS_NOISE * OBS_NOISE)
+        val rawGain = predictedVariance / (predictedVariance + OBS_NOISE * OBS_NOISE)
+        val gain = rawGain * coldStartWeight.coerceIn(0.0, 1.0)
         val mu = priorMu + gain * (observation - priorMu)
         val sigma = sqrt((predictedVariance * (1.0 - gain)).coerceAtLeast(0.0001))
         return CapacityBelief(mu, sigma)
@@ -58,7 +59,8 @@ object CapacityModel {
         capacity: CapacityBelief,
         observedMinutes: Double,
         stoppedEarly: Boolean,
-        fatigue: Double
+        fatigue: Double,
+        coldStartWeight: Double = 1.0
     ): CapacityBelief {
         val repaired = CapacityBelief(
             mu = (capacity.mu.takeIf(Double::isFinite) ?: 12.0).coerceAtLeast(5.0),
@@ -68,9 +70,9 @@ object CapacityModel {
         val safeFatigue = fatigue.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.0
         return when {
             stoppedEarly && safeFatigue < 0.70 -> repaired
-            safeFatigue >= 0.70 -> update(repaired, observed.coerceAtLeast(1.0))
+            safeFatigue >= 0.70 -> update(repaired, observed.coerceAtLeast(1.0), coldStartWeight)
             observed < MIN_INFORMATIVE_MINUTES -> repaired
-            else -> update(repaired, observed)
+            else -> update(repaired, observed, coldStartWeight)
         }
     }
 }

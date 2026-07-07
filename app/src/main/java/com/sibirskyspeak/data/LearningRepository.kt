@@ -138,6 +138,12 @@ class LearningRepository(
     // in memory only: undo is a within-session affordance, not durable history.
     @Volatile private var lastUndo: UndoSnapshot? = null
 
+    // Debug-only (see MainActivity's --ez debug_freeze_adaptive intent extra, BuildConfig.DEBUG
+    // gated): when set, manual QA/driving of the app still schedules cards normally but stops
+    // capacity/willingness/rival-skill/pace-log writes from feeding the real adaptive model, so
+    // driving the app to check a UI change can't quietly drag down the learner's actual pace.
+    @Volatile var debugFreezeAdaptiveModel: Boolean = false
+
     fun observeNotes(): Flow<List<Note>> = noteDao.observeAll()
 
     // --- In-memory caches ---------------------------------------------------
@@ -470,21 +476,40 @@ class LearningRepository(
     /** Repairs and additive content syncs are useful, but none is required to draw
      * the first screen. Keep this work off the UI/startup critical path. */
     suspend fun performLaunchMaintenance() = withContext(computeDispatcher) {
-        runCatching { cardDao.suspendDeprecatedAspectCueCards() }
-        runCatching { syncPedagogicalFacets() }
+        runMaintenanceStep("suspend_deprecated_aspect_cue_cards") { cardDao.suspendDeprecatedAspectCueCards() }
+        runMaintenanceStep("sync_pedagogical_facets") { syncPedagogicalFacets() }
         syncMissingConceptDrillCards()
-        runCatching { syncMissingConceptApplyCards() }
-        runCatching { syncMissingNovelProduceCards() }
-        runCatching { syncMissingChunkCards() }
-        runCatching { syncMissingTransformCards() }
-        runCatching { syncMissingSpeakSentenceCards() }
-        runCatching { syncMissingPhonologyCards() }
-        runCatching { repairConcatenatedExamples() }
-        runCatching { syncBootstrapTextbookNotes() }
-        runCatching { retireRejectedBootstrapNotes() }
-        runCatching { syncBootstrapReaderTexts() }
-        runCatching { performDataMaintenance() }
-        runCatching { mineExampleGaps(limit = 48) }
+        runMaintenanceStep("sync_missing_concept_apply_cards") { syncMissingConceptApplyCards() }
+        runMaintenanceStep("sync_missing_novel_produce_cards") { syncMissingNovelProduceCards() }
+        runMaintenanceStep("sync_missing_chunk_cards") { syncMissingChunkCards() }
+        runMaintenanceStep("sync_missing_transform_cards") { syncMissingTransformCards() }
+        runMaintenanceStep("sync_missing_speak_sentence_cards") { syncMissingSpeakSentenceCards() }
+        runMaintenanceStep("sync_missing_phonology_cards") { syncMissingPhonologyCards() }
+        runMaintenanceStep("repair_concatenated_examples") { repairConcatenatedExamples() }
+        runMaintenanceStep("sync_bootstrap_textbook_notes") { syncBootstrapTextbookNotes() }
+        runMaintenanceStep("retire_rejected_bootstrap_notes") { retireRejectedBootstrapNotes() }
+        runMaintenanceStep("sync_bootstrap_reader_texts") { syncBootstrapReaderTexts() }
+        runMaintenanceStep("perform_data_maintenance") { performDataMaintenance() }
+        runMaintenanceStep("mine_example_gaps") { mineExampleGaps(limit = 48) }
+    }
+
+    /** Runs one launch-maintenance step, recording a "maintenance_step_failed"
+     * telemetry event (step name + exception type/message in metadataJson) on
+     * failure instead of silently swallowing it — every step here previously
+     * used a bare runCatching with no visibility into whether it ever throws. */
+    private suspend fun runMaintenanceStep(name: String, block: suspend () -> Unit) {
+        runCatching { block() }.onFailure { error ->
+            runCatching {
+                recordTelemetry(TelemetryEvent(
+                    eventType = "maintenance_step_failed",
+                    metadataJson = JSONObject()
+                        .put("step", name)
+                        .put("type", error::class.java.name)
+                        .put("message", error.message ?: "unknown error")
+                        .toString()
+                ))
+            }
+        }
     }
 
     /** Add newly engineered facets to an existing installation without resetting or
@@ -2177,6 +2202,28 @@ class LearningRepository(
         }
     }
 
+    suspend fun getFluencyForecast(): com.sibirskyspeak.learning.FluencySimEngine.SimResult {
+        val modelDao = learningModelDao ?: return com.sibirskyspeak.learning.FluencySimEngine.SimResult(null, null, null, null, null, null, 0.0, 0)
+        val capacityState = modelDao.capacityState()
+        val willingnessState = modelDao.willingnessState()
+        val capacityBelief = capacityState?.let { CapacityBelief(it.mu, it.sigma) } ?: CapacityBelief()
+        val willingnessBelief = willingnessState?.let { WillingnessBelief(it.habit, parseWillingnessCoefficients(it.coeffsJson)) } ?: WillingnessBelief()
+        val activeCards = cardDao.getSchedulingCards()
+        val knownWordCount = cardDao.getKnownVocabNoteIds().size
+        val evidenceDays = modelDao.allPaceLogs()
+            .map { it.at / com.sibirskyspeak.learning.FluencySimEngine.DAY_MILLIS }
+            .distinct()
+            .size
+        return com.sibirskyspeak.learning.FluencySimEngine.runSimulation(
+            currentCapacity = capacityBelief,
+            currentWillingness = willingnessBelief,
+            initialActiveCards = activeCards,
+            totalKnownStart = knownWordCount,
+            evidenceDays = evidenceDays,
+            doctrine = config().doctrine
+        )
+    }
+
     suspend fun dashboardStats(
         now: Long = System.currentTimeMillis(),
         recommendations: List<ReaderRecommendation>? = null
@@ -3132,6 +3179,14 @@ class LearningRepository(
                 if (expected.id == produced.id) continue
                 val without = cards.filterNot { it.id == produced.id }
                 val insertAt = without.indexOfFirst { it.id == expected.id } + 1
+                runCatching {
+                    recordTelemetry(TelemetryEvent(
+                        eventType = "interference_seeded",
+                        cardId = produced.id,
+                        noteId = produced.noteId,
+                        metadataJson = JSONObject().put("expectedConcept", concept.id).put("producedConcept", rivalId).toString()
+                    ))
+                }
                 return without.toMutableList().apply { add(insertAt, produced) }
             }
         }
@@ -3239,15 +3294,26 @@ class LearningRepository(
             now
         )
 
-    /** Build a frozen session queue with one note-cache read instead of one Room lookup per card. */
+    /**
+     * Build a frozen session queue with one note-cache read instead of one Room lookup
+     * per card. Called from ReviewViewModel.loadSession() after every single rating (to
+     * refresh interval previews for the whole remaining queue) on the main-thread
+     * viewModelScope, so the per-card prompt construction below — declensionJson
+     * parsing and morphology-engine inflection for grammar drills (CASE_FILL,
+     * VERB_FORM, ...) are markedly heavier than a plain vocab prompt — must hop off
+     * the UI thread the same way sessionPlan() already does, or a remaining queue with
+     * several grammar cards visibly stalls the next card after every rating.
+     */
     suspend fun promptsForCards(cards: List<Card>, now: Long = System.currentTimeMillis()): List<ReviewPrompt> {
         if (cards.isEmpty()) return emptyList()
         val notesById = allNotesCached().associateBy { it.id }
         val liveById = cardDao.getByIds(cards.map { it.id }.distinct()).associateBy { it.id }
-        return cards.mapNotNull { snapshot ->
-            val live = liveById[snapshot.id] ?: return@mapNotNull null
-            if (live.suspended || live.state == CardState.GRADUATED) return@mapNotNull null
-            promptFor(live, now, notesById)
+        return withContext(computeDispatcher) {
+            cards.mapNotNull { snapshot ->
+                val live = liveById[snapshot.id] ?: return@mapNotNull null
+                if (live.suspended || live.state == CardState.GRADUATED) return@mapNotNull null
+                promptFor(live, now, notesById)
+            }
         }
     }
 
@@ -3512,6 +3578,7 @@ class LearningRepository(
     }
 
     suspend fun recordPace(pace: Pace, mode: SessionMode, now: Long = System.currentTimeMillis()) {
+        if (debugFreezeAdaptiveModel) return
         learningModelDao?.upsertPaceLog(PaceLog(
             at = now,
             T = pace.targetMinutes,
@@ -3551,6 +3618,7 @@ class LearningRepository(
     }
 
     suspend fun observeReturn(now: Long = System.currentTimeMillis()) {
+        if (debugFreezeAdaptiveModel) return
         val dao = learningModelDao ?: return
         val previous = dao.willingnessState() ?: return
         if (previous.updatedAt <= 0L || previous.updatedAt >= now) return
@@ -3644,13 +3712,21 @@ class LearningRepository(
         stoppedEarly: Boolean = false,
         now: Long = System.currentTimeMillis()
     ): com.sibirskyspeak.learning.MatchReport? {
+        if (debugFreezeAdaptiveModel) return null
         val dao = learningModelDao ?: return null
         val oldCapacity = dao.capacityState() ?: CapacityState()
+        val reviewCount = reviewLogDao.countAll()
+        val coldStartWeight = if (reviewCount < 200) {
+            (reviewCount / 200.0).coerceAtLeast(0.20)
+        } else {
+            1.0
+        }
         val capacity = CapacityModel.updateFromSession(
             CapacityBelief(oldCapacity.mu, oldCapacity.sigma),
             observedMinutes,
             stoppedEarly,
-            fatigue
+            fatigue,
+            coldStartWeight
         )
         dao.upsertCapacityState(oldCapacity.copy(mu = capacity.mu, sigma = capacity.sigma, updatedAt = now))
 

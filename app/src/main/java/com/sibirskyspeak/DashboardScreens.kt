@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import kotlin.math.roundToInt
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.School
@@ -85,7 +86,6 @@ internal fun DashboardPanel(
     state: ReviewUiState,
     onStart: () -> Unit,
     onOpenReader: (Long) -> Unit,
-    onRead: () -> Unit,
     onTimeBudget: (Int) -> Unit = {},
     onLoadLeeches: () -> Unit = {},
     onReleaseLeech: (LeechItem) -> Unit = {},
@@ -127,7 +127,7 @@ internal fun DashboardPanel(
         } else if (state.exitTicketOfferUnit != null) {
             ExitTicketOfferCard(state.exitTicketOfferUnit, state.exitTicketOfferCanDo, onStartExitTicket, onDismissExitTicketOffer)
         }
-        DashboardNextActionCard(state, onStart, onOpenReader, onRead, onTimeBudget)
+        DashboardNextActionCard(state, onStart, onOpenReader, onTimeBudget)
         stats.goalProgress?.let { goal ->
             SectionCard {
                 Text("${goal.unknownLemmaCount} words to «${goal.textTitle}»", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -139,6 +139,7 @@ internal fun DashboardPanel(
             DailyGoalCard(Modifier.weight(1f), game)
             WordsKnownCard(Modifier.weight(1f), game)
         }
+        FluencyForecastCard(state.fluencyForecast)
         if (stats.leechCount > 0) LeechCard(state.leeches, stats.leechCount, onReleaseLeech, onEdit = { editingLeech = it })
         DetailsSection(stats, showDetails) { showDetails = !showDetails }
     }
@@ -339,7 +340,6 @@ internal fun DashboardNextActionCard(
     state: ReviewUiState,
     onStart: () -> Unit,
     onOpenReader: (Long) -> Unit,
-    onRead: () -> Unit,
     onTimeBudget: (Int) -> Unit = {}
 ) {
     val prompts = state.sessionPlan?.reviewQueue.orEmpty()
@@ -358,7 +358,7 @@ internal fun DashboardNextActionCard(
                         prompts.isNotEmpty() -> "A sustainable session is ready, generated from memory risk and recent effort."
                         leechCount > 0 -> "Reviews are clear. Repair parked leeches, then read for fresh input."
                         reader != null -> "Reviews are clear. Reading keeps Russian input flowing."
-                        else -> "Reviews are clear. Add reader text or import notes when you want new material."
+                        else -> "Reviews are clear for now. Manage imported material from Settings."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -389,24 +389,22 @@ internal fun DashboardNextActionCard(
         state.sessionPlan?.timeBudget?.let { budget ->
             Text("${budget.spilledCards} cards safely spill beyond this session", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Spacer(Modifier.height(14.dp))
         // One action, same as the Practice screen: the session already interleaves
         // reviews + new vocab + grammar and folds reading in, so there is no separate
         // Read/Practice split. When caught up, the button opens the recommended text.
+        // Adding material (import/reader text) is a Settings action, not a Dashboard one —
+        // when there's nothing sessionable, this card just says so above with no button.
         val startSession = prompts.isNotEmpty() && !readingFirst
-        Button(
-            onClick = { if (startSession) onStart() else reader?.let { onOpenReader(it.text.id) } ?: onRead() },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(if (startSession) Icons.Filled.School else Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(
-                when {
-                    startSession -> "Study"
-                    reader != null -> "Read"
-                    else -> "Add material"
-                }
-            )
+        if (startSession || reader != null) {
+            Spacer(Modifier.height(14.dp))
+            Button(
+                onClick = { if (startSession) onStart() else reader?.let { onOpenReader(it.text.id) } },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(if (startSession) Icons.Filled.School else Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (startSession) "Study" else "Read")
+            }
         }
     }
 }
@@ -975,6 +973,48 @@ internal fun DetailsSection(stats: com.sibirskyspeak.data.DashboardStats, expand
                     "90% texts" to report.targetTextsAtOrAbove90.toString()
                 )
             }
+        }
+    }
+}
+
+@Composable
+internal fun FluencyForecastCard(forecast: com.sibirskyspeak.learning.FluencySimEngine.SimResult?) {
+    if (forecast == null) return
+    SectionCard {
+        Text("Days to Fluency Forecast", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        
+        if (forecast.isEarlyEstimate) {
+            Text(
+                "Early estimate — based on ${forecast.evidenceDays} of 14 recommended history days.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(4.dp))
+        }
+        @Composable fun milestone(level: String, label: String) {
+            val days = forecast.days(level) ?: return
+            val range = forecast.ranges[level]
+            val estimate = if (days == 0) "reached" else "~$days days"
+            val interval = range?.takeIf { days > 0 }?.let { " (${it.low}–${it.high})" }.orEmpty()
+            Text("• $level ($label): $estimate$interval", style = MaterialTheme.typography.bodyMedium)
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            milestone("A1", "Survival")
+            milestone("A2", "Waystage")
+            milestone("B1", "Threshold")
+            milestone("B2", "Vantage")
+            milestone("C1", "Effective")
+            milestone("C2", "Fluency")
+            
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Based on steady-state pace: ${forecast.stablePace.roundToInt()} words/day, with review load stabilizing at ~${forecast.finalReviewLoad} reviews/day.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

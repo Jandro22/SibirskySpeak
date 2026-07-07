@@ -85,6 +85,7 @@ enum class SessionStep {
 }
 
 data class ReviewUiState(
+    val fluencyForecast: com.sibirskyspeak.learning.FluencySimEngine.SimResult? = null,
     val prompt: ReviewPrompt? = null,
     val revealed: Boolean = false,
     val isAnswerCorrect: Boolean? = null,
@@ -307,6 +308,17 @@ class ReviewViewModel @javax.inject.Inject constructor(
                 loadSession(includeReaderInsights = false)
                 repository.pendingCurriculumMigrationReport()?.let { report ->
                     mutableState.value = mutableState.value.copy(curriculumMigrationReport = report)
+                    runCatching {
+                        repository.recordTelemetry(TelemetryEvent(
+                            eventType = "curriculum_migration_shown",
+                            metadataJson = JSONObject()
+                                .put("fromVersion", report.fromVersion ?: "unknown")
+                                .put("toVersion", report.toVersion)
+                                .put("appeared", report.appeared)
+                                .put("retired", report.retired)
+                                .toString()
+                        ))
+                    }
                 }
                 val completeness = repository.curriculumCompleteness()
                 if (completeness.isNotEmpty()) {
@@ -798,7 +810,20 @@ class ReviewViewModel @javax.inject.Inject constructor(
         val elapsed = ((if (answerRevealedAt > 0) answerRevealedAt else System.currentTimeMillis()) - promptShownAt).coerceAtLeast(0)
         val engineJudgedCorrect = mutableState.value.isAnswerCorrect
         val sampledCorrect = engineJudgedCorrect ?: (rating != Rating.AGAIN)
-        responseSamples += elapsed to sampledCorrect
+        // FatigueModel/SessionMpcController compare this history's rolling latency
+        // against an early-session baseline to detect fatigue/struggle. Storing raw
+        // wall-clock ms let a plain format-mix effect masquerade as fatigue: grammar
+        // drills (CASE_FILL, VERB_FORM, ...) legitimately take longer to reason through
+        // than a quick recognition tap, so a session that opened with fast cards and
+        // then hit a run of grammar cards read as a latency spike and tripped the
+        // "sustained struggle"/severe-fatigue stop after just a couple of them — kicking
+        // the learner to the session-complete screen mid-flow. Normalizing by each
+        // format's expected response time (PerformanceModel.targetTimeMs) keeps the
+        // comparison to "slower than expected for this format", not "slower than
+        // whatever format happened to open the session".
+        val normalizedElapsed = (elapsed.toDouble() * FATIGUE_REFERENCE_TARGET_MS /
+            PerformanceModel.targetTimeMs(prompt.answerMode).coerceAtLeast(1)).toLong().coerceAtLeast(1L)
+        responseSamples += normalizedElapsed to sampledCorrect
         if (engineJudgedCorrect != null) {
             objectiveAttempts += ObjectiveAttempt(
                 itemId = prompt.card.id,
@@ -1428,13 +1453,44 @@ class ReviewViewModel @javax.inject.Inject constructor(
         val count = (sessionErrorCategoryCounts[diagnosis.category] ?: 0) + 1
         sessionErrorCategoryCounts[diagnosis.category] = count
         if (count < 2) return
-        val repairType = repairCardTypeFor(diagnosis.category) ?: return
+        val repairType = repairCardTypeFor(diagnosis.category)
+        if (repairType == null) {
+            recordRepairTelemetry(diagnosis, missedPrompt, injected = false, reason = "no_repair_type_for_category")
+            return
+        }
         val candidateIndex = activeStudyQueue.indexOfFirst {
             it.card.cardType == repairType && it.card.noteId == missedPrompt.card.noteId
         }.let { sameNote -> if (sameNote >= 0) sameNote else activeStudyQueue.indexOfFirst { it.card.cardType == repairType } }
-        if (candidateIndex <= 0) return
+        if (candidateIndex <= 0) {
+            recordRepairTelemetry(diagnosis, missedPrompt, injected = false, reason = "no_candidate_queued")
+            return
+        }
         val repair = activeStudyQueue.removeAt(candidateIndex)
         activeStudyQueue.add(0, repair)
+        recordRepairTelemetry(diagnosis, missedPrompt, injected = true, reason = null)
+    }
+
+    /** Phase G3 observability: without this, a same-session repair injection
+     * (or its silent no-op when no candidate card is already queued) leaves no
+     * trace anywhere — unlike P4.5's DB-persisted confusion_events, which are at
+     * least indirectly inspectable. */
+    private fun recordRepairTelemetry(diagnosis: com.sibirskyspeak.review.Diagnosis, missedPrompt: ReviewPrompt, injected: Boolean, reason: String?) {
+        viewModelScope.launch {
+            runCatching {
+                repository.recordTelemetry(TelemetryEvent(
+                    eventType = "immediate_repair_injection",
+                    sessionId = telemetrySessionId,
+                    cardId = missedPrompt.card.id,
+                    noteId = missedPrompt.card.noteId,
+                    cardType = missedPrompt.card.cardType.name,
+                    metadataJson = JSONObject()
+                        .put("category", diagnosis.category.name)
+                        .put("injected", injected)
+                        .apply { reason?.let { put("reason", it) } }
+                        .toString()
+                ))
+            }
+        }
     }
 
     private fun maybeOfferExitTicket() {
@@ -1455,6 +1511,12 @@ class ReviewViewModel @javax.inject.Inject constructor(
                 exitTicketOfferUnit = completedUnit,
                 exitTicketOfferCanDo = session.canDoLabel
             )
+            runCatching {
+                repository.recordTelemetry(TelemetryEvent(
+                    eventType = "exit_ticket_offered", sessionId = telemetrySessionId,
+                    metadataJson = JSONObject().put("unit", completedUnit).toString()
+                ))
+            }
         }
     }
 
@@ -1472,6 +1534,12 @@ class ReviewViewModel @javax.inject.Inject constructor(
                         exitTicketFeedback = null,
                         exitTicketComplete = false
                     )
+                    runCatching {
+                        repository.recordTelemetry(TelemetryEvent(
+                            eventType = "exit_ticket_started", sessionId = telemetrySessionId,
+                            metadataJson = JSONObject().put("unit", unit).put("items", session.items.size).toString()
+                        ))
+                    }
                 }
                 .onFailure { mutableState.value = mutableState.value.copy(statusMessage = it.message ?: "Could not start quick check") }
         }
@@ -1495,6 +1563,16 @@ class ReviewViewModel @javax.inject.Inject constructor(
             runCatching { repository.completeExitTicket(session, results) }
             exitTicketOfferedUnits += session.unit
             mutableState.value = mutableState.value.copy(exitTicketOfferUnit = null, exitTicketOfferCanDo = null)
+            runCatching {
+                repository.recordTelemetry(TelemetryEvent(
+                    eventType = "exit_ticket_completed", sessionId = telemetrySessionId,
+                    metadataJson = JSONObject()
+                        .put("unit", session.unit)
+                        .put("correct", results.count { it })
+                        .put("total", results.size)
+                        .toString()
+                ))
+            }
         }
     }
 
@@ -1502,7 +1580,17 @@ class ReviewViewModel @javax.inject.Inject constructor(
      * learner from continuing normally (Phase G6 requirement). */
     fun dismissExitTicketOffer() {
         val unit = mutableState.value.exitTicketOfferUnit
-        if (unit != null) exitTicketOfferedUnits += unit
+        if (unit != null) {
+            exitTicketOfferedUnits += unit
+            viewModelScope.launch {
+                runCatching {
+                    repository.recordTelemetry(TelemetryEvent(
+                        eventType = "exit_ticket_dismissed", sessionId = telemetrySessionId,
+                        metadataJson = JSONObject().put("unit", unit).toString()
+                    ))
+                }
+            }
+        }
         mutableState.value = mutableState.value.copy(exitTicketOfferUnit = null, exitTicketOfferCanDo = null)
     }
 
@@ -2024,6 +2112,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
     private suspend fun refreshReaderInsights() {
         val readers = repository.readerTexts()
         val stats = repository.dashboardStats(recommendations = readers)
+        val forecast = repository.getFluencyForecast()
         val current = mutableState.value
         val recommendation = recommendNextReader(readers)
         mutableState.value = current.copy(
@@ -2031,6 +2120,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
             readerRecommendation = recommendation,
             readerProgressByText = readers.associate { it.text.id to settings.readerProgress(it.text.id) },
             dashboardStats = stats.copy(intervalModifier = settings.intervalModifier),
+            fluencyForecast = forecast,
             sessionPlan = current.sessionPlan?.copy(
                 readerRecommendation = recommendation,
                 dashboardStats = stats
@@ -2264,6 +2354,15 @@ class ReviewViewModel @javax.inject.Inject constructor(
      * previewing what a card TYPE looks like, just don't read it as "what the queue would
      * show next."
      */
+    /** See MainActivity's `--ez debug_freeze_adaptive` intent extra: lets a debug build be
+     * driven manually (adb, QA pass) without capacity/willingness/rival/pace-log writes
+     * polluting the real learner's adaptive model. Enforced here too, not just at the
+     * intent-reading call site, for the same reason [debugStartSessionWithCardType] does. */
+    fun setDebugFreezeAdaptiveModel(frozen: Boolean) {
+        if (!com.sibirskyspeak.BuildConfig.DEBUG) return
+        repository.debugFreezeAdaptiveModel = frozen
+    }
+
     fun debugStartSessionWithCardType(cardType: com.sibirskyspeak.data.CardType, onStarted: () -> Unit = {}) {
         // The Settings screen already hides the button behind BuildConfig.DEBUG, but that's
         // a UI-layer gate a future screen could forget to repeat — bypassing the adaptive
@@ -2389,6 +2488,9 @@ class ReviewViewModel @javax.inject.Inject constructor(
 
     companion object {
         const val COMPLETE_READING = "__complete_scheduled_reading__"
+        // Reference format for response-time normalization in recordResponseSample();
+        // an arbitrary but stable denominator, not tied to any particular AnswerMode.
+        const val FATIGUE_REFERENCE_TARGET_MS = 12_000.0
     }
 
     /** Load the parked-leech list for the management view. */
