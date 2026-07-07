@@ -66,10 +66,16 @@ python tools/preprocess/audit_curriculum.py       # batch-prints controlled-voca
 The app is offline-only; content changes are authored/generated on a dev machine and shipped as a bundled asset, not fetched at runtime:
 
 ```bash
-python tools/preprocess/build_bootstrap.py   # regenerates app/src/main/assets/bootstrap_notes.jsonl
+# To rebuild all curriculum notes, verify them, and update assets in one step:
+python tools/preprocess/rebuild_all.py
+
+# Alternatively, the full manual pipeline (e.g. if troubleshooting individual stages):
+python tools/preprocess/build_bootstrap.py   # Step 1: Initial compile
+python tools/preprocess/verify_lexicon.py     # Step 2: Lexicon verification against Wiktionary/Kaikki
+python tools/preprocess/build_bootstrap.py   # Step 3: Final compile with updated verified lists
 ```
 
-Always re-run this and `python -m pytest -q tools/preprocess` after editing anything under `tools/preprocess/` (curriculum modules `a1_starter.py`…`c1_starter.py`, `general_layer.py`, etc.) — the Kotlin app never validates this content itself, it just loads whatever JSONL ships in the assets.
+Always run the full rebuild (via `rebuild_all.py`) and `python -m pytest -q tools/preprocess` after editing anything under `tools/preprocess/` (curriculum modules `a1_starter.py`…`c1_starter.py`, `general_layer.py`, etc.) — the Kotlin app never validates this content itself, it just loads whatever JSONL ships in the assets.
 
 ## Architecture
 

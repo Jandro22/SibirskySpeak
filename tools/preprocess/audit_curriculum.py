@@ -7,6 +7,8 @@ Usage:  python audit_curriculum.py
 from __future__ import annotations
 
 import re
+import json
+from pathlib import Path
 
 from a1_starter import a1_rows
 from a2_starter import a2_rows
@@ -73,6 +75,9 @@ def _topics(note):
 
 
 def main():
+    import sys
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     rows = all_rows()
     known = {_norm(w) for w in CLOSED_CLASS}
     by_unit = {}
@@ -119,6 +124,74 @@ def main():
             f"  numeral note count: {numeral_count} (need >= {A1_MIN_NUMERAL_NOTES})"
         )
 
+    # 1. Concept ID bi-directional validation
+    here = Path(__file__).resolve().parent
+    concepts_file = here / "concepts.json"
+    concept_problems = []
+    if concepts_file.exists():
+        concepts_data = json.loads(concepts_file.read_text(encoding="utf-8"))
+        defined_concepts = {c["id"] for c in concepts_data["core_concepts"]} | {s["id"] for s in concepts_data["staged_specs"]}
+        taught_concepts = {n["conceptId"] for n in rows if n.get("pos") == "lesson" and "conceptId" in n}
+        
+        # Forward check: taught concepts must be defined
+        for c in taught_concepts:
+            if c not in defined_concepts:
+                concept_problems.append(f"  Taught concept {c!r} is not defined in concepts.json")
+        # Reverse check: defined concepts must be taught
+        for c in defined_concepts:
+            if c not in taught_concepts:
+                concept_problems.append(f"  Defined concept {c!r} has no LESSON note in the curriculum")
+    else:
+        concept_problems.append("  concepts.json not found, skipping concept validation")
+
+    # 2. Frequency vs. CEFR level mismatch check
+    gen_source = here / "general_source.jsonl"
+    mismatch_problems = []
+    if gen_source.exists():
+        ranks = {}
+        with open(gen_source, "r", encoding="utf-8") as f:
+            for line in f:
+                e = json.loads(line)
+                lem = _norm(e.get("lemma", ""))
+                rank = e.get("rank")
+                if rank:
+                    ranks[lem] = int(rank)
+                    
+        band_indices = {"A1": 0, "A2": 1, "B1": 2, "B2": 3, "C1": 4, "C2": 5}
+        for note in rows:
+            if note.get("pos") == "lesson":
+                continue
+            lemma = note.get("lemma")
+            level = note.get("cefrLevel")
+            if not lemma or not level or level not in band_indices:
+                continue
+            
+            rank = ranks.get(lemma)
+            if not rank:
+                continue
+                
+            # Expected band based on rank
+            if rank <= 1000:
+                exp_idx = 0
+            elif rank <= 2000:
+                exp_idx = 1
+            elif rank <= 4000:
+                exp_idx = 2
+            elif rank <= 6000:
+                exp_idx = 3
+            elif rank <= 8000:
+                exp_idx = 4
+            else:
+                exp_idx = 5
+                
+            auth_idx = band_indices[level]
+            if abs(exp_idx - auth_idx) >= 3:
+                mismatch_problems.append(
+                    f"  U{note['unit']} {level} {note['lemma']}: "
+                    f"rank {rank} (expected {list(band_indices.keys())[exp_idx]}) "
+                    f"differs by {abs(exp_idx - auth_idx)} bands"
+                )
+
     def report(title, items):
         print(f"\n{title}: {len(items)}")
         for it in items[:80]:
@@ -128,7 +201,9 @@ def main():
     report("MISSING STRESS", stress_problems)
     report("WEAK GLOSS", gloss_problems)
     report("A1 THEMATIC COVERAGE", thematic_problems)
-    total = len(vocab_problems) + len(stress_problems) + len(gloss_problems) + len(thematic_problems)
+    report("CONCEPT ALIGNMENT", concept_problems)
+    report("FREQUENCY LEVEL MISMATCH", mismatch_problems)
+    total = len(vocab_problems) + len(stress_problems) + len(gloss_problems) + len(thematic_problems) + len(concept_problems) + len(mismatch_problems)
     print(f"\nTOTAL problems: {total} | notes: {len(rows)}")
 
 

@@ -81,9 +81,14 @@ CONCEPT_TITLES = {
     "SUBJUNCTIVE_NUANCE": "Deeper hypotheticals",
 }
 
-_KT = Path(__file__).resolve().parents[2] / "app/src/main/java/com/sibirskyspeak/data/GrammarConcepts.kt"
-_STAGED_RE = re.compile(r'StagedSpec\("([A-Z0-9_]+)",\s*"([^"]+)",\s*"([A-Z0-9_]+)",\s*(\d+),\s*(\d+),\s*"(A1|A2|B1|B2|C1|C2)"\)')
-STAGED_SPECS = _STAGED_RE.findall(_KT.read_text(encoding="utf-8"))
+import json
+
+_JSON_PATH = Path(__file__).resolve().parents[2] / "tools/preprocess/concepts.json"
+_DATA = json.loads(_JSON_PATH.read_text(encoding="utf-8"))
+STAGED_SPECS = [
+    (spec["id"], spec["title"], spec["family"], spec["stage"], spec["order"], spec["band"])
+    for spec in _DATA["staged_specs"]
+]
 CONCEPT_TITLES.update({concept: title for concept, title, _family, _stage, _order, _band in STAGED_SPECS})
 
 
