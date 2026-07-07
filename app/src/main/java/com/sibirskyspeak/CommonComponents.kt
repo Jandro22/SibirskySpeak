@@ -894,7 +894,8 @@ internal fun reviewContext(prompt: ReviewPrompt): String? =
  */
 internal fun reviewRevealContext(prompt: ReviewPrompt): Pair<String, String?>? =
     when (prompt.card.cardType) {
-        CardType.RU_TO_MEANING, CardType.MEANING_TO_RU, CardType.CLOZE, CardType.AUDIO_TO_RU ->
+        CardType.RU_TO_MEANING, CardType.MEANING_TO_RU, CardType.CLOZE, CardType.AUDIO_TO_RU,
+        CardType.CASE_FILL, CardType.VERB_FORM ->
             prompt.exampleSentence?.let { ru ->
                 ru to prompt.exampleTranslation?.takeIf { prompt.hasSentenceGloss() }
             }

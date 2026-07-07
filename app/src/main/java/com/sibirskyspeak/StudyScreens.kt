@@ -861,6 +861,10 @@ internal fun SpeakingAnswerInput(
     val recognizer = rememberRussianSpeechRecognizer()
     var listening by rememberSaveable(cardId) { mutableStateOf(false) }
     var helperText by rememberSaveable(cardId) { mutableStateOf("Tap the mic and say the Russian aloud.") }
+    // Grading itself stays self-rated (Hard/Good/Easy) — this is purely a quality hint
+    // next to the transcript, not fed into evaluation, since ASR confidence reflects
+    // the recognizer's certainty about the transcript, not pronunciation accuracy.
+    var recognizedConfidence by rememberSaveable(cardId) { mutableStateOf<Float?>(null) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
             helperText = "Microphone ready. Tap the mic and say the Russian aloud."
@@ -875,13 +879,16 @@ internal fun SpeakingAnswerInput(
             return
         }
         helperText = "Listening..."
+        recognizedConfidence = null
         recognizer.startListening(
-            onResult = { result ->
+            onResult = { result, confidence ->
                 listening = false
                 if (result.isBlank()) {
+                    recognizedConfidence = null
                     helperText = "Nothing recognized. Try once more."
                 } else {
                     onRecognized(result)
+                    recognizedConfidence = confidence
                     helperText = "Recognized. Check the answer when it looks right."
                 }
             },
@@ -946,7 +953,18 @@ internal fun SpeakingAnswerInput(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
             ) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("Recognized", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Recognized", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        // Low confidence means the recognizer itself wasn't sure of the
+                        // transcript — a hint to double-check, not a pronunciation score.
+                        if ((recognizedConfidence ?: 1f) < 0.5f) {
+                            Text(
+                                "· uncertain",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
                     Text(recognized, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 }
             }
@@ -1697,6 +1715,7 @@ internal fun ReviewPrompt.speechText(): String =
             expectedAnswer
         ).firstOrNull { it.hasRussianTextForSpeech() } ?: expectedAnswer
         AnswerMode.CHOICE -> listOfNotNull(
+            exampleSentence,
             prompt.russianLinesForSpeech(),
             expectedAnswer
         ).firstOrNull { it.hasRussianTextForSpeech() }

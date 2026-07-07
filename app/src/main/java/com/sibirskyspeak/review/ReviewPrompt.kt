@@ -247,7 +247,9 @@ fun buildPrompt(
             intervalPreview = intervalPreview,
             choices = caseDrill?.choices.orEmpty(),
             choiceLabels = caseDrill?.choiceLabels.orEmpty(),
-            explanation = caseTeaching(card.gramCase)
+            explanation = caseTeaching(card.gramCase),
+            exampleSentence = example.sentence,
+            exampleTranslation = example.translation
         )
         CardType.ADJ_AGREE -> {
             val drill = adjAgreeDrill(card, note)
@@ -287,7 +289,9 @@ fun buildPrompt(
                 intervalPreview = intervalPreview,
                 choices = drill.choices,
                 choiceLabels = drill.choiceLabels,
-                explanation = drill.explanation
+                explanation = drill.explanation,
+                exampleSentence = example.sentence,
+                exampleTranslation = example.translation
             )
         }
         CardType.ASPECT_SELECT -> {

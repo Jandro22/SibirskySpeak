@@ -25,7 +25,11 @@ class RussianSpeechRecognizer(context: Context) {
     private var listening = false
 
     fun startListening(
-        onResult: (String) -> Unit,
+        // confidence is the recognizer's own certainty in the transcript (0f-1f), or
+        // null when the recognizer didn't supply one — on-device/offline models
+        // (preferred here via EXTRA_PREFER_OFFLINE) frequently omit it entirely, so
+        // callers must treat absence as "no signal", not "low confidence".
+        onResult: (String, Float?) -> Unit,
         onPartial: (String) -> Unit = {},
         onError: (String) -> Unit = {},
         onReadyForSpeech: () -> Unit = {},
@@ -55,7 +59,8 @@ class RussianSpeechRecognizer(context: Context) {
 
             override fun onResults(results: Bundle?) {
                 listening = false
-                onResult(bestHypothesis(results).orEmpty())
+                val (hypothesis, confidence) = bestHypothesisWithConfidence(results)
+                onResult(hypothesis.orEmpty(), confidence)
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
@@ -98,6 +103,20 @@ class RussianSpeechRecognizer(context: Context) {
         bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             ?.firstOrNull { it.isNotBlank() }
             ?.trim()
+
+    // CONFIDENCE_SCORES (API 14+) is a float[] parallel to RESULTS_RECOGNITION, values
+    // 0f-1f or -1f for "unavailable" per-entry. It's optional and many on-device
+    // recognizers never populate it, so both a missing array and a -1 entry map to a
+    // null confidence rather than being read as "low".
+    private fun bestHypothesisWithConfidence(bundle: Bundle?): Pair<String?, Float?> {
+        val hypotheses = bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+        val index = hypotheses?.indexOfFirst { it.isNotBlank() } ?: -1
+        if (hypotheses == null || index < 0) return null to null
+        val confidence = bundle?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
+            ?.getOrNull(index)
+            ?.takeIf { it >= 0f }
+        return hypotheses[index].trim() to confidence
+    }
 
     private fun errorMessage(error: Int): String = when (error) {
         SpeechRecognizer.ERROR_AUDIO -> "Audio recording error."
