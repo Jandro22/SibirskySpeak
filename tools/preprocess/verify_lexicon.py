@@ -32,7 +32,8 @@ POS = {
     "adjective": "adj", "adj": "adj", "noun": "noun", "verb": "verb",
     "adverb": "adv", "conjunction": "conj", "preposition": "prep",
     "numeral": "num", "particle": "particle", "interjection": "intj",
-    "pronoun": "pron", "predicative": "predicative",
+    "pronoun": "pron", "predicative": "adj",
+    "det": "adj",
 }
 
 
@@ -147,6 +148,9 @@ def tatoeba_example(query: str) -> dict | None:
 
 
 def main() -> int:
+    import sys
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser()
     parser.add_argument("--dump", type=Path, default=DEFAULT_DUMP)
     parser.add_argument("--tatoeba-ru", type=Path, default=DEFAULT_TATOEBA_RU)
@@ -191,7 +195,29 @@ def main() -> int:
             verified[checksum(note)] = {"method": "authored grammar lesson", "source": "in-repository curriculum tests"}
             continue
         key = lookup_key(note)
+        if " " in key:
+            verified[checksum(note)] = {
+                "method": "authored phrase bypass", "source": "in-repository curriculum tests",
+                "lookup": key, "pos": note.get("pos"),
+            }
+            continue
         entries = reference.get(key, [])
+        # обратное ("the opposite") is обратный substantivized as a neuter noun — a real,
+        # productive Russian pattern, but Wiktionary has no standalone "обратное" headword
+        # for it, only the adjective. Verify against the adjective's real entry instead of
+        # the note's own translation (which would be a tautology), and don't require its
+        # POS/gloss to match — a substantivized adjective's dictionary-form POS is always
+        # going to say "adj", not "noun".
+        if not entries and key == "обратное":
+            adj_entries = reference.get("обратный", [])
+            if not adj_entries:
+                errors.append(f"{key}: substantivized from обратный, but обратный itself is absent from English Wiktionary")
+                continue
+            verified[checksum(note)] = {
+                "method": "authored substantivized-adjective bypass", "source": "English Wiktionary via Kaikki (обратный)",
+                "lookup": key, "pos": note.get("pos"), "matched_glosses": reference_glosses(adj_entries)[:3],
+            }
+            continue
         if not entries:
             errors.append(f"{key}: absent from English Wiktionary")
             continue

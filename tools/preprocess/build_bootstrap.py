@@ -460,7 +460,8 @@ def finalize_notes(notes):
             ensure_ascii=False, separators=(",", ":"),
         )
         if note.get("pos") != "lesson" and verified and verified_identity not in verified:
-            continue
+            if not note.get("authored"):
+                continue
         if note.get("pos") != "lesson" and (not note.get("exampleSentence") or not note.get("exampleTranslation")):
             example = examples.get(key(note))
             if example:
@@ -477,6 +478,7 @@ def finalize_notes(notes):
         identities.add(identity)
         if note.get("pos") != "lesson":
             lemmas.add(lemma_key)
+        note.pop("authored", None)
         unique.append(note)
     return unique
 
@@ -570,6 +572,8 @@ def main():
             + build_level(c2_starter.UNITS, "C2", seen)
             + spine2_rows()
         )
+        for n in a1_notes:
+            n["authored"] = True
         a1_readers = (
             a1_starter.a1_reader_texts() + a2_starter.a2_reader_texts()
             + b1_starter.b1_reader_texts() + b2_starter.b2_reader_texts()

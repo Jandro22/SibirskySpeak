@@ -48,8 +48,6 @@ UNITS = [
              [("Э́то ме́дленная маши́на.", "This is a slow car.")]),
         ],
         "words": [
-            ("пожа́луйста", "particle", "please, you're welcome", "Чита́й, пожа́луйста.", "Read, please.",
-             [("Помоги́ мне, пожа́луйста.", "Help me, please.")]),
             ("гро́мко", "adverb", "loudly", "Говори́ гро́мко!", "Speak loudly!",
              [("Он говори́т гро́мко.", "He speaks loudly.")]),
         ],
@@ -217,6 +215,10 @@ UNITS = [
             ("забы́ть", "to forget (once)", "Я забы́л свои́ кни́ги до́ма.", "I forgot my books at home.", "PF", "achievement", "забывать",
              [("Я забы́л своё письмо́.", "I forgot my letter.")]),
         ],
+        "words": [
+            ("свой", "pronoun", "one's own", "Он чита́ет свою́ кни́гу.", "He is reading his book.",
+             [("Я люблю́ свою́ сестру́.", "I love my sister."), ("Я забы́л свои́ кни́ги.", "I forgot my books.")]),
+        ],
     },
     {
         "unit": 20,
@@ -239,7 +241,7 @@ UNITS = [
              [("Ка́ждый день есть уро́к.", "Every day there is a lesson.")]),
             ("день", "noun", "day", "Я рабо́таю ка́ждый день.", "I work every day.",
              [("Сего́дня хоро́ший день.", "Today is a good day.")]),
-            ("всю", "pronoun", "all, whole (f. acc)", "Я рабо́таю всю неде́лю.", "I work all week.",
+            ("всю", "pronoun", "all, whole, accusative feminine", "Я рабо́таю всю неде́лю.", "I work all week.",
              [("Я чита́л всю кни́гу.", "I read the whole book.")]),
         ],
     },

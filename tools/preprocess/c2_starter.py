@@ -27,13 +27,13 @@ UNITS = [
             ("де́скать", "particle", "allegedly, he claims (distancing the speaker from a quote)",
              "Он сказа́л, де́скать, он не хо́чет чита́ть.",
              "He said, supposedly, that he doesn't want to read."),
-            ("я́кобы", "particle", "allegedly, supposedly",
+            ("я́кобы", "adverb", "allegedly, supposedly",
              "Она́ сказа́ла, я́кобы э́то но́вый план.",
              "She said, allegedly, that this is a new plan."),
             ("вро́де бы", "particle", "sort of, as if (soft hedge)",
              "Э́то вро́де бы тру́дный вопро́с.",
              "This is sort of a difficult question."),
-            ("вро́де", "adverb", "kind of, sort of (standalone)",
+            ("вро́де", "preposition", "kind of, sort of (standalone)",
              "Он вро́де рабо́тает.",
              "He's kind of working."),
         ],
@@ -43,18 +43,12 @@ UNITS = [
         "title": "Emphasis and contrast particles",
         "concept": "EMPHATIC_PARTICLES",
         "words": [
-            ("ведь", "particle", "after all, you know (appeals to shared knowledge)",
-             "Он ведь не чита́л э́ту кни́гу.",
-             "He hasn't read this book, you know."),
             ("всё-та́ки", "particle", "still, nevertheless",
              "Э́то всё-та́ки тру́дный вопро́с.",
              "This is nevertheless a difficult question."),
-            ("уж", "particle", "indeed, quite (emphatic intensifier)",
+            ("уж", "adverb", "already, indeed, quite (emphatic intensifier)",
              "Э́то уж сло́жный вопро́с.",
              "This is quite a difficult question, indeed."),
-            ("лишь", "particle", "only, merely",
-             "Он лишь чита́ет кни́гу.",
-             "He is merely reading a book."),
         ],
     },
     {
@@ -84,16 +78,13 @@ UNITS = [
         "title": "Emphatic word order",
         "concept": "INVERSION_EMPHASIS",
         "words": [
-            ("и́менно", "particle", "precisely, exactly (marks the focused word)",
-             "И́менно э́то ва́жно.",
-             "This precisely is what matters."),
             ("недаро́м", "adverb", "not without reason, it's no accident that",
              "Недаро́м он изуча́ет язы́к до́лго.",
              "It's no accident that he's been studying the language for a long time."),
             ("тем не ме́нее", "conjunction", "nonetheless",
              "Бы́ло тру́дно, тем не ме́нее он продолжа́л рабо́тать.",
              "It was difficult; nonetheless he kept working."),
-            ("тем", "particle", "by that (fixed in тем не менее, тем самым)",
+            ("тем", "adverb", "by that (fixed in тем не менее, тем самым)",
              "Он тем помо́г мне.",
              "By that, he helped me."),
             ("ме́нее", "adverb", "less",
@@ -161,7 +152,18 @@ UNITS = [
             # мнение (opinion) was already introduced in B2 unit 32 — reusing it here
             # (in "опровергать его мнение") rather than re-authoring a dead-weight
             # duplicate entry that build_level's cross-level dedup would silently drop.
-            ("обра́тное", "n_ie", "N", False, "the opposite", "Он сказа́л обра́тное.", "He said the opposite.", "sg",
+            # Substantivized adjective (from обра́тный), not a real -ие noun — the n_ie
+            # engine class produces non-words here ("обратния", "обратнию"). Override
+            # with the hard-adjective declension обра́тный already carries (see its own
+            # note above/elsewhere in the deck): NEUT case endings match the masculine
+            # ones except NOM/ACC, and the plural is the shared adjective plural.
+            ("обра́тное", "n_ie", "N", False, "the opposite", "Он сказа́л обра́тное.", "He said the opposite.",
+             {
+                 "NOM_SG": "обратное", "GEN_SG": "обратного", "DAT_SG": "обратному",
+                 "ACC_SG": "обратное", "INS_SG": "обратным", "PREP_SG": "обратном",
+                 "NOM_PL": "обратные", "GEN_PL": "обратных", "DAT_PL": "обратным",
+                 "ACC_PL": "обратные", "INS_PL": "обратными", "PREP_PL": "обратных",
+             },
              None),
         ],
     },

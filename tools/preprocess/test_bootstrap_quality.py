@@ -38,3 +38,23 @@ def test_course_noun_gender_agrees_with_russian_morphology():
         if genders and expected[note["gender"]] not in genders:
             mismatches.append((lemma, note["gender"], sorted(str(value) for value in genders)))
     assert mismatches == []
+
+
+def test_finalize_notes_excludes_unverified_general_notes():
+    from build_bootstrap import finalize_notes
+    fake_note = {
+        "lemma": "абвгд_несуществующий",
+        "pos": "noun",
+        "translation": "fake_translation_for_test",
+        "russian": "абвгд_несуществующий",
+        "exampleSentence": "Fake sentence.",
+        "exampleTranslation": "Fake translation.",
+    }
+    # Unverified general note without 'authored' flag should be excluded
+    result = finalize_notes([fake_note])
+    assert fake_note not in result
+
+    # Note with 'authored' flag should bypass filter and be kept
+    fake_authored_note = dict(fake_note, authored=True)
+    result_authored = finalize_notes([fake_authored_note])
+    assert any(n.get("lemma") == "абвгд_несуществующий" for n in result_authored)

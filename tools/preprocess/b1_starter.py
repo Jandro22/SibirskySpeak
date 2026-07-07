@@ -52,6 +52,8 @@ UNITS = [
             # auto-declension) and use it in the singular.
             ("челове́к", "noun", "person", "Он счастли́вый челове́к.", "He is a happy person.",
              [("Э́то молодо́й челове́к.", "This is a young man.")]),
+            ("бы", "particle", "would (subjunctive particle)", "Я хоте́л бы чай.", "I would like some tea.",
+             [("Что ты сде́лал бы?", "What would you do?")]),
         ],
     },
     {

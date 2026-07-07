@@ -27,8 +27,6 @@ UNITS = [
              [("Проце́сс идёт ме́дленно.", "The process goes slowly.")]),
         ],
         "words": [
-            ("одна́ко", "conjunction", "however", "Бы́ло тру́дно, одна́ко он реши́л вопро́с.", "It was difficult; however, he solved the question.",
-             [("Я хочу́ помо́чь, одна́ко не могу́.", "I want to help, however I can't.")]),
             ("поэ́тому", "adverb", "therefore", "Э́то ва́жно, поэ́тому я чита́ю докуме́нт.", "This is important, therefore I'm reading the document.",
              [("Э́то тру́дно, поэ́тому я ду́маю до́лго.", "This is hard, so I think for a long time.")]),
         ],
@@ -88,7 +86,7 @@ UNITS = [
         "words": [
             ("да́нный", "adjective", "this, the given (formal)", "Да́нный докуме́нт о́чень ва́жный.", "This document is very important.",
              [("Да́нный вопро́с о́чень тру́дный.", "This question is very difficult.")]),
-            ("сле́дует", "verb", "one should (formal)", "Сле́дует чита́ть э́тот докуме́нт.", "One should read this document.",
+            ("сле́дует", "verb", "should, third-person singular of следовать (formal)", "Сле́дует чита́ть э́тот докуме́нт.", "One should read this document.",
              [("Сле́дует поня́ть э́тот вопро́с.", "One should understand this question.")]),
         ],
     },
