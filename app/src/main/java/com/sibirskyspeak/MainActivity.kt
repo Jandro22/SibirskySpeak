@@ -91,7 +91,15 @@ import kotlinx.coroutines.delay
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    companion object { const val EXTRA_MICRO = "mode_micro" }
+    companion object {
+        const val EXTRA_MICRO = "mode_micro"
+        // adb shell am start -n com.sibirskyspeak.debug/com.sibirskyspeak.MainActivity \
+        //   --ez debug_freeze_adaptive true
+        // Debug-build-only (see ReviewViewModel.setDebugFreezeAdaptiveModel): stops manual
+        // QA driving of the app from writing to the learner's real capacity/willingness/
+        // rival/pace-log state.
+        const val EXTRA_DEBUG_FREEZE_ADAPTIVE = "debug_freeze_adaptive"
+    }
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -108,7 +116,11 @@ class MainActivity : ComponentActivity() {
                 // so uiautomator/Espresso device tests (and ad hoc QA scripting) can select
                 // controls by stable tag instead of scraping visible text.
                 Box(modifier = Modifier.semantics { testTagsAsResourceId = true }) {
-                    ReviewScreen(hiltViewModel<ReviewViewModel>(), intent?.getBooleanExtra(EXTRA_MICRO, false) == true)
+                    ReviewScreen(
+                        hiltViewModel<ReviewViewModel>(),
+                        intent?.getBooleanExtra(EXTRA_MICRO, false) == true,
+                        debugFreezeAdaptive = BuildConfig.DEBUG && intent?.getBooleanExtra(EXTRA_DEBUG_FREEZE_ADAPTIVE, false) == true
+                    )
                 }
             }
         }
@@ -126,10 +138,11 @@ internal val MainTabs = listOf(SessionStep.REVIEWS, SessionStep.DASHBOARD, Sessi
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = false) {
+internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = false, debugFreezeAdaptive: Boolean = false) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val tts = rememberRussianTts()
     val context = LocalContext.current
+    LaunchedEffect(debugFreezeAdaptive) { if (debugFreezeAdaptive) viewModel.setDebugFreezeAdaptiveModel(true) }
     // Which of the two top-level layouts (study session vs. everything else) is showing
     // right now — a UI-navigation intent, distinct from ReviewViewModel's `inStudySession`
     // (whether a session actually exists to show) and its private `studySessionActive`
@@ -152,12 +165,20 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
     // Saved via NavStateSaver so an active study session or an open reader text
     // survives rotation/process death, matching what the old rememberSaveable
     // booleans already gave studyActive/showReference individually.
-    val nav = rememberSaveable(saver = NavStateSaver) { NavState(Dest.Practice) }
+    val nav = rememberSaveable(saver = NavStateSaver) { NavState(Dest.Dashboard) }
     val currentDest by nav.current.collectAsState()
     val studyActive = currentDest is Dest.Study
     val showReference = currentDest is Dest.Reference
     var autoStartedDueSession by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(state.skeletonReady) { if (state.skeletonReady) { nav.push(Dest.Study); autoStartedDueSession = true } }
+    // The ViewModel may pre-load a "skeleton" session from the previous launch's
+    // cached card ids (settings.planSkeletonCardIds — persisted, so unlike NavState
+    // it survives every relaunch) to make the Study screen open instantly once the
+    // user taps into it. This used to also force-navigate into Study on every single
+    // launch via this effect, silently overriding the "land on Dashboard" default
+    // below — the actual cause of the app always opening into Practice/Study
+    // regardless of that default (2026-07-06). Pre-loading the prompt data is still
+    // useful (instant resume when the user chooses to study); auto-navigating into
+    // it is not, so this effect is intentionally not wired to `nav.push`.
     LaunchedEffect(launchMicro, state.sessionPlan) {
         if (launchMicro && !autoStartedDueSession && state.sessionPlan != null) {
             autoStartedDueSession = true
@@ -167,14 +188,6 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
     }
     var settingsArea by rememberSaveable { mutableStateOf(SettingsArea.STUDY) }
     val activeTab = nav.tabDest().toSessionStep()
-    LaunchedEffect(state.dashboardStats?.dueVocab, state.dashboardStats?.dueGrammar) {
-        val due = (state.dashboardStats?.dueVocab ?: 0) + (state.dashboardStats?.dueGrammar ?: 0)
-        if (!launchMicro && !autoStartedDueSession && due > 0 && !state.inStudySession) {
-            autoStartedDueSession = true
-            viewModel.startStudySession()
-            nav.push(Dest.Study)
-        }
-    }
     // Identifies the "page" the shared scroll container below is showing. Keying
     // rememberScrollState() on this (rather than reusing one instance and resetting it
     // via an effect) means Compose itself gives every new page a fresh scroll position —
@@ -252,11 +265,6 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                     viewModel.startStudySession(mode)
                     nav.push(Dest.Study)
                 },
-                onRead = {
-                    settingsArea = SettingsArea.READER
-                    nav.replace(Dest.Import)
-                    viewModel.setSessionStep(SessionStep.IMPORT)
-                },
                 onOpenReader = { id ->
                     nav.replace(Dest.Reader(id))
                     viewModel.setSessionStep(SessionStep.READER)
@@ -286,11 +294,6 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                     nav.replace(Dest.Reader(id))
                     viewModel.setSessionStep(SessionStep.READER)
                     viewModel.openReaderText(id)
-                },
-                onRead = {
-                    settingsArea = SettingsArea.READER
-                    nav.replace(Dest.Import)
-                    viewModel.setSessionStep(SessionStep.IMPORT)
                 },
                 onTimeBudget = viewModel::setPreferredSessionMinutes,
                 onLoadLeeches = viewModel::loadLeeches,
@@ -350,11 +353,6 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
             else -> PracticeScreen(
                 state = state,
                 onStart = { nav.push(Dest.Study) },
-                onRead = {
-                    settingsArea = SettingsArea.READER
-                    nav.replace(Dest.Import)
-                    viewModel.setSessionStep(SessionStep.IMPORT)
-                },
                 onOpenReader = { id ->
                     nav.replace(Dest.Reader(id))
                     viewModel.setSessionStep(SessionStep.READER)

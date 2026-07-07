@@ -54,7 +54,6 @@ import androidx.compose.runtime.key
 internal fun PracticeScreen(
     state: ReviewUiState,
     onStart: (SessionMode) -> Unit,
-    onRead: () -> Unit,
     onOpenReader: (Long) -> Unit
 ) {
     // Narrowed to the two fields these panels actually use, instead of passing the
@@ -65,7 +64,7 @@ internal fun PracticeScreen(
     val dailyPlan = state.dailyPlan
     val sessionPlan = state.sessionPlan
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        DailyPlanPanel(dailyPlan, sessionPlan, onStart, onRead)
+        DailyPlanPanel(dailyPlan, sessionPlan, onStart)
         PracticeFocusPanel(dailyPlan, sessionPlan)
         UnitMasteryPanel(sessionPlan)
         ProblemCardAuditPanel(sessionPlan)
@@ -143,7 +142,7 @@ internal fun UnitMasteryPanel(sessionPlan: SessionPlan?) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun DailyPlanPanel(dailyPlan: DailyPlan?, sessionPlan: SessionPlan?, onStart: (SessionMode) -> Unit, onRead: () -> Unit) {
+internal fun DailyPlanPanel(dailyPlan: DailyPlan?, sessionPlan: SessionPlan?, onStart: (SessionMode) -> Unit) {
     val plan = dailyPlan ?: return
     val prompts = sessionPlan?.reviewQueue.orEmpty()
     val sessionSize = prompts.size
@@ -161,7 +160,7 @@ internal fun DailyPlanPanel(dailyPlan: DailyPlan?, sessionPlan: SessionPlan?, on
                         (plan.triageMode || plan.overdueBacklog) && sessionSize > 0 -> "Older material comes first today; new material is paused."
                         sessionSize > 0 -> "Your session is generated from memory, energy, and recent accuracy."
                         reader != null -> "All caught up. Read the recommended text for fresh exposure."
-                        else -> "You're caught up. Add a reader text or import notes for new material."
+                        else -> "You're caught up for now. Manage imported material from Settings."
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
@@ -189,35 +188,30 @@ internal fun DailyPlanPanel(dailyPlan: DailyPlan?, sessionPlan: SessionPlan?, on
                 color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f)
             )
         }
-        Spacer(Modifier.height(18.dp))
         // ONE route, ONE button (see docs/DESIGN_VISION.md). The learner never chooses a
         // pace/mode — the system generates the optimal session. Quick/Full/Stretch are an
         // INTERNAL decision of the pace engine, never user-facing buttons. (The mode is
         // chosen for the session when it starts; until the generative PaceController lands
         // it defaults to FULL, which BlueprintBuilder already adapts by at-risk + accuracy.)
-        Button(
-            onClick = {
+        // Adding material (import/reader text) is a Settings action, not a Study one — when
+        // there's nothing sessionable, this card just says so above with no button.
+        if (sessionSize > 0 || reader != null) {
+            Spacer(Modifier.height(18.dp))
+            Button(
                 // A due reading must enter through the study-session state machine so
                 // its checkpoint updates the reading schedule. Opening it as a manual
                 // reader leaves the assignment due forever.
-                if (sessionSize > 0 || reader != null) onStart(SessionMode.FULL) else onRead()
-            },
-            modifier = Modifier.fillMaxWidth().testTag(TestTags.DASHBOARD_STUDY_BUTTON),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.onPrimary,
-                contentColor = MaterialTheme.colorScheme.primary
-            )
-        ) {
-            Icon(if (sessionSize > 0) Icons.Filled.School else Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(
-                when {
-                    sessionSize > 0 -> "Study"
-                    reader != null -> "Read"
-                    else -> "Add material"
-                },
-                fontWeight = FontWeight.SemiBold
-            )
+                onClick = { onStart(SessionMode.FULL) },
+                modifier = Modifier.fillMaxWidth().testTag(TestTags.DASHBOARD_STUDY_BUTTON),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.onPrimary,
+                    contentColor = MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Icon(if (sessionSize > 0) Icons.Filled.School else Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (sessionSize > 0) "Study" else "Read", fontWeight = FontWeight.SemiBold)
+            }
         }
         if (backlog > sessionSize && sessionSize > 0) {
             Spacer(Modifier.height(12.dp))

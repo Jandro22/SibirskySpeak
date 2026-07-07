@@ -22,48 +22,52 @@ import androidx.compose.ui.text.font.FontWeight
 // Theme
 // ---------------------------------------------------------------------------
 
+// "Siberian winter" identity: icy taiga teal as primary, birch/sunset gold as
+// secondary accent, taiga-forest green as tertiary. Deliberately fixed (not
+// device-wallpaper-derived, see SibirskySpeakTheme below).
 internal val BrandLight = lightColorScheme(
-    primary = Color(0xFF315DA8),
+    primary = Color(0xFF1F6E82),
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFD9E2FF),
-    onPrimaryContainer = Color(0xFF001A41),
-    secondary = Color(0xFFB23A48),
+    primaryContainer = Color(0xFFC2E8F5),
+    onPrimaryContainer = Color(0xFF001F26),
+    secondary = Color(0xFF976D0C),
     onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFFFDADC),
-    onSecondaryContainer = Color(0xFF40000B),
-    tertiary = Color(0xFF7D5260),
-    tertiaryContainer = Color(0xFFFFD9E2),
-    onTertiaryContainer = Color(0xFF31101D),
-    background = Color(0xFFF6F8F6),
-    onBackground = Color(0xFF162022),
+    secondaryContainer = Color(0xFFFFE4B0),
+    onSecondaryContainer = Color(0xFF3A2C00),
+    tertiary = Color(0xFF4B6C4F),
+    tertiaryContainer = Color(0xFFCDEBCE),
+    onTertiaryContainer = Color(0xFF0A2010),
+    background = Color(0xFFF5F9FA),
+    onBackground = Color(0xFF171D1E),
     surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF162022),
-    surfaceVariant = Color(0xFFE4ECEA),
-    onSurfaceVariant = Color(0xFF536265),
-    outline = Color(0xFFB8C7C5),
+    onSurface = Color(0xFF171D1E),
+    surfaceVariant = Color(0xFFDCE4E5),
+    onSurfaceVariant = Color(0xFF40484A),
+    outline = Color(0xFF707879),
     error = Color(0xFFBA1A1A),
     onError = Color(0xFFFFFFFF)
 )
 
 internal val BrandDark = darkColorScheme(
-    primary = Color(0xFFAFC6FF),
-    onPrimary = Color(0xFF002E69),
-    primaryContainer = Color(0xFF164584),
-    onPrimaryContainer = Color(0xFFD9E2FF),
-    secondary = Color(0xFFFFB2B9),
-    onSecondary = Color(0xFF680019),
-    secondaryContainer = Color(0xFF8F2332),
-    onSecondaryContainer = Color(0xFFFFDADC),
-    tertiary = Color(0xFFE8B4CB),
-    tertiaryContainer = Color(0xFF633B49),
-    onTertiaryContainer = Color(0xFFFFD9E2),
-    background = Color(0xFF0E1417),
-    onBackground = Color(0xFFE8F0F2),
-    surface = Color(0xFF121A1E),
-    onSurface = Color(0xFFE8F0F2),
-    surfaceVariant = Color(0xFF253238),
-    onSurfaceVariant = Color(0xFFB6C8CC),
-    outline = Color(0xFF405259),
+    primary = Color(0xFF8ED2E8),
+    onPrimary = Color(0xFF00363F),
+    primaryContainer = Color(0xFF004E5C),
+    onPrimaryContainer = Color(0xFFC2E8F5),
+    secondary = Color(0xFFF0D47E),
+    onSecondary = Color(0xFF3D2E00),
+    secondaryContainer = Color(0xFF5C4300),
+    onSecondaryContainer = Color(0xFFFFE4B0),
+    tertiary = Color(0xFFB1CFB1),
+    onTertiary = Color(0xFF1D361F),
+    tertiaryContainer = Color(0xFF344D36),
+    onTertiaryContainer = Color(0xFFCDEBCE),
+    background = Color(0xFF0D1416),
+    onBackground = Color(0xFFDEE4E5),
+    surface = Color(0xFF12191B),
+    onSurface = Color(0xFFDEE4E5),
+    surfaceVariant = Color(0xFF40484A),
+    onSurfaceVariant = Color(0xFFC0C8CA),
+    outline = Color(0xFF8A9294),
     error = Color(0xFFFFB4AB),
     onError = Color(0xFF690005)
 )
@@ -81,7 +85,7 @@ internal val RussianDisplay = TextStyle(fontSize = 30.sp, lineHeight = 40.sp, fo
 @Composable
 internal fun SibirskySpeakTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
-    // Keep the deliberate blue/red/berry identity. Device wallpaper-derived
+    // Keep the deliberate icy-teal/gold/taiga-green identity. Device wallpaper-derived
     // dynamic palettes can collapse the learning UI into nearly monochrome tones.
     val colors = if (dark) BrandDark else BrandLight
     MaterialTheme(colorScheme = colors, shapes = AppShapes, content = content)
