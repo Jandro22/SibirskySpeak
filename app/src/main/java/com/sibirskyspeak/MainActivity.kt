@@ -242,7 +242,7 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                 onSubmitCorrection = viewModel::submitCorrection,
                 onSpeak = { p ->
                     viewModel.recordAudioPlayed(p)
-                    tts.speak(p.speechText())
+                    tts.speak(p.speechText(), p.audioRate, p.audioPitch, p.audioVoiceVariant)
                 },
                 onExit = {
                     viewModel.recordStudyScreenExit()
@@ -252,17 +252,17 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                 onKnewIt = viewModel::overrideKnewIt,
                 onSuspend = viewModel::suspendCurrentCard,
                 onKnowWord = viewModel::markCurrentWordKnown,
-                onStartSession = { viewModel.startStudySession() },
+                onStartSession = { viewModel.startRecommendedSession() },
                 onSaveEdit = viewModel::editCurrentCard,
                 onReadNext = {
-                    viewModel.startStudySession()
+                    viewModel.startRecommendedSession()
                     nav.push(Dest.Study)
                 }
             )
             SessionStep.REVIEWS -> PracticeScreen(
                 state = state,
-                onStart = { mode ->
-                    viewModel.startStudySession(mode)
+                onStart = {
+                    viewModel.startRecommendedSession()
                     nav.push(Dest.Study)
                 },
                 onOpenReader = { id ->
@@ -290,21 +290,19 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
             SessionStep.DASHBOARD -> DashboardPanel(
                 state = state,
                 onStart = { nav.push(Dest.Study) },
-                onOpenReader = { id ->
-                    nav.replace(Dest.Reader(id))
-                    viewModel.setSessionStep(SessionStep.READER)
-                    viewModel.openReaderText(id)
-                },
-                onTimeBudget = viewModel::setPreferredSessionMinutes,
                 onLoadLeeches = viewModel::loadLeeches,
                 onReleaseLeech = viewModel::releaseLeech,
                 onSaveLeechEdit = viewModel::editLeech,
-                onApplyDoctrineNudge = viewModel::applyDoctrineNudge,
-                onDismissDoctrineNudge = viewModel::dismissDoctrineNudge,
                 onStartExitTicket = viewModel::startExitTicket,
                 onDismissExitTicketOffer = viewModel::dismissExitTicketOffer,
                 onSubmitExitTicketAnswer = viewModel::submitExitTicketAnswer,
-                onCloseExitTicket = viewModel::closeExitTicket
+                onCloseExitTicket = viewModel::closeExitTicket,
+                onSpeakRussian = tts::speak,
+                onGoToBackupSettings = {
+                    settingsArea = SettingsArea.DATA
+                    nav.replace(Dest.Import)
+                    viewModel.setSessionStep(SessionStep.IMPORT)
+                }
             )
             SessionStep.LAB -> LabPanel(
                 state = state,
@@ -318,6 +316,7 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                 selectedArea = settingsArea,
                 onSelectedArea = { settingsArea = it },
                 onImportText = viewModel::setImportText,
+                onPreviewImport = viewModel::previewImport,
                 onImport = viewModel::importJsonLines,
                 onExport = viewModel::exportJsonLines,
                 onFullBackup = viewModel::exportFullState,
@@ -329,7 +328,7 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                 onSessionSize = viewModel::setSessionSize,
                 onNewCardsPerDay = viewModel::setNewCardsPerDay,
                 onRetention = viewModel::setRetention,
-                onDoctrine = viewModel::setDoctrine,
+                onAdaptiveEnabled = viewModel::setAdaptiveEnabled,
                 onPlaceAfterLevel = viewModel::placeAfterLevel,
                 onStartPlacementTest = viewModel::startPlacementTest,
                 onAnswerPlacementQuestion = viewModel::answerPlacementQuestion,
@@ -453,23 +452,53 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                         }
                     }
                 }
-            } else {
-                val mainScrollState = key(pageKey) { rememberScrollState() }
+            } else if (studyActive) {
+                // StudySessionScreen pins its rating/"Got it" action in a fixed
+                // footer below its own scrollable card content (see StudyScreens.kt)
+                // so the learner never has to scroll to answer — that only works
+                // with a bounded-height parent, same reasoning as the reader branch
+                // above, instead of the shared unbounded verticalScroll below.
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(MaterialTheme.colorScheme.background)
-                        .verticalScroll(mainScrollState)
                 ) {
                     achievementOverlay()
+                    AnimatedMainTab(modifier = Modifier.weight(1f))
+                    state.statusMessage?.let {
+                        Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            StatusBanner(it, onDismiss = viewModel::dismissStatusMessage)
+                        }
+                    }
+                }
+            } else {
+                val mainScrollState = key(pageKey) { rememberScrollState() }
+                // "There's more to study every time I reopen the app" read as the daily
+                // plan silently changing behind the learner's back. The plan already
+                // only ever recomputes on cold start / after a review — pull-to-refresh
+                // doesn't change that, it just gives an explicit, visible way to ask for
+                // the recompute instead of it only ever happening implicitly.
+                androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+                    isRefreshing = state.isRefreshing,
+                    onRefresh = viewModel::refreshNow,
+                    modifier = Modifier.fillMaxSize()
+                ) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background)
+                            .verticalScroll(mainScrollState)
                     ) {
-                        AnimatedMainTab()
-                        state.statusMessage?.let { StatusBanner(it, onDismiss = viewModel::dismissStatusMessage) }
-                        // Leave room so the story doesn't hide behind the pinned word card.
-                        Spacer(Modifier.height(if (showWordCard) 300.dp else 8.dp))
+                        achievementOverlay()
+                        Column(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            AnimatedMainTab()
+                            state.statusMessage?.let { StatusBanner(it, onDismiss = viewModel::dismissStatusMessage) }
+                            // Leave room so the story doesn't hide behind the pinned word card.
+                            Spacer(Modifier.height(if (showWordCard) 300.dp else 8.dp))
+                        }
                     }
                 }
             }

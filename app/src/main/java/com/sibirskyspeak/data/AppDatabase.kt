@@ -10,13 +10,15 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.sibirskyspeak.scheduler.FsrsScheduler
 
 @Database(
-    entities = [Note::class, Card::class, ReviewLog::class, ConfusablePair::class, ReaderText::class, ReadingSchedule::class, ReaderEncounter::class, ReadingActivity::class, TelemetryEvent::class, MinedExample::class, ItemDifficulty::class, ConceptMastery::class, OptimizerParameter::class, SkillRating::class, CapacityState::class, WillingnessState::class, RivalState::class, GhostSnapshot::class, MatchHistory::class, PaceLog::class, BanditPending::class, BanditArmState::class, WeeklyReport::class, ConfusionEvent::class, CheckpointResult::class, CurriculumState::class, CurriculumMigrationReport::class, ExitTicketResult::class],
-    version = 28,
+    entities = [Note::class, NoteEvidence::class, NoteForm::class, Card::class, ReviewLog::class, ConfusablePair::class, ReaderText::class, ReadingSchedule::class, ReaderEncounter::class, ReadingActivity::class, TelemetryEvent::class, MinedExample::class, ItemDifficulty::class, ConceptMastery::class, OptimizerParameter::class, SkillRating::class, CapacityState::class, WillingnessState::class, RivalState::class, GhostSnapshot::class, MatchHistory::class, PaceLog::class, BanditPending::class, BanditArmState::class, WeeklyReport::class, ConfusionEvent::class, CheckpointResult::class, CurriculumState::class, CurriculumMigrationReport::class, ExitTicketResult::class],
+    version = 30,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun noteDao(): NoteDao
+    abstract fun noteEvidenceDao(): NoteEvidenceDao
+    abstract fun noteFormDao(): NoteFormDao
     abstract fun cardDao(): CardDao
     abstract fun reviewLogDao(): ReviewLogDao
     abstract fun confusablePairDao(): ConfusablePairDao
@@ -42,7 +44,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "sibirsky_speak.db"
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30)
                     // Only versions before the first real migration (7) are allowed to
                     // wipe destructively — those predate the JSON backup/restore safety
                     // net, so there's nothing worth preserving. Any version from 7 on
@@ -492,6 +494,23 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE TABLE IF NOT EXISTS curriculum_state (id INTEGER NOT NULL PRIMARY KEY, version TEXT NOT NULL, checksum TEXT NOT NULL, manifestJson TEXT NOT NULL, installedAt INTEGER NOT NULL)")
                 db.execSQL("CREATE TABLE IF NOT EXISTS curriculum_migration_reports (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, fromVersion TEXT, toVersion TEXT NOT NULL, appeared INTEGER NOT NULL, moved INTEGER NOT NULL, retired INTEGER NOT NULL, detailsJson TEXT NOT NULL, createdAt INTEGER NOT NULL, shown INTEGER NOT NULL)")
                 db.execSQL("CREATE TABLE IF NOT EXISTS exit_ticket_results (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, unit INTEGER NOT NULL, recognition INTEGER NOT NULL, production INTEGER NOT NULL, listening INTEGER NOT NULL, reading INTEGER NOT NULL, completedAt INTEGER NOT NULL)")
+            }
+        }
+
+        val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE exit_ticket_results ADD COLUMN band TEXT NOT NULL DEFAULT 'A1'")
+            }
+        }
+
+        val MIGRATION_29_30 = object : Migration(29, 30) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS note_evidence (noteId INTEGER NOT NULL PRIMARY KEY, directRetrievals INTEGER NOT NULL, passiveExposures INTEGER NOT NULL, completedReadings INTEGER NOT NULL, lookups INTEGER NOT NULL, placementPriors INTEGER NOT NULL, lastDirectAt INTEGER, lastPassiveAt INTEGER, lastLookupAt INTEGER)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS note_forms (surface TEXT NOT NULL, noteId INTEGER NOT NULL, PRIMARY KEY(surface))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_note_forms_noteId ON note_forms(noteId)")
+                // The old total mixed several sources. Preserve it conservatively as
+                // legacy direct evidence; all new events are typed from this version on.
+                db.execSQL("INSERT INTO note_evidence(noteId,directRetrievals,passiveExposures,completedReadings,lookups,placementPriors,lastDirectAt,lastPassiveAt,lastLookupAt) SELECT id,encounterCount,0,0,0,0,NULL,NULL,NULL FROM notes WHERE encounterCount > 0")
             }
         }
     }

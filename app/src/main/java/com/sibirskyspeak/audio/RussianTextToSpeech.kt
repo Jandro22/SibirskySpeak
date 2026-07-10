@@ -10,7 +10,8 @@ import java.util.Locale
 class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
     private var engine: TextToSpeech? = TextToSpeech(context.applicationContext, this)
     private var ready = false
-    private var pendingSpeech: String? = null
+    private data class PendingSpeech(val text: String, val rate: Float, val pitch: Float, val voiceVariant: Int)
+    private var pendingSpeech: PendingSpeech? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var sequenceOnSentence: ((Int) -> Unit)? = null
     private var sequenceOnDone: (() -> Unit)? = null
@@ -22,23 +23,28 @@ class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
             engine?.language = Locale("ru", "RU")
             pendingSpeech?.let { queued ->
                 pendingSpeech = null
-                speak(queued)
+                speak(queued.text, queued.rate, queued.pitch, queued.voiceVariant)
             }
         } else {
             pendingSpeech = null
         }
     }
 
-    fun speak(text: String) {
+    fun speak(text: String, rate: Float = 1.0f, pitch: Float = 1.0f, voiceVariant: Int = 0) {
         val cleaned = text.cleanForSpeech()
         if (cleaned.isBlank()) return
         // A normal utterance interrupts reader sequence mode. Resolve its callbacks
         // immediately so UI highlighting cannot remain stuck on an old sentence.
         if (sequenceOnDone != null) finishSequence()
         if (!ready) {
-            pendingSpeech = cleaned
+            pendingSpeech = PendingSpeech(cleaned, rate, pitch, voiceVariant)
             return
         }
+        engine?.setSpeechRate(rate.coerceIn(0.75f, 1.25f))
+        engine?.setPitch(pitch.coerceIn(0.85f, 1.15f))
+        engine?.voices?.filter { it.locale.language == "ru" }?.sortedBy { it.name }
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { voices -> engine?.voice = voices[Math.floorMod(voiceVariant, voices.size)] }
         val chunks = cleaned.chunkForSpeech()
         if (chunks.isEmpty()) return
         chunks.forEachIndexed { index, chunk ->

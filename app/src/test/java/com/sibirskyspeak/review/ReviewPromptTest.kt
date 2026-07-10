@@ -20,6 +20,21 @@ class ReviewPromptTest {
     }
 
     @Test
+    fun beginnerCorpusExampleWaitsUntilTransferStage() {
+        val note = Note(
+            id = 7, russian = "окно", lemma = "окно", translation = "window", partOfSpeech = "noun", cefrLevel = "A1",
+            exampleSentence = "Это окно.", exampleTranslation = "This is a window.",
+            exampleSentence2 = "Вот окно.", exampleTranslation2 = "Here is a window.",
+            exampleSentence3 = "Человек, стоящий перед окном, ждёт.", exampleTranslation3 = "The person standing by the window is waiting."
+        )
+        val acquisition = buildPrompt(Card(id = 7, noteId = 7, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.REVIEW, reps = 2), note, emptyMap())
+        val transfer = buildPrompt(Card(id = 7, noteId = 7, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.REVIEW, reps = 5), note, emptyMap())
+
+        assertFalse(acquisition.prompt.contains("стоящий"))
+        assertTrue(transfer.prompt.contains("стоящий"))
+    }
+
+    @Test
     fun tidyPunctuationSpacingFixesTokenJoinedSentences() {
         assertEquals("Давай поду́маем, что мо́жет произойти́.",
             "Давай поду́маем , что мо́жет произойти́ .".tidyPunctuationSpacing())

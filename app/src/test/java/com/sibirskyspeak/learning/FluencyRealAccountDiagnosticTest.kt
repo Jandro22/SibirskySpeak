@@ -41,7 +41,6 @@ class FluencyRealAccountDiagnosticTest {
             initialActiveCards = realCardsFromDb,
             totalKnownStart = 21,
             evidenceDays = 5,
-            doctrine = Doctrine.BALANCED,
             recentAccuracy = 0.85,
             startTimeMillis = 1783353794014L
         )

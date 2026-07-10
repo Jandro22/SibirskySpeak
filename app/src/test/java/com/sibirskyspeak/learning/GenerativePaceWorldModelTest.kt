@@ -73,7 +73,17 @@ class GenerativePaceWorldModelTest {
         assertEquals(MpcAction.CARD, SessionMpcController.decide(true, firstMiss, MpcInputs(fatigue = 0.4)))
 
         val tired = LiveSessionState(shown = 6, recent = listOf(1_000L to true, 2_000L to false, 2_200L to false, 2_400L to false))
-        assertEquals(MpcAction.STOP, SessionMpcController.decide(true, tired, MpcInputs(fatigue = 0.9)))
+        // First sign of sustained struggle this sitting: try a confidence-rebuild
+        // window instead of ejecting outright.
+        assertEquals(MpcAction.RECOVER, SessionMpcController.decide(true, tired, MpcInputs(fatigue = 0.9)))
+        // Recovery already tried and exhausted (still struggling after the window) —
+        // only now is this a real stop.
+        val recoveryExhausted = tired.copy(recoveryAttempted = true)
+        assertEquals(MpcAction.STOP, SessionMpcController.decide(true, recoveryExhausted, MpcInputs(fatigue = 0.9)))
+        // Still inside an active recovery window: let it play out rather than
+        // re-triggering another RECOVER every card.
+        val insideRecoveryWindow = tired.copy(recoveryWindowRemaining = 2)
+        assertEquals(MpcAction.CARD, SessionMpcController.decide(true, insideRecoveryWindow, MpcInputs(fatigue = 0.9)))
 
         val flow = LiveSessionState(shown = 6, recent = listOf(2_000L to true, 1_900L to true, 1_800L to true, 1_700L to true))
         assertEquals(MpcAction.STRETCH, SessionMpcController.decide(true, flow, MpcInputs(fatigue = 0.1, debtRatio = 0.1, pReturn = 0.9)))
@@ -92,6 +102,36 @@ class GenerativePaceWorldModelTest {
                 sparseEvidence,
                 MpcInputs(fatigue = 0.289, debtRatio = 0.688, debtLimit = 0.35, pReturn = 0.865)
             )
+        )
+    }
+
+    @Test fun `live MPC grants one grace attempt to the card that just failed before stopping`() {
+        val tired = LiveSessionState(shown = 6, recent = listOf(1_000L to true, 2_000L to false, 2_200L to false, 2_400L to false))
+        // Same inputs as the plain-STOP case, except this rating's card hasn't had its
+        // grace attempt yet — the controller should offer it one more try instead of
+        // abandoning it mid-relearning.
+        assertEquals(
+            MpcAction.GRACE,
+            SessionMpcController.decide(true, tired, MpcInputs(fatigue = 0.9, justFailedUngracedCardId = 42L))
+        )
+        // No card to grace (e.g. the rating that just landed wasn't a miss, or this
+        // card already had its grace rep) and recovery hasn't been tried yet falls
+        // back to a recovery window rather than an outright stop.
+        assertEquals(
+            MpcAction.RECOVER,
+            SessionMpcController.decide(true, tired, MpcInputs(fatigue = 0.9, justFailedUngracedCardId = null))
+        )
+        // Once recovery has already been tried and exhausted, the same inputs are a
+        // real stop.
+        assertEquals(
+            MpcAction.STOP,
+            SessionMpcController.decide(true, tired.copy(recoveryAttempted = true), MpcInputs(fatigue = 0.9, justFailedUngracedCardId = null))
+        )
+        // No card in the queue at all always stops outright, even with a grace
+        // candidate pending — there's nothing left to show it.
+        assertEquals(
+            MpcAction.STOP,
+            SessionMpcController.decide(false, tired, MpcInputs(fatigue = 0.9, justFailedUngracedCardId = 42L))
         )
     }
 
@@ -272,8 +312,7 @@ class GenerativePaceWorldModelTest {
 
     @Test fun `pace controller protects tired learner and arms stretch on strong day`() {
         val tired = PaceController.generatePace(
-            PaceInputs(capacity = CapacityBelief(6.0, 4.0), recentAccuracy = 0.65, fatigue = 0.8),
-            Doctrine.BALANCED
+            PaceInputs(capacity = CapacityBelief(6.0, 4.0), recentAccuracy = 0.65, fatigue = 0.8)
         )
         assertEquals(0, tired.newItemBudget)
         assertEquals(StopPolicy.EARLY_STOP, tired.stretchStopPolicy)
@@ -283,8 +322,7 @@ class GenerativePaceWorldModelTest {
         assertTrue(tired.pReturn >= 0.80)
 
         val strong = PaceController.generatePace(
-            PaceInputs(capacity = CapacityBelief(28.0, 2.0), recentAccuracy = 0.95, fatigue = 0.1, productionSigma = 2.0),
-            Doctrine.AMBITIOUS
+            PaceInputs(capacity = CapacityBelief(28.0, 2.0), recentAccuracy = 0.95, fatigue = 0.1, productionSigma = 2.0)
         )
         assertTrue(strong.newItemBudget > tired.newItemBudget)
         assertTrue(strong.productionRatio > tired.productionRatio)
@@ -303,8 +341,7 @@ class GenerativePaceWorldModelTest {
             readingInserts = emptyList(),
             stretchStopPolicy = StopPolicy.STRETCH_ARMED,
             debtRatio = 0.1,
-            pReturn = 0.9,
-            doctrine = Doctrine.BALANCED
+            pReturn = 0.9
         )
 
         val cold = PaceController.adoptForSessionSettings(
@@ -312,21 +349,40 @@ class GenerativePaceWorldModelTest {
             configuredSessionSize = 20,
             configuredNewCardsPerDay = 10,
             configuredRetention = 0.90,
-            hasAdaptiveSignal = false
+            evidence = AdaptiveEvidence()
         )
         assertTrue("cold start should not collapse to a one-card session", cold.capacity > 1)
         assertTrue("cold start should still respond to generated pace", cold.capacity < 20)
-        assertEquals("stretch needs learner evidence", SessionMode.FULL, cold.mode)
 
         val learned = PaceController.adoptForSessionSettings(
             pace = pace,
             configuredSessionSize = 20,
             configuredNewCardsPerDay = 10,
             configuredRetention = 0.90,
-            hasAdaptiveSignal = true
+            evidence = AdaptiveEvidence(completedSessions = 60, calibratedObservations = 240, capacitySigma = 2.0)
         )
-        assertTrue("personal pace should steer, not erase, configured capacity", learned.capacity in 2 until cold.capacity)
-        assertEquals(SessionMode.STRETCH, learned.mode)
+        assertEquals("personal evidence should execute the learned capacity", 1, learned.capacity)
+    }
+
+    @Test fun `adaptive trust grows gradually and drift caps it`() {
+        val cold = AdaptiveTrustPolicy.trust(AdaptiveEvidence())
+        val early = AdaptiveTrustPolicy.trust(AdaptiveEvidence(completedSessions = 2, calibratedObservations = 8))
+        val mature = AdaptiveTrustPolicy.trust(AdaptiveEvidence(completedSessions = 60, calibratedObservations = 300, capacitySigma = 2.0))
+        val drifted = AdaptiveTrustPolicy.trust(AdaptiveEvidence(completedSessions = 60, calibratedObservations = 300, capacitySigma = 2.0, calibrationDrifted = true))
+        assertEquals(0.35, cold, 1e-9)
+        assertTrue(early in cold..0.60)
+        assertTrue(mature > 0.90)
+        assertTrue(drifted <= 0.50)
+    }
+
+    @Test fun `adaptive pause executes selected settings exactly`() {
+        val pace = Pace(5.0, 1, 1, 0.85, 0.8, 0.2, emptyList(), StopPolicy.STRETCH_ARMED, 0.1, 0.9)
+        val plan = PaceController.adoptForSessionSettings(
+            pace, 20, 10, 0.9, AdaptiveEvidence(completedSessions = 50), adaptiveEnabled = false
+        )
+        assertEquals(20, plan.capacity)
+        assertEquals(10, plan.newBudget)
+        assertEquals(0.0, plan.adaptiveTrust, 0.0)
     }
 
     @Test fun `rival rubber bands and weakness boost raises weakest skill odds`() {

@@ -50,6 +50,16 @@ android {
         getByName("debug") {
             signingConfig = signingConfigs.getByName("debug")
         }
+        // Instrumentation runners uninstall their target package after a connected
+        // test run. Never point them at the learner's real debug install: QA uses an
+        // isolated application id and therefore an isolated database/files directory.
+        create("qa") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".qa"
+            versionNameSuffix = "-qa"
+            matchingFallbacks += listOf("debug")
+            signingConfig = signingConfigs.getByName("debug")
+        }
         getByName("release") {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -60,6 +70,8 @@ android {
             signingConfig = signingConfigs.getByName(if (releaseKeystore != null) "release" else "debug")
         }
     }
+
+    testBuildType = "qa"
 
     buildFeatures {
         compose = true

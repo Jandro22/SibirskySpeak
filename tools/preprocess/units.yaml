@@ -2,7 +2,25 @@
   "schemaVersion": 1,
   "units": [
     {
-      "id": "unit_001",
+      "id": "a1_unit_000",
+      "unit": 0,
+      "band": "A1",
+      "canDo": "exchange basic personal information",
+      "concepts": [],
+      "capstone": "a1_0",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "exchange basic personal information",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "a1_unit_000_dialogue",
+      "readerRef": "a1_unit_000_reader"
+    },
+    {
+      "id": "a1_unit_001",
       "unit": 1,
       "band": "A1",
       "canDo": "introduce yourself and identify people and things",
@@ -18,11 +36,11 @@
         "function": "introduce yourself and identify people and things",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_001_dialogue",
-      "readerRef": "unit_001_reader"
+      "dialogueRef": "a1_unit_001_dialogue",
+      "readerRef": "a1_unit_001_reader"
     },
     {
-      "id": "unit_002",
+      "id": "a1_unit_002",
       "unit": 2,
       "band": "A1",
       "canDo": "describe people and objects",
@@ -38,11 +56,11 @@
         "function": "describe people and objects",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_002_dialogue",
-      "readerRef": "unit_002_reader"
+      "dialogueRef": "a1_unit_002_dialogue",
+      "readerRef": "a1_unit_002_reader"
     },
     {
-      "id": "unit_003",
+      "id": "a1_unit_003",
       "unit": 3,
       "band": "A1",
       "canDo": "talk about more than one object",
@@ -58,11 +76,11 @@
         "function": "talk about more than one object",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_003_dialogue",
-      "readerRef": "unit_003_reader"
+      "dialogueRef": "a1_unit_003_dialogue",
+      "readerRef": "a1_unit_003_reader"
     },
     {
-      "id": "unit_004",
+      "id": "a1_unit_004",
       "unit": 4,
       "band": "A1",
       "canDo": "describe a present routine",
@@ -78,11 +96,11 @@
         "function": "describe a present routine",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_004_dialogue",
-      "readerRef": "unit_004_reader"
+      "dialogueRef": "a1_unit_004_dialogue",
+      "readerRef": "a1_unit_004_reader"
     },
     {
-      "id": "unit_005",
+      "id": "a1_unit_005",
       "unit": 5,
       "band": "A1",
       "canDo": "say what you like, see, eat, or buy",
@@ -99,11 +117,11 @@
         "function": "say what you like, see, eat, or buy",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_005_dialogue",
-      "readerRef": "unit_005_reader"
+      "dialogueRef": "a1_unit_005_dialogue",
+      "readerRef": "a1_unit_005_reader"
     },
     {
-      "id": "unit_006",
+      "id": "a1_unit_006",
       "unit": 6,
       "band": "A1",
       "canDo": "say what you have and do not have",
@@ -120,11 +138,11 @@
         "function": "say what you have and do not have",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_006_dialogue",
-      "readerRef": "unit_006_reader"
+      "dialogueRef": "a1_unit_006_dialogue",
+      "readerRef": "a1_unit_006_reader"
     },
     {
-      "id": "unit_007",
+      "id": "a1_unit_007",
       "unit": 7,
       "band": "A1",
       "canDo": "say where people and things are",
@@ -140,11 +158,11 @@
         "function": "say where people and things are",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_007_dialogue",
-      "readerRef": "unit_007_reader"
+      "dialogueRef": "a1_unit_007_dialogue",
+      "readerRef": "a1_unit_007_reader"
     },
     {
-      "id": "unit_008",
+      "id": "a1_unit_008",
       "unit": 8,
       "band": "A1",
       "canDo": "say who receives or experiences something",
@@ -158,11 +176,11 @@
         "function": "say who receives or experiences something",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_008_dialogue",
-      "readerRef": "unit_008_reader"
+      "dialogueRef": "a1_unit_008_dialogue",
+      "readerRef": "a1_unit_008_reader"
     },
     {
-      "id": "unit_009",
+      "id": "a1_unit_009",
       "unit": 9,
       "band": "A1",
       "canDo": "say who you are with",
@@ -178,11 +196,11 @@
         "function": "say who you are with",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_009_dialogue",
-      "readerRef": "unit_009_reader"
+      "dialogueRef": "a1_unit_009_dialogue",
+      "readerRef": "a1_unit_009_reader"
     },
     {
-      "id": "unit_010",
+      "id": "a1_unit_010",
       "unit": 10,
       "band": "A1",
       "canDo": "describe a past event",
@@ -198,11 +216,11 @@
         "function": "describe a past event",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_010_dialogue",
-      "readerRef": "unit_010_reader"
+      "dialogueRef": "a1_unit_010_dialogue",
+      "readerRef": "a1_unit_010_reader"
     },
     {
-      "id": "unit_011",
+      "id": "a1_unit_011",
       "unit": 11,
       "band": "A1",
       "canDo": "contrast an ongoing and completed action",
@@ -219,19 +237,16 @@
         "function": "contrast an ongoing and completed action",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_011_dialogue",
-      "readerRef": "unit_011_reader"
+      "dialogueRef": "a1_unit_011_dialogue",
+      "readerRef": "a1_unit_011_reader"
     },
     {
-      "id": "unit_012",
+      "id": "a1_unit_012",
       "unit": 12,
       "band": "A1",
       "canDo": "describe a future plan",
       "concepts": [
-        "ASPECT",
-        "FUTURE",
-        "GEN",
-        "TIME_TELLING"
+        "ASPECT"
       ],
       "capstone": "a1_2",
       "exitTicket": {
@@ -242,16 +257,15 @@
         "function": "describe a future plan",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_012_dialogue",
-      "readerRef": "unit_012_reader"
+      "dialogueRef": "a1_unit_012_dialogue",
+      "readerRef": "a1_unit_012_reader"
     },
     {
-      "id": "unit_013",
+      "id": "a1_unit_013",
       "unit": 13,
       "band": "A1",
       "canDo": "ask someone to do something politely",
       "concepts": [
-        "IMPERATIVE",
         "INS_CHUNK_WITH"
       ],
       "capstone": "a1_2",
@@ -263,19 +277,15 @@
         "function": "ask someone to do something politely",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_013_dialogue",
-      "readerRef": "unit_013_reader"
+      "dialogueRef": "a1_unit_013_dialogue",
+      "readerRef": "a1_unit_013_reader"
     },
     {
-      "id": "unit_014",
+      "id": "a1_unit_014",
       "unit": 14,
       "band": "A1",
       "canDo": "describe reflexive and reciprocal activities",
-      "concepts": [
-        "ORDINALS_DATES",
-        "PREP",
-        "REFLEXIVE"
-      ],
+      "concepts": [],
       "capstone": "a1_2",
       "exitTicket": {
         "recognition": 1,
@@ -285,18 +295,15 @@
         "function": "describe reflexive and reciprocal activities",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_014_dialogue",
-      "readerRef": "unit_014_reader"
+      "dialogueRef": "a1_unit_014_dialogue",
+      "readerRef": "a1_unit_014_reader"
     },
     {
-      "id": "unit_015",
+      "id": "a1_unit_015",
       "unit": 15,
       "band": "A1",
       "canDo": "compare two things",
-      "concepts": [
-        "ASPECT_PAST",
-        "COMPARATIVE"
-      ],
+      "concepts": [],
       "capstone": "a1_2",
       "exitTicket": {
         "recognition": 1,
@@ -306,18 +313,15 @@
         "function": "compare two things",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_015_dialogue",
-      "readerRef": "unit_015_reader"
+      "dialogueRef": "a1_unit_015_dialogue",
+      "readerRef": "a1_unit_015_reader"
     },
     {
-      "id": "unit_016",
+      "id": "a1_unit_016",
       "unit": 16,
       "band": "A1",
       "canDo": "say what someone can, must, or needs to do",
-      "concepts": [
-        "DAT",
-        "MODAL"
-      ],
+      "concepts": [],
       "capstone": "a1_2",
       "exitTicket": {
         "recognition": 1,
@@ -327,18 +331,15 @@
         "function": "say what someone can, must, or needs to do",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_016_dialogue",
-      "readerRef": "unit_016_reader"
+      "dialogueRef": "a1_unit_016_dialogue",
+      "readerRef": "a1_unit_016_reader"
     },
     {
-      "id": "unit_017",
+      "id": "a1_unit_017",
       "unit": 17,
       "band": "A1",
       "canDo": "say where and how you are going",
-      "concepts": [
-        "ASPECT_FUTURE",
-        "MOTION"
-      ],
+      "concepts": [],
       "capstone": "a1_2",
       "exitTicket": {
         "recognition": 1,
@@ -348,18 +349,15 @@
         "function": "say where and how you are going",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_017_dialogue",
-      "readerRef": "unit_017_reader"
+      "dialogueRef": "a1_unit_017_dialogue",
+      "readerRef": "a1_unit_017_reader"
     },
     {
-      "id": "unit_018",
+      "id": "a1_unit_018",
       "unit": 18,
       "band": "A1",
       "canDo": "arrange a practical meeting or journey",
-      "concepts": [
-        "INS",
-        "MOTION_UNIDIRECTIONAL"
-      ],
+      "concepts": [],
       "capstone": "a1_2",
       "exitTicket": {
         "recognition": 1,
@@ -369,17 +367,15 @@
         "function": "arrange a practical meeting or journey",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_018_dialogue",
-      "readerRef": "unit_018_reader"
+      "dialogueRef": "a1_unit_018_dialogue",
+      "readerRef": "a1_unit_018_reader"
     },
     {
-      "id": "unit_019",
+      "id": "a1_unit_019",
       "unit": 19,
       "band": "A1",
       "canDo": "refer to someone's own possession",
-      "concepts": [
-        "POSSESSIVE_SVOJ"
-      ],
+      "concepts": [],
       "capstone": "a1_2",
       "exitTicket": {
         "recognition": 1,
@@ -389,55 +385,259 @@
         "function": "refer to someone's own possession",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_019_dialogue",
-      "readerRef": "unit_019_reader"
+      "dialogueRef": "a1_unit_019_dialogue",
+      "readerRef": "a1_unit_019_reader"
     },
     {
-      "id": "unit_020",
+      "id": "a1_unit_020",
       "unit": 20,
       "band": "A1",
-      "canDo": "understand and use unit 20 A1 vocabulary in connected language",
-      "concepts": [
-        "TIME_WEEK_ACC"
-      ],
+      "canDo": "exchange basic personal information",
+      "concepts": [],
       "capstone": "a1_2",
       "exitTicket": {
         "recognition": 1,
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 20 A1 vocabulary in connected language",
+        "function": "exchange basic personal information",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_020_dialogue",
-      "readerRef": "unit_020_reader"
+      "dialogueRef": "a1_unit_020_dialogue",
+      "readerRef": "a1_unit_020_reader"
     },
     {
-      "id": "unit_021",
+      "id": "a1_unit_021",
       "unit": 21,
       "band": "A1",
-      "canDo": "understand and use unit 21 A1 vocabulary in connected language",
-      "concepts": [
-        "MOTION_PREFIX",
-        "NUMERAL_GOV_234"
-      ],
+      "canDo": "describe familiar people and objects",
+      "concepts": [],
       "capstone": "a1_3",
       "exitTicket": {
         "recognition": 1,
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 21 A1 vocabulary in connected language",
+        "function": "describe familiar people and objects",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_021_dialogue",
-      "readerRef": "unit_021_reader"
+      "dialogueRef": "a1_unit_021_dialogue",
+      "readerRef": "a1_unit_021_reader"
     },
     {
-      "id": "unit_022",
+      "id": "a2_unit_012",
+      "unit": 12,
+      "band": "A2",
+      "canDo": "describe routines and recent events",
+      "concepts": [
+        "FUTURE",
+        "GEN",
+        "TIME_TELLING"
+      ],
+      "capstone": "a2_2",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "describe routines and recent events",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "a2_unit_012_dialogue",
+      "readerRef": "a2_unit_012_reader"
+    },
+    {
+      "id": "a2_unit_013",
+      "unit": 13,
+      "band": "A2",
+      "canDo": "make and respond to practical plans",
+      "concepts": [
+        "IMPERATIVE"
+      ],
+      "capstone": "a2_2",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "make and respond to practical plans",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "a2_unit_013_dialogue",
+      "readerRef": "a2_unit_013_reader"
+    },
+    {
+      "id": "a2_unit_014",
+      "unit": 14,
+      "band": "A2",
+      "canDo": "ask for and give everyday information",
+      "concepts": [
+        "ORDINALS_DATES",
+        "PREP",
+        "REFLEXIVE"
+      ],
+      "capstone": "a2_2",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "ask for and give everyday information",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "a2_unit_014_dialogue",
+      "readerRef": "a2_unit_014_reader"
+    },
+    {
+      "id": "a2_unit_015",
+      "unit": 15,
+      "band": "A2",
+      "canDo": "follow a short connected account on a familiar topic",
+      "concepts": [
+        "ASPECT_PAST",
+        "COMPARATIVE"
+      ],
+      "capstone": "a2_2",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "follow a short connected account on a familiar topic",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "a2_unit_015_dialogue",
+      "readerRef": "a2_unit_015_reader"
+    },
+    {
+      "id": "a2_unit_016",
+      "unit": 16,
+      "band": "A2",
+      "canDo": "describe routines and recent events",
+      "concepts": [
+        "DAT",
+        "MODAL"
+      ],
+      "capstone": "a2_2",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "describe routines and recent events",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "a2_unit_016_dialogue",
+      "readerRef": "a2_unit_016_reader"
+    },
+    {
+      "id": "a2_unit_017",
+      "unit": 17,
+      "band": "A2",
+      "canDo": "make and respond to practical plans",
+      "concepts": [
+        "ASPECT_FUTURE",
+        "MOTION"
+      ],
+      "capstone": "a2_2",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "make and respond to practical plans",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "a2_unit_017_dialogue",
+      "readerRef": "a2_unit_017_reader"
+    },
+    {
+      "id": "a2_unit_018",
+      "unit": 18,
+      "band": "A2",
+      "canDo": "ask for and give everyday information",
+      "concepts": [
+        "INS",
+        "MOTION_UNIDIRECTIONAL"
+      ],
+      "capstone": "a2_2",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "ask for and give everyday information",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "a2_unit_018_dialogue",
+      "readerRef": "a2_unit_018_reader"
+    },
+    {
+      "id": "a2_unit_019",
+      "unit": 19,
+      "band": "A2",
+      "canDo": "follow a short connected account on a familiar topic",
+      "concepts": [
+        "POSSESSIVE_SVOJ"
+      ],
+      "capstone": "a2_2",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "follow a short connected account on a familiar topic",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "a2_unit_019_dialogue",
+      "readerRef": "a2_unit_019_reader"
+    },
+    {
+      "id": "a2_unit_020",
+      "unit": 20,
+      "band": "A2",
+      "canDo": "describe routines and recent events",
+      "concepts": [
+        "TIME_WEEK_ACC"
+      ],
+      "capstone": "a2_2",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "describe routines and recent events",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "a2_unit_020_dialogue",
+      "readerRef": "a2_unit_020_reader"
+    },
+    {
+      "id": "b1_unit_021",
+      "unit": 21,
+      "band": "B1",
+      "canDo": "explain a preference or decision",
+      "concepts": [
+        "MOTION_PREFIX",
+        "NUMERAL_GOV_234"
+      ],
+      "capstone": "b1_3",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "explain a preference or decision",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "b1_unit_021_dialogue",
+      "readerRef": "b1_unit_021_reader"
+    },
+    {
+      "id": "b1_unit_022",
       "unit": 22,
       "band": "B1",
-      "canDo": "understand and use unit 22 B1 vocabulary in connected language",
+      "canDo": "handle an unplanned travel or social situation",
       "concepts": [
         "CONDITIONAL"
       ],
@@ -447,17 +647,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 22 B1 vocabulary in connected language",
+        "function": "handle an unplanned travel or social situation",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_022_dialogue",
-      "readerRef": "unit_022_reader"
+      "dialogueRef": "b1_unit_022_dialogue",
+      "readerRef": "b1_unit_022_reader"
     },
     {
-      "id": "unit_023",
+      "id": "b1_unit_023",
       "unit": 23,
       "band": "B1",
-      "canDo": "understand and use unit 23 B1 vocabulary in connected language",
+      "canDo": "understand the main point of connected standard language",
       "concepts": [
         "NUMERAL_GOV_5",
         "RELATIVE"
@@ -468,17 +668,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 23 B1 vocabulary in connected language",
+        "function": "understand the main point of connected standard language",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_023_dialogue",
-      "readerRef": "unit_023_reader"
+      "dialogueRef": "b1_unit_023_dialogue",
+      "readerRef": "b1_unit_023_reader"
     },
     {
-      "id": "unit_024",
+      "id": "b1_unit_024",
       "unit": 24,
       "band": "B1",
-      "canDo": "understand and use unit 24 B1 vocabulary in connected language",
+      "canDo": "narrate an experience with supporting detail",
       "concepts": [
         "SUPERLATIVE"
       ],
@@ -488,17 +688,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 24 B1 vocabulary in connected language",
+        "function": "narrate an experience with supporting detail",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_024_dialogue",
-      "readerRef": "unit_024_reader"
+      "dialogueRef": "b1_unit_024_dialogue",
+      "readerRef": "b1_unit_024_reader"
     },
     {
-      "id": "unit_025",
+      "id": "b1_unit_025",
       "unit": 25,
       "band": "B1",
-      "canDo": "understand and use unit 25 B1 vocabulary in connected language",
+      "canDo": "explain a preference or decision",
       "concepts": [
         "ASPECT_INFINITIVE",
         "PURPOSE"
@@ -509,17 +709,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 25 B1 vocabulary in connected language",
+        "function": "explain a preference or decision",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_025_dialogue",
-      "readerRef": "unit_025_reader"
+      "dialogueRef": "b1_unit_025_dialogue",
+      "readerRef": "b1_unit_025_reader"
     },
     {
-      "id": "unit_026",
+      "id": "b1_unit_026",
       "unit": 26,
       "band": "B1",
-      "canDo": "understand and use unit 26 B1 vocabulary in connected language",
+      "canDo": "handle an unplanned travel or social situation",
       "concepts": [
         "ASPECT_IMPERATIVE",
         "NUMERAL_CASE"
@@ -530,17 +730,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 26 B1 vocabulary in connected language",
+        "function": "handle an unplanned travel or social situation",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_026_dialogue",
-      "readerRef": "unit_026_reader"
+      "dialogueRef": "b1_unit_026_dialogue",
+      "readerRef": "b1_unit_026_reader"
     },
     {
-      "id": "unit_027",
+      "id": "b1_unit_027",
       "unit": 27,
       "band": "B1",
-      "canDo": "understand and use unit 27 B1 vocabulary in connected language",
+      "canDo": "understand the main point of connected standard language",
       "concepts": [],
       "capstone": "b1_3",
       "exitTicket": {
@@ -548,17 +748,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 27 B1 vocabulary in connected language",
+        "function": "understand the main point of connected standard language",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_027_dialogue",
-      "readerRef": "unit_027_reader"
+      "dialogueRef": "b1_unit_027_dialogue",
+      "readerRef": "b1_unit_027_reader"
     },
     {
-      "id": "unit_028",
+      "id": "b1_unit_028",
       "unit": 28,
       "band": "B1",
-      "canDo": "understand and use unit 28 B1 vocabulary in connected language",
+      "canDo": "narrate an experience with supporting detail",
       "concepts": [
         "MOTION_MULTIDIRECTIONAL"
       ],
@@ -568,17 +768,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 28 B1 vocabulary in connected language",
+        "function": "narrate an experience with supporting detail",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_028_dialogue",
-      "readerRef": "unit_028_reader"
+      "dialogueRef": "b1_unit_028_dialogue",
+      "readerRef": "b1_unit_028_reader"
     },
     {
-      "id": "unit_029",
+      "id": "b1_unit_029",
       "unit": 29,
       "band": "B1",
-      "canDo": "understand and use unit 29 B1 vocabulary in connected language",
+      "canDo": "explain a preference or decision",
       "concepts": [],
       "capstone": "b1_3",
       "exitTicket": {
@@ -586,19 +786,258 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 29 B1 vocabulary in connected language",
+        "function": "explain a preference or decision",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_029_dialogue",
-      "readerRef": "unit_029_reader"
+      "dialogueRef": "b1_unit_029_dialogue",
+      "readerRef": "b1_unit_029_reader"
     },
     {
-      "id": "unit_030",
+      "id": "b1_unit_030",
+      "unit": 30,
+      "band": "B1",
+      "canDo": "handle an unplanned travel or social situation",
+      "concepts": [
+        "MOTION_CARRY"
+      ],
+      "capstone": "b1_3",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "handle an unplanned travel or social situation",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "b1_unit_030_dialogue",
+      "readerRef": "b1_unit_030_reader"
+    },
+    {
+      "id": "b1_unit_031",
+      "unit": 31,
+      "band": "B1",
+      "canDo": "understand the main point of connected standard language",
+      "concepts": [
+        "MOTION_TRANSPORT"
+      ],
+      "capstone": "b1_4",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "understand the main point of connected standard language",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "b1_unit_031_dialogue",
+      "readerRef": "b1_unit_031_reader"
+    },
+    {
+      "id": "b1_unit_033",
+      "unit": 33,
+      "band": "B1",
+      "canDo": "explain a preference or decision",
+      "concepts": [
+        "GEN_PL"
+      ],
+      "capstone": "b1_4",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "explain a preference or decision",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "b1_unit_033_dialogue",
+      "readerRef": "b1_unit_033_reader"
+    },
+    {
+      "id": "b1_unit_035",
+      "unit": 35,
+      "band": "B1",
+      "canDo": "understand the main point of connected standard language",
+      "concepts": [
+        "DAT_PL"
+      ],
+      "capstone": "b1_4",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "understand the main point of connected standard language",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "b1_unit_035_dialogue",
+      "readerRef": "b1_unit_035_reader"
+    },
+    {
+      "id": "b1_unit_037",
+      "unit": 37,
+      "band": "B1",
+      "canDo": "explain a preference or decision",
+      "concepts": [
+        "INS_PL"
+      ],
+      "capstone": "b1_4",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "explain a preference or decision",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "b1_unit_037_dialogue",
+      "readerRef": "b1_unit_037_reader"
+    },
+    {
+      "id": "b1_unit_039",
+      "unit": 39,
+      "band": "B1",
+      "canDo": "understand the main point of connected standard language",
+      "concepts": [
+        "PREP_PL"
+      ],
+      "capstone": "b1_4",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "understand the main point of connected standard language",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "b1_unit_039_dialogue",
+      "readerRef": "b1_unit_039_reader"
+    },
+    {
+      "id": "b1_unit_040",
+      "unit": 40,
+      "band": "B1",
+      "canDo": "narrate an experience with supporting detail",
+      "concepts": [
+        "GOV_INTEREST_INS"
+      ],
+      "capstone": "b1_4",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "narrate an experience with supporting detail",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "b1_unit_040_dialogue",
+      "readerRef": "b1_unit_040_reader"
+    },
+    {
+      "id": "b1_unit_042",
+      "unit": 42,
+      "band": "B1",
+      "canDo": "handle an unplanned travel or social situation",
+      "concepts": [
+        "GOV_FEAR_GEN"
+      ],
+      "capstone": "b1_5",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "handle an unplanned travel or social situation",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "b1_unit_042_dialogue",
+      "readerRef": "b1_unit_042_reader"
+    },
+    {
+      "id": "b1_unit_044",
+      "unit": 44,
+      "band": "B1",
+      "canDo": "narrate an experience with supporting detail",
+      "concepts": [
+        "GOV_HELP_DAT"
+      ],
+      "capstone": "b1_5",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "narrate an experience with supporting detail",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "b1_unit_044_dialogue",
+      "readerRef": "b1_unit_044_reader"
+    },
+    {
+      "id": "b1_unit_045",
+      "unit": 45,
+      "band": "B1",
+      "canDo": "explain a preference or decision",
+      "concepts": [
+        "POSITION_STATE"
+      ],
+      "capstone": "b1_5",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "explain a preference or decision",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "b1_unit_045_dialogue",
+      "readerRef": "b1_unit_045_reader"
+    },
+    {
+      "id": "b1_unit_047",
+      "unit": 47,
+      "band": "B1",
+      "canDo": "understand the main point of connected standard language",
+      "concepts": [
+        "TIME_MONTH_PREP"
+      ],
+      "capstone": "b1_5",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "understand the main point of connected standard language",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "b1_unit_047_dialogue",
+      "readerRef": "b1_unit_047_reader"
+    },
+    {
+      "id": "b1_unit_049",
+      "unit": 49,
+      "band": "B1",
+      "canDo": "explain a preference or decision",
+      "concepts": [
+        "TIME_DURATION"
+      ],
+      "capstone": "b1_5",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "explain a preference or decision",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "b1_unit_049_dialogue",
+      "readerRef": "b1_unit_049_reader"
+    },
+    {
+      "id": "b2_unit_030",
       "unit": 30,
       "band": "B2",
-      "canDo": "understand and use unit 30 B2 vocabulary in connected language",
+      "canDo": "follow detailed argument on a concrete or abstract topic",
       "concepts": [
-        "MOTION_CARRY",
         "SHORT_FORM_ADJ"
       ],
       "capstone": "b2_3",
@@ -607,19 +1046,18 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 30 B2 vocabulary in connected language",
+        "function": "follow detailed argument on a concrete or abstract topic",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_030_dialogue",
-      "readerRef": "unit_030_reader"
+      "dialogueRef": "b2_unit_030_dialogue",
+      "readerRef": "b2_unit_030_reader"
     },
     {
-      "id": "unit_031",
+      "id": "b2_unit_031",
       "unit": 31,
       "band": "B2",
-      "canDo": "understand and use unit 31 B2 vocabulary in connected language",
+      "canDo": "interact fluently in a practical or professional situation",
       "concepts": [
-        "MOTION_TRANSPORT",
         "PARTICIPLE_ACTIVE"
       ],
       "capstone": "b2_4",
@@ -628,17 +1066,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 31 B2 vocabulary in connected language",
+        "function": "interact fluently in a practical or professional situation",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_031_dialogue",
-      "readerRef": "unit_031_reader"
+      "dialogueRef": "b2_unit_031_dialogue",
+      "readerRef": "b2_unit_031_reader"
     },
     {
-      "id": "unit_032",
+      "id": "b2_unit_032",
       "unit": 32,
       "band": "B2",
-      "canDo": "understand and use unit 32 B2 vocabulary in connected language",
+      "canDo": "develop and support a viewpoint",
       "concepts": [
         "PARTICIPLE_PASSIVE"
       ],
@@ -648,19 +1086,18 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 32 B2 vocabulary in connected language",
+        "function": "develop and support a viewpoint",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_032_dialogue",
-      "readerRef": "unit_032_reader"
+      "dialogueRef": "b2_unit_032_dialogue",
+      "readerRef": "b2_unit_032_reader"
     },
     {
-      "id": "unit_033",
+      "id": "b2_unit_033",
       "unit": 33,
       "band": "B2",
-      "canDo": "understand and use unit 33 B2 vocabulary in connected language",
+      "canDo": "reformulate information in a more formal register",
       "concepts": [
-        "GEN_PL",
         "GERUND"
       ],
       "capstone": "b2_4",
@@ -669,17 +1106,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 33 B2 vocabulary in connected language",
+        "function": "reformulate information in a more formal register",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_033_dialogue",
-      "readerRef": "unit_033_reader"
+      "dialogueRef": "b2_unit_033_dialogue",
+      "readerRef": "b2_unit_033_reader"
     },
     {
-      "id": "unit_034",
+      "id": "b2_unit_034",
       "unit": 34,
       "band": "B2",
-      "canDo": "understand and use unit 34 B2 vocabulary in connected language",
+      "canDo": "follow detailed argument on a concrete or abstract topic",
       "concepts": [
         "PASSIVE"
       ],
@@ -689,19 +1126,18 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 34 B2 vocabulary in connected language",
+        "function": "follow detailed argument on a concrete or abstract topic",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_034_dialogue",
-      "readerRef": "unit_034_reader"
+      "dialogueRef": "b2_unit_034_dialogue",
+      "readerRef": "b2_unit_034_reader"
     },
     {
-      "id": "unit_035",
+      "id": "b2_unit_035",
       "unit": 35,
       "band": "B2",
-      "canDo": "understand and use unit 35 B2 vocabulary in connected language",
+      "canDo": "interact fluently in a practical or professional situation",
       "concepts": [
-        "DAT_PL",
         "REPORTED"
       ],
       "capstone": "b2_4",
@@ -710,17 +1146,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 35 B2 vocabulary in connected language",
+        "function": "interact fluently in a practical or professional situation",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_035_dialogue",
-      "readerRef": "unit_035_reader"
+      "dialogueRef": "b2_unit_035_dialogue",
+      "readerRef": "b2_unit_035_reader"
     },
     {
-      "id": "unit_036",
+      "id": "b2_unit_036",
       "unit": 36,
       "band": "B2",
-      "canDo": "understand and use unit 36 B2 vocabulary in connected language",
+      "canDo": "develop and support a viewpoint",
       "concepts": [],
       "capstone": "b2_4",
       "exitTicket": {
@@ -728,355 +1164,55 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 36 B2 vocabulary in connected language",
+        "function": "develop and support a viewpoint",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_036_dialogue",
-      "readerRef": "unit_036_reader"
+      "dialogueRef": "b2_unit_036_dialogue",
+      "readerRef": "b2_unit_036_reader"
     },
     {
-      "id": "unit_037",
+      "id": "b2_unit_037",
       "unit": 37,
       "band": "B2",
-      "canDo": "understand and use unit 37 B2 vocabulary in connected language",
-      "concepts": [
-        "INS_PL"
-      ],
+      "canDo": "reformulate information in a more formal register",
+      "concepts": [],
       "capstone": "b2_4",
       "exitTicket": {
         "recognition": 1,
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 37 B2 vocabulary in connected language",
+        "function": "reformulate information in a more formal register",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_037_dialogue",
-      "readerRef": "unit_037_reader"
+      "dialogueRef": "b2_unit_037_dialogue",
+      "readerRef": "b2_unit_037_reader"
     },
     {
-      "id": "unit_038",
-      "unit": 38,
-      "band": "C1",
-      "canDo": "understand and use unit 38 C1 vocabulary in connected language",
-      "concepts": [
-        "COMPLEX_SYNTAX"
-      ],
-      "capstone": "c1_4",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 38 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_038_dialogue",
-      "readerRef": "unit_038_reader"
-    },
-    {
-      "id": "unit_039",
-      "unit": 39,
-      "band": "C1",
-      "canDo": "understand and use unit 39 C1 vocabulary in connected language",
-      "concepts": [
-        "NOMINALIZATION",
-        "PREP_PL"
-      ],
-      "capstone": "c1_4",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 39 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_039_dialogue",
-      "readerRef": "unit_039_reader"
-    },
-    {
-      "id": "unit_040",
-      "unit": 40,
-      "band": "C1",
-      "canDo": "understand and use unit 40 C1 vocabulary in connected language",
-      "concepts": [
-        "ASPECT_NUANCE",
-        "GOV_INTEREST_INS"
-      ],
-      "capstone": "c1_4",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 40 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_040_dialogue",
-      "readerRef": "unit_040_reader"
-    },
-    {
-      "id": "unit_041",
-      "unit": 41,
-      "band": "C1",
-      "canDo": "understand and use unit 41 C1 vocabulary in connected language",
-      "concepts": [
-        "REGISTER"
-      ],
-      "capstone": "c1_5",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 41 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_041_dialogue",
-      "readerRef": "unit_041_reader"
-    },
-    {
-      "id": "unit_042",
-      "unit": 42,
-      "band": "C1",
-      "canDo": "understand and use unit 42 C1 vocabulary in connected language",
-      "concepts": [
-        "GOV_FEAR_GEN",
-        "IDIOM"
-      ],
-      "capstone": "c1_5",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 42 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_042_dialogue",
-      "readerRef": "unit_042_reader"
-    },
-    {
-      "id": "unit_043",
-      "unit": 43,
-      "band": "C1",
-      "canDo": "understand and use unit 43 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_5",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 43 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_043_dialogue",
-      "readerRef": "unit_043_reader"
-    },
-    {
-      "id": "unit_044",
-      "unit": 44,
-      "band": "C1",
-      "canDo": "understand and use unit 44 C1 vocabulary in connected language",
-      "concepts": [
-        "GOV_HELP_DAT"
-      ],
-      "capstone": "c1_5",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 44 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_044_dialogue",
-      "readerRef": "unit_044_reader"
-    },
-    {
-      "id": "unit_045",
-      "unit": 45,
-      "band": "C2",
-      "canDo": "understand and use unit 45 C2 vocabulary in connected language",
-      "concepts": [
-        "DISCOURSE_PARTICLES",
-        "POSITION_STATE"
-      ],
-      "capstone": "c2_5",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 45 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_045_dialogue",
-      "readerRef": "unit_045_reader"
-    },
-    {
-      "id": "unit_046",
-      "unit": 46,
-      "band": "C2",
-      "canDo": "understand and use unit 46 C2 vocabulary in connected language",
-      "concepts": [
-        "EMPHATIC_PARTICLES"
-      ],
-      "capstone": "c2_5",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 46 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_046_dialogue",
-      "readerRef": "unit_046_reader"
-    },
-    {
-      "id": "unit_047",
-      "unit": 47,
-      "band": "C2",
-      "canDo": "understand and use unit 47 C2 vocabulary in connected language",
-      "concepts": [
-        "BOOKISH_SUBORDINATION",
-        "TIME_MONTH_PREP"
-      ],
-      "capstone": "c2_5",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 47 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_047_dialogue",
-      "readerRef": "unit_047_reader"
-    },
-    {
-      "id": "unit_048",
-      "unit": 48,
-      "band": "C2",
-      "canDo": "understand and use unit 48 C2 vocabulary in connected language",
-      "concepts": [
-        "INVERSION_EMPHASIS"
-      ],
-      "capstone": "c2_5",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 48 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_048_dialogue",
-      "readerRef": "unit_048_reader"
-    },
-    {
-      "id": "unit_049",
-      "unit": 49,
-      "band": "C2",
-      "canDo": "understand and use unit 49 C2 vocabulary in connected language",
-      "concepts": [
-        "SUBJUNCTIVE_NUANCE",
-        "TIME_DURATION"
-      ],
-      "capstone": "c2_5",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 49 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_049_dialogue",
-      "readerRef": "unit_049_reader"
-    },
-    {
-      "id": "unit_050",
+      "id": "b2_unit_050",
       "unit": 50,
-      "band": "C2",
-      "canDo": "understand and use unit 50 C2 vocabulary in connected language",
+      "band": "B2",
+      "canDo": "follow detailed argument on a concrete or abstract topic",
       "concepts": [
         "ASPECT_NEGATION"
       ],
-      "capstone": "c2_5",
+      "capstone": "b2_5",
       "exitTicket": {
         "recognition": 1,
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 50 C2 vocabulary in connected language",
+        "function": "follow detailed argument on a concrete or abstract topic",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_050_dialogue",
-      "readerRef": "unit_050_reader"
+      "dialogueRef": "b2_unit_050_dialogue",
+      "readerRef": "b2_unit_050_reader"
     },
     {
-      "id": "unit_051",
-      "unit": 51,
-      "band": "C2",
-      "canDo": "understand and use unit 51 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_6",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 51 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_051_dialogue",
-      "readerRef": "unit_051_reader"
-    },
-    {
-      "id": "unit_052",
-      "unit": 52,
-      "band": "B2",
-      "canDo": "understand and use unit 52 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_6",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 52 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_052_dialogue",
-      "readerRef": "unit_052_reader"
-    },
-    {
-      "id": "unit_053",
-      "unit": 53,
-      "band": "B2",
-      "canDo": "understand and use unit 53 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_6",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 53 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_053_dialogue",
-      "readerRef": "unit_053_reader"
-    },
-    {
-      "id": "unit_054",
+      "id": "b2_unit_054",
       "unit": 54,
       "band": "B2",
-      "canDo": "understand and use unit 54 B2 vocabulary in connected language",
+      "canDo": "follow detailed argument on a concrete or abstract topic",
       "concepts": [
         "MOTION_PREFIX_ARRIVE_LEAVE"
       ],
@@ -1086,89 +1222,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 54 B2 vocabulary in connected language",
+        "function": "follow detailed argument on a concrete or abstract topic",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_054_dialogue",
-      "readerRef": "unit_054_reader"
+      "dialogueRef": "b2_unit_054_dialogue",
+      "readerRef": "b2_unit_054_reader"
     },
     {
-      "id": "unit_055",
-      "unit": 55,
-      "band": "B2",
-      "canDo": "understand and use unit 55 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_6",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 55 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_055_dialogue",
-      "readerRef": "unit_055_reader"
-    },
-    {
-      "id": "unit_056",
-      "unit": 56,
-      "band": "B2",
-      "canDo": "understand and use unit 56 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_6",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 56 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_056_dialogue",
-      "readerRef": "unit_056_reader"
-    },
-    {
-      "id": "unit_057",
-      "unit": 57,
-      "band": "B2",
-      "canDo": "understand and use unit 57 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_6",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 57 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_057_dialogue",
-      "readerRef": "unit_057_reader"
-    },
-    {
-      "id": "unit_058",
-      "unit": 58,
-      "band": "B2",
-      "canDo": "understand and use unit 58 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_6",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 58 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_058_dialogue",
-      "readerRef": "unit_058_reader"
-    },
-    {
-      "id": "unit_059",
+      "id": "b2_unit_059",
       "unit": 59,
       "band": "B2",
-      "canDo": "understand and use unit 59 B2 vocabulary in connected language",
+      "canDo": "interact fluently in a practical or professional situation",
       "concepts": [
         "MOTION_PREFIX_ENTER_EXIT"
       ],
@@ -1178,71 +1242,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 59 B2 vocabulary in connected language",
+        "function": "interact fluently in a practical or professional situation",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_059_dialogue",
-      "readerRef": "unit_059_reader"
+      "dialogueRef": "b2_unit_059_dialogue",
+      "readerRef": "b2_unit_059_reader"
     },
     {
-      "id": "unit_060",
-      "unit": 60,
-      "band": "B2",
-      "canDo": "understand and use unit 60 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_6",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 60 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_060_dialogue",
-      "readerRef": "unit_060_reader"
-    },
-    {
-      "id": "unit_061",
-      "unit": 61,
-      "band": "B2",
-      "canDo": "understand and use unit 61 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_7",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 61 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_061_dialogue",
-      "readerRef": "unit_061_reader"
-    },
-    {
-      "id": "unit_062",
-      "unit": 62,
-      "band": "B2",
-      "canDo": "understand and use unit 62 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_7",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 62 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_062_dialogue",
-      "readerRef": "unit_062_reader"
-    },
-    {
-      "id": "unit_063",
+      "id": "b2_unit_063",
       "unit": 63,
       "band": "B2",
-      "canDo": "understand and use unit 63 B2 vocabulary in connected language",
+      "canDo": "interact fluently in a practical or professional situation",
       "concepts": [
         "MOTION_PREFIX_APPROACH"
       ],
@@ -1252,71 +1262,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 63 B2 vocabulary in connected language",
+        "function": "interact fluently in a practical or professional situation",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_063_dialogue",
-      "readerRef": "unit_063_reader"
+      "dialogueRef": "b2_unit_063_dialogue",
+      "readerRef": "b2_unit_063_reader"
     },
     {
-      "id": "unit_064",
-      "unit": 64,
-      "band": "B2",
-      "canDo": "understand and use unit 64 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_7",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 64 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_064_dialogue",
-      "readerRef": "unit_064_reader"
-    },
-    {
-      "id": "unit_065",
-      "unit": 65,
-      "band": "B2",
-      "canDo": "understand and use unit 65 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_7",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 65 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_065_dialogue",
-      "readerRef": "unit_065_reader"
-    },
-    {
-      "id": "unit_066",
-      "unit": 66,
-      "band": "B2",
-      "canDo": "understand and use unit 66 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_7",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 66 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_066_dialogue",
-      "readerRef": "unit_066_reader"
-    },
-    {
-      "id": "unit_067",
+      "id": "b2_unit_067",
       "unit": 67,
       "band": "B2",
-      "canDo": "understand and use unit 67 B2 vocabulary in connected language",
+      "canDo": "interact fluently in a practical or professional situation",
       "concepts": [
         "MOTION_PREFIX_CROSS_PASS"
       ],
@@ -1326,89 +1282,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 67 B2 vocabulary in connected language",
+        "function": "interact fluently in a practical or professional situation",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_067_dialogue",
-      "readerRef": "unit_067_reader"
+      "dialogueRef": "b2_unit_067_dialogue",
+      "readerRef": "b2_unit_067_reader"
     },
     {
-      "id": "unit_068",
-      "unit": 68,
-      "band": "B2",
-      "canDo": "understand and use unit 68 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_7",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 68 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_068_dialogue",
-      "readerRef": "unit_068_reader"
-    },
-    {
-      "id": "unit_069",
-      "unit": 69,
-      "band": "B2",
-      "canDo": "understand and use unit 69 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_7",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 69 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_069_dialogue",
-      "readerRef": "unit_069_reader"
-    },
-    {
-      "id": "unit_070",
-      "unit": 70,
-      "band": "B2",
-      "canDo": "understand and use unit 70 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_7",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 70 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_070_dialogue",
-      "readerRef": "unit_070_reader"
-    },
-    {
-      "id": "unit_071",
-      "unit": 71,
-      "band": "B2",
-      "canDo": "understand and use unit 71 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_8",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 71 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_071_dialogue",
-      "readerRef": "unit_071_reader"
-    },
-    {
-      "id": "unit_072",
+      "id": "b2_unit_072",
       "unit": 72,
       "band": "B2",
-      "canDo": "understand and use unit 72 B2 vocabulary in connected language",
+      "canDo": "develop and support a viewpoint",
       "concepts": [
         "GOV_WAIT_GEN_ACC"
       ],
@@ -1418,71 +1302,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 72 B2 vocabulary in connected language",
+        "function": "develop and support a viewpoint",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_072_dialogue",
-      "readerRef": "unit_072_reader"
+      "dialogueRef": "b2_unit_072_dialogue",
+      "readerRef": "b2_unit_072_reader"
     },
     {
-      "id": "unit_073",
-      "unit": 73,
-      "band": "B2",
-      "canDo": "understand and use unit 73 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_8",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 73 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_073_dialogue",
-      "readerRef": "unit_073_reader"
-    },
-    {
-      "id": "unit_074",
-      "unit": 74,
-      "band": "B2",
-      "canDo": "understand and use unit 74 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_8",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 74 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_074_dialogue",
-      "readerRef": "unit_074_reader"
-    },
-    {
-      "id": "unit_075",
-      "unit": 75,
-      "band": "B2",
-      "canDo": "understand and use unit 75 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_8",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 75 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_075_dialogue",
-      "readerRef": "unit_075_reader"
-    },
-    {
-      "id": "unit_076",
+      "id": "b2_unit_076",
       "unit": 76,
       "band": "B2",
-      "canDo": "understand and use unit 76 B2 vocabulary in connected language",
+      "canDo": "develop and support a viewpoint",
       "concepts": [
         "GOV_DEPEND_ON"
       ],
@@ -1492,71 +1322,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 76 B2 vocabulary in connected language",
+        "function": "develop and support a viewpoint",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_076_dialogue",
-      "readerRef": "unit_076_reader"
+      "dialogueRef": "b2_unit_076_dialogue",
+      "readerRef": "b2_unit_076_reader"
     },
     {
-      "id": "unit_077",
-      "unit": 77,
-      "band": "B2",
-      "canDo": "understand and use unit 77 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_8",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 77 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_077_dialogue",
-      "readerRef": "unit_077_reader"
-    },
-    {
-      "id": "unit_078",
-      "unit": 78,
-      "band": "B2",
-      "canDo": "understand and use unit 78 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_8",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 78 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_078_dialogue",
-      "readerRef": "unit_078_reader"
-    },
-    {
-      "id": "unit_079",
-      "unit": 79,
-      "band": "B2",
-      "canDo": "understand and use unit 79 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_8",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 79 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_079_dialogue",
-      "readerRef": "unit_079_reader"
-    },
-    {
-      "id": "unit_080",
+      "id": "b2_unit_080",
       "unit": 80,
       "band": "B2",
-      "canDo": "understand and use unit 80 B2 vocabulary in connected language",
+      "canDo": "develop and support a viewpoint",
       "concepts": [
         "GOV_MANAGE_INS"
       ],
@@ -1566,89 +1342,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 80 B2 vocabulary in connected language",
+        "function": "develop and support a viewpoint",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_080_dialogue",
-      "readerRef": "unit_080_reader"
+      "dialogueRef": "b2_unit_080_dialogue",
+      "readerRef": "b2_unit_080_reader"
     },
     {
-      "id": "unit_081",
-      "unit": 81,
-      "band": "B2",
-      "canDo": "understand and use unit 81 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_9",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 81 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_081_dialogue",
-      "readerRef": "unit_081_reader"
-    },
-    {
-      "id": "unit_082",
-      "unit": 82,
-      "band": "B2",
-      "canDo": "understand and use unit 82 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_9",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 82 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_082_dialogue",
-      "readerRef": "unit_082_reader"
-    },
-    {
-      "id": "unit_083",
-      "unit": 83,
-      "band": "B2",
-      "canDo": "understand and use unit 83 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_9",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 83 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_083_dialogue",
-      "readerRef": "unit_083_reader"
-    },
-    {
-      "id": "unit_084",
-      "unit": 84,
-      "band": "B2",
-      "canDo": "understand and use unit 84 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_9",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 84 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_084_dialogue",
-      "readerRef": "unit_084_reader"
-    },
-    {
-      "id": "unit_085",
+      "id": "b2_unit_085",
       "unit": 85,
       "band": "B2",
-      "canDo": "understand and use unit 85 B2 vocabulary in connected language",
+      "canDo": "reformulate information in a more formal register",
       "concepts": [
         "GOV_USE_INS"
       ],
@@ -1658,71 +1362,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 85 B2 vocabulary in connected language",
+        "function": "reformulate information in a more formal register",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_085_dialogue",
-      "readerRef": "unit_085_reader"
+      "dialogueRef": "b2_unit_085_dialogue",
+      "readerRef": "b2_unit_085_reader"
     },
     {
-      "id": "unit_086",
-      "unit": 86,
-      "band": "B2",
-      "canDo": "understand and use unit 86 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_9",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 86 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_086_dialogue",
-      "readerRef": "unit_086_reader"
-    },
-    {
-      "id": "unit_087",
-      "unit": 87,
-      "band": "B2",
-      "canDo": "understand and use unit 87 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_9",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 87 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_087_dialogue",
-      "readerRef": "unit_087_reader"
-    },
-    {
-      "id": "unit_088",
-      "unit": 88,
-      "band": "B2",
-      "canDo": "understand and use unit 88 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_9",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 88 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_088_dialogue",
-      "readerRef": "unit_088_reader"
-    },
-    {
-      "id": "unit_089",
+      "id": "b2_unit_089",
       "unit": 89,
       "band": "B2",
-      "canDo": "understand and use unit 89 B2 vocabulary in connected language",
+      "canDo": "reformulate information in a more formal register",
       "concepts": [
         "POSITION_CAUSED"
       ],
@@ -1732,71 +1382,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 89 B2 vocabulary in connected language",
+        "function": "reformulate information in a more formal register",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_089_dialogue",
-      "readerRef": "unit_089_reader"
+      "dialogueRef": "b2_unit_089_dialogue",
+      "readerRef": "b2_unit_089_reader"
     },
     {
-      "id": "unit_090",
-      "unit": 90,
-      "band": "B2",
-      "canDo": "understand and use unit 90 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_9",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 90 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_090_dialogue",
-      "readerRef": "unit_090_reader"
-    },
-    {
-      "id": "unit_091",
-      "unit": 91,
-      "band": "B2",
-      "canDo": "understand and use unit 91 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_10",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 91 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_091_dialogue",
-      "readerRef": "unit_091_reader"
-    },
-    {
-      "id": "unit_092",
-      "unit": 92,
-      "band": "B2",
-      "canDo": "understand and use unit 92 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_10",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 92 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_092_dialogue",
-      "readerRef": "unit_092_reader"
-    },
-    {
-      "id": "unit_093",
+      "id": "b2_unit_093",
       "unit": 93,
       "band": "B2",
-      "canDo": "understand and use unit 93 B2 vocabulary in connected language",
+      "canDo": "reformulate information in a more formal register",
       "concepts": [
         "TIME_DEADLINE"
       ],
@@ -1806,89 +1402,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 93 B2 vocabulary in connected language",
+        "function": "reformulate information in a more formal register",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_093_dialogue",
-      "readerRef": "unit_093_reader"
+      "dialogueRef": "b2_unit_093_dialogue",
+      "readerRef": "b2_unit_093_reader"
     },
     {
-      "id": "unit_094",
-      "unit": 94,
-      "band": "B2",
-      "canDo": "understand and use unit 94 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_10",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 94 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_094_dialogue",
-      "readerRef": "unit_094_reader"
-    },
-    {
-      "id": "unit_095",
-      "unit": 95,
-      "band": "B2",
-      "canDo": "understand and use unit 95 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_10",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 95 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_095_dialogue",
-      "readerRef": "unit_095_reader"
-    },
-    {
-      "id": "unit_096",
-      "unit": 96,
-      "band": "B2",
-      "canDo": "understand and use unit 96 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_10",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 96 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_096_dialogue",
-      "readerRef": "unit_096_reader"
-    },
-    {
-      "id": "unit_097",
-      "unit": 97,
-      "band": "B2",
-      "canDo": "understand and use unit 97 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_10",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 97 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_097_dialogue",
-      "readerRef": "unit_097_reader"
-    },
-    {
-      "id": "unit_098",
+      "id": "b2_unit_098",
       "unit": 98,
       "band": "B2",
-      "canDo": "understand and use unit 98 B2 vocabulary in connected language",
+      "canDo": "follow detailed argument on a concrete or abstract topic",
       "concepts": [
         "PREFIX_SEMANTICS"
       ],
@@ -1898,71 +1422,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 98 B2 vocabulary in connected language",
+        "function": "follow detailed argument on a concrete or abstract topic",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_098_dialogue",
-      "readerRef": "unit_098_reader"
+      "dialogueRef": "b2_unit_098_dialogue",
+      "readerRef": "b2_unit_098_reader"
     },
     {
-      "id": "unit_099",
-      "unit": 99,
-      "band": "B2",
-      "canDo": "understand and use unit 99 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_10",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 99 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_099_dialogue",
-      "readerRef": "unit_099_reader"
-    },
-    {
-      "id": "unit_100",
-      "unit": 100,
-      "band": "B2",
-      "canDo": "understand and use unit 100 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_10",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 100 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_100_dialogue",
-      "readerRef": "unit_100_reader"
-    },
-    {
-      "id": "unit_101",
-      "unit": 101,
-      "band": "B2",
-      "canDo": "understand and use unit 101 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_11",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 101 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_101_dialogue",
-      "readerRef": "unit_101_reader"
-    },
-    {
-      "id": "unit_102",
+      "id": "b2_unit_102",
       "unit": 102,
       "band": "B2",
-      "canDo": "understand and use unit 102 B2 vocabulary in connected language",
+      "canDo": "follow detailed argument on a concrete or abstract topic",
       "concepts": [
         "SUFFIX_OST"
       ],
@@ -1972,71 +1442,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 102 B2 vocabulary in connected language",
+        "function": "follow detailed argument on a concrete or abstract topic",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_102_dialogue",
-      "readerRef": "unit_102_reader"
+      "dialogueRef": "b2_unit_102_dialogue",
+      "readerRef": "b2_unit_102_reader"
     },
     {
-      "id": "unit_103",
-      "unit": 103,
-      "band": "B2",
-      "canDo": "understand and use unit 103 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_11",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 103 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_103_dialogue",
-      "readerRef": "unit_103_reader"
-    },
-    {
-      "id": "unit_104",
-      "unit": 104,
-      "band": "B2",
-      "canDo": "understand and use unit 104 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_11",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 104 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_104_dialogue",
-      "readerRef": "unit_104_reader"
-    },
-    {
-      "id": "unit_105",
-      "unit": 105,
-      "band": "B2",
-      "canDo": "understand and use unit 105 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_11",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 105 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_105_dialogue",
-      "readerRef": "unit_105_reader"
-    },
-    {
-      "id": "unit_106",
+      "id": "b2_unit_106",
       "unit": 106,
       "band": "B2",
-      "canDo": "understand and use unit 106 B2 vocabulary in connected language",
+      "canDo": "follow detailed argument on a concrete or abstract topic",
       "concepts": [
         "INDEFINITE_TO"
       ],
@@ -2046,89 +1462,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 106 B2 vocabulary in connected language",
+        "function": "follow detailed argument on a concrete or abstract topic",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_106_dialogue",
-      "readerRef": "unit_106_reader"
+      "dialogueRef": "b2_unit_106_dialogue",
+      "readerRef": "b2_unit_106_reader"
     },
     {
-      "id": "unit_107",
-      "unit": 107,
-      "band": "B2",
-      "canDo": "understand and use unit 107 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_11",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 107 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_107_dialogue",
-      "readerRef": "unit_107_reader"
-    },
-    {
-      "id": "unit_108",
-      "unit": 108,
-      "band": "B2",
-      "canDo": "understand and use unit 108 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_11",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 108 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_108_dialogue",
-      "readerRef": "unit_108_reader"
-    },
-    {
-      "id": "unit_109",
-      "unit": 109,
-      "band": "B2",
-      "canDo": "understand and use unit 109 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_11",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 109 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_109_dialogue",
-      "readerRef": "unit_109_reader"
-    },
-    {
-      "id": "unit_110",
-      "unit": 110,
-      "band": "B2",
-      "canDo": "understand and use unit 110 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_11",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 110 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_110_dialogue",
-      "readerRef": "unit_110_reader"
-    },
-    {
-      "id": "unit_111",
+      "id": "b2_unit_111",
       "unit": 111,
       "band": "B2",
-      "canDo": "understand and use unit 111 B2 vocabulary in connected language",
+      "canDo": "interact fluently in a practical or professional situation",
       "concepts": [
         "INDEFINITE_NIBUD"
       ],
@@ -2138,71 +1482,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 111 B2 vocabulary in connected language",
+        "function": "interact fluently in a practical or professional situation",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_111_dialogue",
-      "readerRef": "unit_111_reader"
+      "dialogueRef": "b2_unit_111_dialogue",
+      "readerRef": "b2_unit_111_reader"
     },
     {
-      "id": "unit_112",
-      "unit": 112,
-      "band": "B2",
-      "canDo": "understand and use unit 112 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_12",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 112 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_112_dialogue",
-      "readerRef": "unit_112_reader"
-    },
-    {
-      "id": "unit_113",
-      "unit": 113,
-      "band": "B2",
-      "canDo": "understand and use unit 113 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_12",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 113 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_113_dialogue",
-      "readerRef": "unit_113_reader"
-    },
-    {
-      "id": "unit_114",
-      "unit": 114,
-      "band": "B2",
-      "canDo": "understand and use unit 114 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_12",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 114 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_114_dialogue",
-      "readerRef": "unit_114_reader"
-    },
-    {
-      "id": "unit_115",
+      "id": "b2_unit_115",
       "unit": 115,
       "band": "B2",
-      "canDo": "understand and use unit 115 B2 vocabulary in connected language",
+      "canDo": "interact fluently in a practical or professional situation",
       "concepts": [
         "NEGATIVE_NI"
       ],
@@ -2212,71 +1502,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 115 B2 vocabulary in connected language",
+        "function": "interact fluently in a practical or professional situation",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_115_dialogue",
-      "readerRef": "unit_115_reader"
+      "dialogueRef": "b2_unit_115_dialogue",
+      "readerRef": "b2_unit_115_reader"
     },
     {
-      "id": "unit_116",
-      "unit": 116,
-      "band": "B2",
-      "canDo": "understand and use unit 116 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_12",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 116 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_116_dialogue",
-      "readerRef": "unit_116_reader"
-    },
-    {
-      "id": "unit_117",
-      "unit": 117,
-      "band": "B2",
-      "canDo": "understand and use unit 117 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_12",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 117 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_117_dialogue",
-      "readerRef": "unit_117_reader"
-    },
-    {
-      "id": "unit_118",
-      "unit": 118,
-      "band": "B2",
-      "canDo": "understand and use unit 118 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_12",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 118 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_118_dialogue",
-      "readerRef": "unit_118_reader"
-    },
-    {
-      "id": "unit_119",
+      "id": "b2_unit_119",
       "unit": 119,
       "band": "B2",
-      "canDo": "understand and use unit 119 B2 vocabulary in connected language",
+      "canDo": "interact fluently in a practical or professional situation",
       "concepts": [
         "THEME_RHEME"
       ],
@@ -2286,89 +1522,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 119 B2 vocabulary in connected language",
+        "function": "interact fluently in a practical or professional situation",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_119_dialogue",
-      "readerRef": "unit_119_reader"
+      "dialogueRef": "b2_unit_119_dialogue",
+      "readerRef": "b2_unit_119_reader"
     },
     {
-      "id": "unit_120",
-      "unit": 120,
-      "band": "B2",
-      "canDo": "understand and use unit 120 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_12",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 120 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_120_dialogue",
-      "readerRef": "unit_120_reader"
-    },
-    {
-      "id": "unit_121",
-      "unit": 121,
-      "band": "B2",
-      "canDo": "understand and use unit 121 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_13",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 121 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_121_dialogue",
-      "readerRef": "unit_121_reader"
-    },
-    {
-      "id": "unit_122",
-      "unit": 122,
-      "band": "B2",
-      "canDo": "understand and use unit 122 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_13",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 122 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_122_dialogue",
-      "readerRef": "unit_122_reader"
-    },
-    {
-      "id": "unit_123",
-      "unit": 123,
-      "band": "B2",
-      "canDo": "understand and use unit 123 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_13",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 123 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_123_dialogue",
-      "readerRef": "unit_123_reader"
-    },
-    {
-      "id": "unit_124",
+      "id": "b2_unit_124",
       "unit": 124,
       "band": "B2",
-      "canDo": "understand and use unit 124 B2 vocabulary in connected language",
+      "canDo": "develop and support a viewpoint",
       "concepts": [
         "PARTICIPLE_FORM"
       ],
@@ -2378,71 +1542,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 124 B2 vocabulary in connected language",
+        "function": "develop and support a viewpoint",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_124_dialogue",
-      "readerRef": "unit_124_reader"
+      "dialogueRef": "b2_unit_124_dialogue",
+      "readerRef": "b2_unit_124_reader"
     },
     {
-      "id": "unit_125",
-      "unit": 125,
-      "band": "B2",
-      "canDo": "understand and use unit 125 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_13",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 125 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_125_dialogue",
-      "readerRef": "unit_125_reader"
-    },
-    {
-      "id": "unit_126",
-      "unit": 126,
-      "band": "B2",
-      "canDo": "understand and use unit 126 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_13",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 126 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_126_dialogue",
-      "readerRef": "unit_126_reader"
-    },
-    {
-      "id": "unit_127",
-      "unit": 127,
-      "band": "B2",
-      "canDo": "understand and use unit 127 B2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "b2_13",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 127 B2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_127_dialogue",
-      "readerRef": "unit_127_reader"
-    },
-    {
-      "id": "unit_128",
+      "id": "b2_unit_128",
       "unit": 128,
       "band": "B2",
-      "canDo": "understand and use unit 128 B2 vocabulary in connected language",
+      "canDo": "develop and support a viewpoint",
       "concepts": [
         "CONCESSIVE_HOTYA"
       ],
@@ -2452,17 +1562,153 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 128 B2 vocabulary in connected language",
+        "function": "develop and support a viewpoint",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_128_dialogue",
-      "readerRef": "unit_128_reader"
+      "dialogueRef": "b2_unit_128_dialogue",
+      "readerRef": "b2_unit_128_reader"
     },
     {
-      "id": "unit_129",
+      "id": "c1_unit_038",
+      "unit": 38,
+      "band": "C1",
+      "canDo": "interpret implicit relationships in extended discourse",
+      "concepts": [
+        "COMPLEX_SYNTAX"
+      ],
+      "capstone": "c1_4",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "interpret implicit relationships in extended discourse",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "c1_unit_038_dialogue",
+      "readerRef": "c1_unit_038_reader"
+    },
+    {
+      "id": "c1_unit_039",
+      "unit": 39,
+      "band": "C1",
+      "canDo": "synthesize complex information into a coherent response",
+      "concepts": [
+        "NOMINALIZATION"
+      ],
+      "capstone": "c1_4",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "synthesize complex information into a coherent response",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "c1_unit_039_dialogue",
+      "readerRef": "c1_unit_039_reader"
+    },
+    {
+      "id": "c1_unit_040",
+      "unit": 40,
+      "band": "C1",
+      "canDo": "express a nuanced position precisely",
+      "concepts": [
+        "ASPECT_NUANCE"
+      ],
+      "capstone": "c1_4",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "express a nuanced position precisely",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "c1_unit_040_dialogue",
+      "readerRef": "c1_unit_040_reader"
+    },
+    {
+      "id": "c1_unit_041",
+      "unit": 41,
+      "band": "C1",
+      "canDo": "adapt register to an academic or professional context",
+      "concepts": [
+        "REGISTER"
+      ],
+      "capstone": "c1_5",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "adapt register to an academic or professional context",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "c1_unit_041_dialogue",
+      "readerRef": "c1_unit_041_reader"
+    },
+    {
+      "id": "c1_unit_042",
+      "unit": 42,
+      "band": "C1",
+      "canDo": "interpret implicit relationships in extended discourse",
+      "concepts": [
+        "IDIOM"
+      ],
+      "capstone": "c1_5",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "interpret implicit relationships in extended discourse",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "c1_unit_042_dialogue",
+      "readerRef": "c1_unit_042_reader"
+    },
+    {
+      "id": "c1_unit_043",
+      "unit": 43,
+      "band": "C1",
+      "canDo": "synthesize complex information into a coherent response",
+      "concepts": [],
+      "capstone": "c1_5",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "synthesize complex information into a coherent response",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "c1_unit_043_dialogue",
+      "readerRef": "c1_unit_043_reader"
+    },
+    {
+      "id": "c1_unit_044",
+      "unit": 44,
+      "band": "C1",
+      "canDo": "express a nuanced position precisely",
+      "concepts": [],
+      "capstone": "c1_5",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "express a nuanced position precisely",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "c1_unit_044_dialogue",
+      "readerRef": "c1_unit_044_reader"
+    },
+    {
+      "id": "c1_unit_129",
       "unit": 129,
       "band": "C1",
-      "canDo": "understand and use unit 129 C1 vocabulary in connected language",
+      "canDo": "adapt register to an academic or professional context",
       "concepts": [
         "GOV_CONGRAT_DAT"
       ],
@@ -2472,107 +1718,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 129 C1 vocabulary in connected language",
+        "function": "adapt register to an academic or professional context",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_129_dialogue",
-      "readerRef": "unit_129_reader"
+      "dialogueRef": "c1_unit_129_dialogue",
+      "readerRef": "c1_unit_129_reader"
     },
     {
-      "id": "unit_130",
-      "unit": 130,
-      "band": "C1",
-      "canDo": "understand and use unit 130 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_13",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 130 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_130_dialogue",
-      "readerRef": "unit_130_reader"
-    },
-    {
-      "id": "unit_131",
-      "unit": 131,
-      "band": "C1",
-      "canDo": "understand and use unit 131 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_14",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 131 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_131_dialogue",
-      "readerRef": "unit_131_reader"
-    },
-    {
-      "id": "unit_132",
-      "unit": 132,
-      "band": "C1",
-      "canDo": "understand and use unit 132 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_14",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 132 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_132_dialogue",
-      "readerRef": "unit_132_reader"
-    },
-    {
-      "id": "unit_133",
-      "unit": 133,
-      "band": "C1",
-      "canDo": "understand and use unit 133 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_14",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 133 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_133_dialogue",
-      "readerRef": "unit_133_reader"
-    },
-    {
-      "id": "unit_134",
-      "unit": 134,
-      "band": "C1",
-      "canDo": "understand and use unit 134 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_14",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 134 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_134_dialogue",
-      "readerRef": "unit_134_reader"
-    },
-    {
-      "id": "unit_135",
+      "id": "c1_unit_135",
       "unit": 135,
       "band": "C1",
-      "canDo": "understand and use unit 135 C1 vocabulary in connected language",
+      "canDo": "synthesize complex information into a coherent response",
       "concepts": [
         "SUFFIX_ENIE"
       ],
@@ -2582,107 +1738,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 135 C1 vocabulary in connected language",
+        "function": "synthesize complex information into a coherent response",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_135_dialogue",
-      "readerRef": "unit_135_reader"
+      "dialogueRef": "c1_unit_135_dialogue",
+      "readerRef": "c1_unit_135_reader"
     },
     {
-      "id": "unit_136",
-      "unit": 136,
-      "band": "C1",
-      "canDo": "understand and use unit 136 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_14",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 136 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_136_dialogue",
-      "readerRef": "unit_136_reader"
-    },
-    {
-      "id": "unit_137",
-      "unit": 137,
-      "band": "C1",
-      "canDo": "understand and use unit 137 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_14",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 137 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_137_dialogue",
-      "readerRef": "unit_137_reader"
-    },
-    {
-      "id": "unit_138",
-      "unit": 138,
-      "band": "C1",
-      "canDo": "understand and use unit 138 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_14",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 138 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_138_dialogue",
-      "readerRef": "unit_138_reader"
-    },
-    {
-      "id": "unit_139",
-      "unit": 139,
-      "band": "C1",
-      "canDo": "understand and use unit 139 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_14",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 139 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_139_dialogue",
-      "readerRef": "unit_139_reader"
-    },
-    {
-      "id": "unit_140",
-      "unit": 140,
-      "band": "C1",
-      "canDo": "understand and use unit 140 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_14",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 140 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_140_dialogue",
-      "readerRef": "unit_140_reader"
-    },
-    {
-      "id": "unit_141",
+      "id": "c1_unit_141",
       "unit": 141,
       "band": "C1",
-      "canDo": "understand and use unit 141 C1 vocabulary in connected language",
+      "canDo": "adapt register to an academic or professional context",
       "concepts": [
         "AGENT_SUFFIXES"
       ],
@@ -2692,107 +1758,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 141 C1 vocabulary in connected language",
+        "function": "adapt register to an academic or professional context",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_141_dialogue",
-      "readerRef": "unit_141_reader"
+      "dialogueRef": "c1_unit_141_dialogue",
+      "readerRef": "c1_unit_141_reader"
     },
     {
-      "id": "unit_142",
-      "unit": 142,
-      "band": "C1",
-      "canDo": "understand and use unit 142 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_15",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 142 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_142_dialogue",
-      "readerRef": "unit_142_reader"
-    },
-    {
-      "id": "unit_143",
-      "unit": 143,
-      "band": "C1",
-      "canDo": "understand and use unit 143 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_15",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 143 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_143_dialogue",
-      "readerRef": "unit_143_reader"
-    },
-    {
-      "id": "unit_144",
-      "unit": 144,
-      "band": "C1",
-      "canDo": "understand and use unit 144 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_15",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 144 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_144_dialogue",
-      "readerRef": "unit_144_reader"
-    },
-    {
-      "id": "unit_145",
-      "unit": 145,
-      "band": "C1",
-      "canDo": "understand and use unit 145 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_15",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 145 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_145_dialogue",
-      "readerRef": "unit_145_reader"
-    },
-    {
-      "id": "unit_146",
-      "unit": 146,
-      "band": "C1",
-      "canDo": "understand and use unit 146 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_15",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 146 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_146_dialogue",
-      "readerRef": "unit_146_reader"
-    },
-    {
-      "id": "unit_147",
+      "id": "c1_unit_147",
       "unit": 147,
       "band": "C1",
-      "canDo": "understand and use unit 147 C1 vocabulary in connected language",
+      "canDo": "synthesize complex information into a coherent response",
       "concepts": [
         "DIMINUTIVES"
       ],
@@ -2802,107 +1778,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 147 C1 vocabulary in connected language",
+        "function": "synthesize complex information into a coherent response",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_147_dialogue",
-      "readerRef": "unit_147_reader"
+      "dialogueRef": "c1_unit_147_dialogue",
+      "readerRef": "c1_unit_147_reader"
     },
     {
-      "id": "unit_148",
-      "unit": 148,
-      "band": "C1",
-      "canDo": "understand and use unit 148 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_15",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 148 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_148_dialogue",
-      "readerRef": "unit_148_reader"
-    },
-    {
-      "id": "unit_149",
-      "unit": 149,
-      "band": "C1",
-      "canDo": "understand and use unit 149 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_15",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 149 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_149_dialogue",
-      "readerRef": "unit_149_reader"
-    },
-    {
-      "id": "unit_150",
-      "unit": 150,
-      "band": "C1",
-      "canDo": "understand and use unit 150 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_15",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 150 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_150_dialogue",
-      "readerRef": "unit_150_reader"
-    },
-    {
-      "id": "unit_151",
-      "unit": 151,
-      "band": "C1",
-      "canDo": "understand and use unit 151 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_16",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 151 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_151_dialogue",
-      "readerRef": "unit_151_reader"
-    },
-    {
-      "id": "unit_152",
-      "unit": 152,
-      "band": "C1",
-      "canDo": "understand and use unit 152 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_16",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 152 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_152_dialogue",
-      "readerRef": "unit_152_reader"
-    },
-    {
-      "id": "unit_153",
+      "id": "c1_unit_153",
       "unit": 153,
       "band": "C1",
-      "canDo": "understand and use unit 153 C1 vocabulary in connected language",
+      "canDo": "adapt register to an academic or professional context",
       "concepts": [
         "ASPECT_PREFIXATION"
       ],
@@ -2912,107 +1798,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 153 C1 vocabulary in connected language",
+        "function": "adapt register to an academic or professional context",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_153_dialogue",
-      "readerRef": "unit_153_reader"
+      "dialogueRef": "c1_unit_153_dialogue",
+      "readerRef": "c1_unit_153_reader"
     },
     {
-      "id": "unit_154",
-      "unit": 154,
-      "band": "C1",
-      "canDo": "understand and use unit 154 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_16",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 154 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_154_dialogue",
-      "readerRef": "unit_154_reader"
-    },
-    {
-      "id": "unit_155",
-      "unit": 155,
-      "band": "C1",
-      "canDo": "understand and use unit 155 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_16",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 155 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_155_dialogue",
-      "readerRef": "unit_155_reader"
-    },
-    {
-      "id": "unit_156",
-      "unit": 156,
-      "band": "C1",
-      "canDo": "understand and use unit 156 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_16",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 156 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_156_dialogue",
-      "readerRef": "unit_156_reader"
-    },
-    {
-      "id": "unit_157",
-      "unit": 157,
-      "band": "C1",
-      "canDo": "understand and use unit 157 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_16",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 157 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_157_dialogue",
-      "readerRef": "unit_157_reader"
-    },
-    {
-      "id": "unit_158",
-      "unit": 158,
-      "band": "C1",
-      "canDo": "understand and use unit 158 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_16",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 158 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_158_dialogue",
-      "readerRef": "unit_158_reader"
-    },
-    {
-      "id": "unit_159",
+      "id": "c1_unit_159",
       "unit": 159,
       "band": "C1",
-      "canDo": "understand and use unit 159 C1 vocabulary in connected language",
+      "canDo": "synthesize complex information into a coherent response",
       "concepts": [
         "NEGATION_GENITIVE"
       ],
@@ -3022,107 +1818,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 159 C1 vocabulary in connected language",
+        "function": "synthesize complex information into a coherent response",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_159_dialogue",
-      "readerRef": "unit_159_reader"
+      "dialogueRef": "c1_unit_159_dialogue",
+      "readerRef": "c1_unit_159_reader"
     },
     {
-      "id": "unit_160",
-      "unit": 160,
-      "band": "C1",
-      "canDo": "understand and use unit 160 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_16",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 160 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_160_dialogue",
-      "readerRef": "unit_160_reader"
-    },
-    {
-      "id": "unit_161",
-      "unit": 161,
-      "band": "C1",
-      "canDo": "understand and use unit 161 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_17",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 161 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_161_dialogue",
-      "readerRef": "unit_161_reader"
-    },
-    {
-      "id": "unit_162",
-      "unit": 162,
-      "band": "C1",
-      "canDo": "understand and use unit 162 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_17",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 162 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_162_dialogue",
-      "readerRef": "unit_162_reader"
-    },
-    {
-      "id": "unit_163",
-      "unit": 163,
-      "band": "C1",
-      "canDo": "understand and use unit 163 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_17",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 163 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_163_dialogue",
-      "readerRef": "unit_163_reader"
-    },
-    {
-      "id": "unit_164",
-      "unit": 164,
-      "band": "C1",
-      "canDo": "understand and use unit 164 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_17",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 164 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_164_dialogue",
-      "readerRef": "unit_164_reader"
-    },
-    {
-      "id": "unit_165",
+      "id": "c1_unit_165",
       "unit": 165,
       "band": "C1",
-      "canDo": "understand and use unit 165 C1 vocabulary in connected language",
+      "canDo": "adapt register to an academic or professional context",
       "concepts": [
         "FOCUS_ORDER"
       ],
@@ -3132,107 +1838,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 165 C1 vocabulary in connected language",
+        "function": "adapt register to an academic or professional context",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_165_dialogue",
-      "readerRef": "unit_165_reader"
+      "dialogueRef": "c1_unit_165_dialogue",
+      "readerRef": "c1_unit_165_reader"
     },
     {
-      "id": "unit_166",
-      "unit": 166,
-      "band": "C1",
-      "canDo": "understand and use unit 166 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_17",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 166 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_166_dialogue",
-      "readerRef": "unit_166_reader"
-    },
-    {
-      "id": "unit_167",
-      "unit": 167,
-      "band": "C1",
-      "canDo": "understand and use unit 167 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_17",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 167 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_167_dialogue",
-      "readerRef": "unit_167_reader"
-    },
-    {
-      "id": "unit_168",
-      "unit": 168,
-      "band": "C1",
-      "canDo": "understand and use unit 168 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_17",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 168 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_168_dialogue",
-      "readerRef": "unit_168_reader"
-    },
-    {
-      "id": "unit_169",
-      "unit": 169,
-      "band": "C1",
-      "canDo": "understand and use unit 169 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_17",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 169 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_169_dialogue",
-      "readerRef": "unit_169_reader"
-    },
-    {
-      "id": "unit_170",
-      "unit": 170,
-      "band": "C1",
-      "canDo": "understand and use unit 170 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_17",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 170 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_170_dialogue",
-      "readerRef": "unit_170_reader"
-    },
-    {
-      "id": "unit_171",
+      "id": "c1_unit_171",
       "unit": 171,
       "band": "C1",
-      "canDo": "understand and use unit 171 C1 vocabulary in connected language",
+      "canDo": "synthesize complex information into a coherent response",
       "concepts": [
         "PARTICIPLE_RECOGNIZE"
       ],
@@ -3242,125 +1858,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 171 C1 vocabulary in connected language",
+        "function": "synthesize complex information into a coherent response",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_171_dialogue",
-      "readerRef": "unit_171_reader"
+      "dialogueRef": "c1_unit_171_dialogue",
+      "readerRef": "c1_unit_171_reader"
     },
     {
-      "id": "unit_172",
-      "unit": 172,
-      "band": "C1",
-      "canDo": "understand and use unit 172 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_18",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 172 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_172_dialogue",
-      "readerRef": "unit_172_reader"
-    },
-    {
-      "id": "unit_173",
-      "unit": 173,
-      "band": "C1",
-      "canDo": "understand and use unit 173 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_18",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 173 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_173_dialogue",
-      "readerRef": "unit_173_reader"
-    },
-    {
-      "id": "unit_174",
-      "unit": 174,
-      "band": "C1",
-      "canDo": "understand and use unit 174 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_18",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 174 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_174_dialogue",
-      "readerRef": "unit_174_reader"
-    },
-    {
-      "id": "unit_175",
-      "unit": 175,
-      "band": "C1",
-      "canDo": "understand and use unit 175 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_18",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 175 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_175_dialogue",
-      "readerRef": "unit_175_reader"
-    },
-    {
-      "id": "unit_176",
-      "unit": 176,
-      "band": "C1",
-      "canDo": "understand and use unit 176 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_18",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 176 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_176_dialogue",
-      "readerRef": "unit_176_reader"
-    },
-    {
-      "id": "unit_177",
-      "unit": 177,
-      "band": "C1",
-      "canDo": "understand and use unit 177 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_18",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 177 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_177_dialogue",
-      "readerRef": "unit_177_reader"
-    },
-    {
-      "id": "unit_178",
+      "id": "c1_unit_178",
       "unit": 178,
       "band": "C1",
-      "canDo": "understand and use unit 178 C1 vocabulary in connected language",
+      "canDo": "interpret implicit relationships in extended discourse",
       "concepts": [
         "PARTICIPLE_RELATIVE_TRANSFORM"
       ],
@@ -3370,107 +1878,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 178 C1 vocabulary in connected language",
+        "function": "interpret implicit relationships in extended discourse",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_178_dialogue",
-      "readerRef": "unit_178_reader"
+      "dialogueRef": "c1_unit_178_dialogue",
+      "readerRef": "c1_unit_178_reader"
     },
     {
-      "id": "unit_179",
-      "unit": 179,
-      "band": "C1",
-      "canDo": "understand and use unit 179 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_18",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 179 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_179_dialogue",
-      "readerRef": "unit_179_reader"
-    },
-    {
-      "id": "unit_180",
-      "unit": 180,
-      "band": "C1",
-      "canDo": "understand and use unit 180 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_18",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 180 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_180_dialogue",
-      "readerRef": "unit_180_reader"
-    },
-    {
-      "id": "unit_181",
-      "unit": 181,
-      "band": "C1",
-      "canDo": "understand and use unit 181 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_19",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 181 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_181_dialogue",
-      "readerRef": "unit_181_reader"
-    },
-    {
-      "id": "unit_182",
-      "unit": 182,
-      "band": "C1",
-      "canDo": "understand and use unit 182 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_19",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 182 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_182_dialogue",
-      "readerRef": "unit_182_reader"
-    },
-    {
-      "id": "unit_183",
-      "unit": 183,
-      "band": "C1",
-      "canDo": "understand and use unit 183 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_19",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 183 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_183_dialogue",
-      "readerRef": "unit_183_reader"
-    },
-    {
-      "id": "unit_184",
+      "id": "c1_unit_184",
       "unit": 184,
       "band": "C1",
-      "canDo": "understand and use unit 184 C1 vocabulary in connected language",
+      "canDo": "express a nuanced position precisely",
       "concepts": [
         "GERUND_SIMULTANEOUS"
       ],
@@ -3480,107 +1898,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 184 C1 vocabulary in connected language",
+        "function": "express a nuanced position precisely",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_184_dialogue",
-      "readerRef": "unit_184_reader"
+      "dialogueRef": "c1_unit_184_dialogue",
+      "readerRef": "c1_unit_184_reader"
     },
     {
-      "id": "unit_185",
-      "unit": 185,
-      "band": "C1",
-      "canDo": "understand and use unit 185 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_19",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 185 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_185_dialogue",
-      "readerRef": "unit_185_reader"
-    },
-    {
-      "id": "unit_186",
-      "unit": 186,
-      "band": "C1",
-      "canDo": "understand and use unit 186 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_19",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 186 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_186_dialogue",
-      "readerRef": "unit_186_reader"
-    },
-    {
-      "id": "unit_187",
-      "unit": 187,
-      "band": "C1",
-      "canDo": "understand and use unit 187 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_19",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 187 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_187_dialogue",
-      "readerRef": "unit_187_reader"
-    },
-    {
-      "id": "unit_188",
-      "unit": 188,
-      "band": "C1",
-      "canDo": "understand and use unit 188 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_19",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 188 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_188_dialogue",
-      "readerRef": "unit_188_reader"
-    },
-    {
-      "id": "unit_189",
-      "unit": 189,
-      "band": "C1",
-      "canDo": "understand and use unit 189 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_19",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 189 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_189_dialogue",
-      "readerRef": "unit_189_reader"
-    },
-    {
-      "id": "unit_190",
+      "id": "c1_unit_190",
       "unit": 190,
       "band": "C1",
-      "canDo": "understand and use unit 190 C1 vocabulary in connected language",
+      "canDo": "interpret implicit relationships in extended discourse",
       "concepts": [
         "GERUND_ANTERIOR"
       ],
@@ -3590,107 +1918,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 190 C1 vocabulary in connected language",
+        "function": "interpret implicit relationships in extended discourse",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_190_dialogue",
-      "readerRef": "unit_190_reader"
+      "dialogueRef": "c1_unit_190_dialogue",
+      "readerRef": "c1_unit_190_reader"
     },
     {
-      "id": "unit_191",
-      "unit": 191,
-      "band": "C1",
-      "canDo": "understand and use unit 191 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_20",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 191 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_191_dialogue",
-      "readerRef": "unit_191_reader"
-    },
-    {
-      "id": "unit_192",
-      "unit": 192,
-      "band": "C1",
-      "canDo": "understand and use unit 192 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_20",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 192 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_192_dialogue",
-      "readerRef": "unit_192_reader"
-    },
-    {
-      "id": "unit_193",
-      "unit": 193,
-      "band": "C1",
-      "canDo": "understand and use unit 193 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_20",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 193 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_193_dialogue",
-      "readerRef": "unit_193_reader"
-    },
-    {
-      "id": "unit_194",
-      "unit": 194,
-      "band": "C1",
-      "canDo": "understand and use unit 194 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_20",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 194 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_194_dialogue",
-      "readerRef": "unit_194_reader"
-    },
-    {
-      "id": "unit_195",
-      "unit": 195,
-      "band": "C1",
-      "canDo": "understand and use unit 195 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_20",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 195 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_195_dialogue",
-      "readerRef": "unit_195_reader"
-    },
-    {
-      "id": "unit_196",
+      "id": "c1_unit_196",
       "unit": 196,
       "band": "C1",
-      "canDo": "understand and use unit 196 C1 vocabulary in connected language",
+      "canDo": "express a nuanced position precisely",
       "concepts": [
         "CONCESSIVE_NESMOTRYA"
       ],
@@ -3700,107 +1938,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 196 C1 vocabulary in connected language",
+        "function": "express a nuanced position precisely",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_196_dialogue",
-      "readerRef": "unit_196_reader"
+      "dialogueRef": "c1_unit_196_dialogue",
+      "readerRef": "c1_unit_196_reader"
     },
     {
-      "id": "unit_197",
-      "unit": 197,
-      "band": "C1",
-      "canDo": "understand and use unit 197 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_20",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 197 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_197_dialogue",
-      "readerRef": "unit_197_reader"
-    },
-    {
-      "id": "unit_198",
-      "unit": 198,
-      "band": "C1",
-      "canDo": "understand and use unit 198 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_20",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 198 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_198_dialogue",
-      "readerRef": "unit_198_reader"
-    },
-    {
-      "id": "unit_199",
-      "unit": 199,
-      "band": "C1",
-      "canDo": "understand and use unit 199 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_20",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 199 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_199_dialogue",
-      "readerRef": "unit_199_reader"
-    },
-    {
-      "id": "unit_200",
-      "unit": 200,
-      "band": "C1",
-      "canDo": "understand and use unit 200 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_20",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 200 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_200_dialogue",
-      "readerRef": "unit_200_reader"
-    },
-    {
-      "id": "unit_201",
-      "unit": 201,
-      "band": "C1",
-      "canDo": "understand and use unit 201 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_21",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 201 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_201_dialogue",
-      "readerRef": "unit_201_reader"
-    },
-    {
-      "id": "unit_202",
+      "id": "c1_unit_202",
       "unit": 202,
       "band": "C1",
-      "canDo": "understand and use unit 202 C1 vocabulary in connected language",
+      "canDo": "interpret implicit relationships in extended discourse",
       "concepts": [
         "CONNECTIVES_FORMAL"
       ],
@@ -3810,107 +1958,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 202 C1 vocabulary in connected language",
+        "function": "interpret implicit relationships in extended discourse",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_202_dialogue",
-      "readerRef": "unit_202_reader"
+      "dialogueRef": "c1_unit_202_dialogue",
+      "readerRef": "c1_unit_202_reader"
     },
     {
-      "id": "unit_203",
-      "unit": 203,
-      "band": "C1",
-      "canDo": "understand and use unit 203 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_21",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 203 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_203_dialogue",
-      "readerRef": "unit_203_reader"
-    },
-    {
-      "id": "unit_204",
-      "unit": 204,
-      "band": "C1",
-      "canDo": "understand and use unit 204 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_21",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 204 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_204_dialogue",
-      "readerRef": "unit_204_reader"
-    },
-    {
-      "id": "unit_205",
-      "unit": 205,
-      "band": "C1",
-      "canDo": "understand and use unit 205 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_21",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 205 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_205_dialogue",
-      "readerRef": "unit_205_reader"
-    },
-    {
-      "id": "unit_206",
-      "unit": 206,
-      "band": "C1",
-      "canDo": "understand and use unit 206 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_21",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 206 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_206_dialogue",
-      "readerRef": "unit_206_reader"
-    },
-    {
-      "id": "unit_207",
-      "unit": 207,
-      "band": "C1",
-      "canDo": "understand and use unit 207 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_21",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 207 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_207_dialogue",
-      "readerRef": "unit_207_reader"
-    },
-    {
-      "id": "unit_208",
+      "id": "c1_unit_208",
       "unit": 208,
       "band": "C1",
-      "canDo": "understand and use unit 208 C1 vocabulary in connected language",
+      "canDo": "express a nuanced position precisely",
       "concepts": [
         "PARTICLE_ZHE"
       ],
@@ -3920,107 +1978,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 208 C1 vocabulary in connected language",
+        "function": "express a nuanced position precisely",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_208_dialogue",
-      "readerRef": "unit_208_reader"
+      "dialogueRef": "c1_unit_208_dialogue",
+      "readerRef": "c1_unit_208_reader"
     },
     {
-      "id": "unit_209",
-      "unit": 209,
-      "band": "C1",
-      "canDo": "understand and use unit 209 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_21",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 209 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_209_dialogue",
-      "readerRef": "unit_209_reader"
-    },
-    {
-      "id": "unit_210",
-      "unit": 210,
-      "band": "C1",
-      "canDo": "understand and use unit 210 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_21",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 210 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_210_dialogue",
-      "readerRef": "unit_210_reader"
-    },
-    {
-      "id": "unit_211",
-      "unit": 211,
-      "band": "C1",
-      "canDo": "understand and use unit 211 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_22",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 211 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_211_dialogue",
-      "readerRef": "unit_211_reader"
-    },
-    {
-      "id": "unit_212",
-      "unit": 212,
-      "band": "C1",
-      "canDo": "understand and use unit 212 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_22",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 212 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_212_dialogue",
-      "readerRef": "unit_212_reader"
-    },
-    {
-      "id": "unit_213",
-      "unit": 213,
-      "band": "C1",
-      "canDo": "understand and use unit 213 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_22",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 213 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_213_dialogue",
-      "readerRef": "unit_213_reader"
-    },
-    {
-      "id": "unit_214",
+      "id": "c1_unit_214",
       "unit": 214,
       "band": "C1",
-      "canDo": "understand and use unit 214 C1 vocabulary in connected language",
+      "canDo": "interpret implicit relationships in extended discourse",
       "concepts": [
         "PARTICLE_VED"
       ],
@@ -4030,107 +1998,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 214 C1 vocabulary in connected language",
+        "function": "interpret implicit relationships in extended discourse",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_214_dialogue",
-      "readerRef": "unit_214_reader"
+      "dialogueRef": "c1_unit_214_dialogue",
+      "readerRef": "c1_unit_214_reader"
     },
     {
-      "id": "unit_215",
-      "unit": 215,
-      "band": "C1",
-      "canDo": "understand and use unit 215 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_22",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 215 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_215_dialogue",
-      "readerRef": "unit_215_reader"
-    },
-    {
-      "id": "unit_216",
-      "unit": 216,
-      "band": "C1",
-      "canDo": "understand and use unit 216 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_22",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 216 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_216_dialogue",
-      "readerRef": "unit_216_reader"
-    },
-    {
-      "id": "unit_217",
-      "unit": 217,
-      "band": "C1",
-      "canDo": "understand and use unit 217 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_22",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 217 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_217_dialogue",
-      "readerRef": "unit_217_reader"
-    },
-    {
-      "id": "unit_218",
-      "unit": 218,
-      "band": "C1",
-      "canDo": "understand and use unit 218 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_22",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 218 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_218_dialogue",
-      "readerRef": "unit_218_reader"
-    },
-    {
-      "id": "unit_219",
-      "unit": 219,
-      "band": "C1",
-      "canDo": "understand and use unit 219 C1 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c1_22",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 219 C1 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_219_dialogue",
-      "readerRef": "unit_219_reader"
-    },
-    {
-      "id": "unit_220",
+      "id": "c1_unit_220",
       "unit": 220,
       "band": "C1",
-      "canDo": "understand and use unit 220 C1 vocabulary in connected language",
+      "canDo": "express a nuanced position precisely",
       "concepts": [
         "FORMAL_NEWS"
       ],
@@ -4140,17 +2018,153 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 220 C1 vocabulary in connected language",
+        "function": "express a nuanced position precisely",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_220_dialogue",
-      "readerRef": "unit_220_reader"
+      "dialogueRef": "c1_unit_220_dialogue",
+      "readerRef": "c1_unit_220_reader"
     },
     {
-      "id": "unit_221",
+      "id": "c2_unit_045",
+      "unit": 45,
+      "band": "C2",
+      "canDo": "restructure dense discourse without loss of nuance",
+      "concepts": [
+        "DISCOURSE_PARTICLES"
+      ],
+      "capstone": "c2_5",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "restructure dense discourse without loss of nuance",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "c2_unit_045_dialogue",
+      "readerRef": "c2_unit_045_reader"
+    },
+    {
+      "id": "c2_unit_046",
+      "unit": 46,
+      "band": "C2",
+      "canDo": "interpret stylistic and pragmatic implications",
+      "concepts": [
+        "EMPHATIC_PARTICLES"
+      ],
+      "capstone": "c2_5",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "interpret stylistic and pragmatic implications",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "c2_unit_046_dialogue",
+      "readerRef": "c2_unit_046_reader"
+    },
+    {
+      "id": "c2_unit_047",
+      "unit": 47,
+      "band": "C2",
+      "canDo": "produce precise language for a complex unfamiliar situation",
+      "concepts": [
+        "BOOKISH_SUBORDINATION"
+      ],
+      "capstone": "c2_5",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "produce precise language for a complex unfamiliar situation",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "c2_unit_047_dialogue",
+      "readerRef": "c2_unit_047_reader"
+    },
+    {
+      "id": "c2_unit_048",
+      "unit": 48,
+      "band": "C2",
+      "canDo": "convey fine shades of meaning idiomatically",
+      "concepts": [
+        "INVERSION_EMPHASIS"
+      ],
+      "capstone": "c2_5",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "convey fine shades of meaning idiomatically",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "c2_unit_048_dialogue",
+      "readerRef": "c2_unit_048_reader"
+    },
+    {
+      "id": "c2_unit_049",
+      "unit": 49,
+      "band": "C2",
+      "canDo": "restructure dense discourse without loss of nuance",
+      "concepts": [
+        "SUBJUNCTIVE_NUANCE"
+      ],
+      "capstone": "c2_5",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "restructure dense discourse without loss of nuance",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "c2_unit_049_dialogue",
+      "readerRef": "c2_unit_049_reader"
+    },
+    {
+      "id": "c2_unit_050",
+      "unit": 50,
+      "band": "C2",
+      "canDo": "interpret stylistic and pragmatic implications",
+      "concepts": [],
+      "capstone": "c2_5",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "interpret stylistic and pragmatic implications",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "c2_unit_050_dialogue",
+      "readerRef": "c2_unit_050_reader"
+    },
+    {
+      "id": "c2_unit_051",
+      "unit": 51,
+      "band": "C2",
+      "canDo": "produce precise language for a complex unfamiliar situation",
+      "concepts": [],
+      "capstone": "c2_6",
+      "exitTicket": {
+        "recognition": 1,
+        "production": 1,
+        "listening": 1,
+        "reading": 1,
+        "function": "produce precise language for a complex unfamiliar situation",
+        "evidence": "PRACTICE"
+      },
+      "dialogueRef": "c2_unit_051_dialogue",
+      "readerRef": "c2_unit_051_reader"
+    },
+    {
+      "id": "c2_unit_221",
       "unit": 221,
       "band": "C2",
-      "canDo": "understand and use unit 221 C2 vocabulary in connected language",
+      "canDo": "restructure dense discourse without loss of nuance",
       "concepts": [
         "PARTICIPLE_PRODUCE"
       ],
@@ -4160,179 +2174,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 221 C2 vocabulary in connected language",
+        "function": "restructure dense discourse without loss of nuance",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_221_dialogue",
-      "readerRef": "unit_221_reader"
+      "dialogueRef": "c2_unit_221_dialogue",
+      "readerRef": "c2_unit_221_reader"
     },
     {
-      "id": "unit_222",
-      "unit": 222,
-      "band": "C2",
-      "canDo": "understand and use unit 222 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_23",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 222 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_222_dialogue",
-      "readerRef": "unit_222_reader"
-    },
-    {
-      "id": "unit_223",
-      "unit": 223,
-      "band": "C2",
-      "canDo": "understand and use unit 223 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_23",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 223 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_223_dialogue",
-      "readerRef": "unit_223_reader"
-    },
-    {
-      "id": "unit_224",
-      "unit": 224,
-      "band": "C2",
-      "canDo": "understand and use unit 224 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_23",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 224 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_224_dialogue",
-      "readerRef": "unit_224_reader"
-    },
-    {
-      "id": "unit_225",
-      "unit": 225,
-      "band": "C2",
-      "canDo": "understand and use unit 225 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_23",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 225 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_225_dialogue",
-      "readerRef": "unit_225_reader"
-    },
-    {
-      "id": "unit_226",
-      "unit": 226,
-      "band": "C2",
-      "canDo": "understand and use unit 226 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_23",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 226 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_226_dialogue",
-      "readerRef": "unit_226_reader"
-    },
-    {
-      "id": "unit_227",
-      "unit": 227,
-      "band": "C2",
-      "canDo": "understand and use unit 227 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_23",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 227 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_227_dialogue",
-      "readerRef": "unit_227_reader"
-    },
-    {
-      "id": "unit_228",
-      "unit": 228,
-      "band": "C2",
-      "canDo": "understand and use unit 228 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_23",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 228 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_228_dialogue",
-      "readerRef": "unit_228_reader"
-    },
-    {
-      "id": "unit_229",
-      "unit": 229,
-      "band": "C2",
-      "canDo": "understand and use unit 229 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_23",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 229 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_229_dialogue",
-      "readerRef": "unit_229_reader"
-    },
-    {
-      "id": "unit_230",
-      "unit": 230,
-      "band": "C2",
-      "canDo": "understand and use unit 230 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_23",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 230 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_230_dialogue",
-      "readerRef": "unit_230_reader"
-    },
-    {
-      "id": "unit_231",
+      "id": "c2_unit_231",
       "unit": 231,
       "band": "C2",
-      "canDo": "understand and use unit 231 C2 vocabulary in connected language",
+      "canDo": "produce precise language for a complex unfamiliar situation",
       "concepts": [
         "PARTICLE_TO"
       ],
@@ -4342,179 +2194,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 231 C2 vocabulary in connected language",
+        "function": "produce precise language for a complex unfamiliar situation",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_231_dialogue",
-      "readerRef": "unit_231_reader"
+      "dialogueRef": "c2_unit_231_dialogue",
+      "readerRef": "c2_unit_231_reader"
     },
     {
-      "id": "unit_232",
-      "unit": 232,
-      "band": "C2",
-      "canDo": "understand and use unit 232 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_24",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 232 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_232_dialogue",
-      "readerRef": "unit_232_reader"
-    },
-    {
-      "id": "unit_233",
-      "unit": 233,
-      "band": "C2",
-      "canDo": "understand and use unit 233 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_24",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 233 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_233_dialogue",
-      "readerRef": "unit_233_reader"
-    },
-    {
-      "id": "unit_234",
-      "unit": 234,
-      "band": "C2",
-      "canDo": "understand and use unit 234 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_24",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 234 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_234_dialogue",
-      "readerRef": "unit_234_reader"
-    },
-    {
-      "id": "unit_235",
-      "unit": 235,
-      "band": "C2",
-      "canDo": "understand and use unit 235 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_24",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 235 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_235_dialogue",
-      "readerRef": "unit_235_reader"
-    },
-    {
-      "id": "unit_236",
-      "unit": 236,
-      "band": "C2",
-      "canDo": "understand and use unit 236 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_24",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 236 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_236_dialogue",
-      "readerRef": "unit_236_reader"
-    },
-    {
-      "id": "unit_237",
-      "unit": 237,
-      "band": "C2",
-      "canDo": "understand and use unit 237 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_24",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 237 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_237_dialogue",
-      "readerRef": "unit_237_reader"
-    },
-    {
-      "id": "unit_238",
-      "unit": 238,
-      "band": "C2",
-      "canDo": "understand and use unit 238 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_24",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 238 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_238_dialogue",
-      "readerRef": "unit_238_reader"
-    },
-    {
-      "id": "unit_239",
-      "unit": 239,
-      "band": "C2",
-      "canDo": "understand and use unit 239 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_24",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 239 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_239_dialogue",
-      "readerRef": "unit_239_reader"
-    },
-    {
-      "id": "unit_240",
-      "unit": 240,
-      "band": "C2",
-      "canDo": "understand and use unit 240 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_24",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 240 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_240_dialogue",
-      "readerRef": "unit_240_reader"
-    },
-    {
-      "id": "unit_241",
+      "id": "c2_unit_241",
       "unit": 241,
       "band": "C2",
-      "canDo": "understand and use unit 241 C2 vocabulary in connected language",
+      "canDo": "restructure dense discourse without loss of nuance",
       "concepts": [
         "PARTICLE_UZH"
       ],
@@ -4524,197 +2214,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 241 C2 vocabulary in connected language",
+        "function": "restructure dense discourse without loss of nuance",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_241_dialogue",
-      "readerRef": "unit_241_reader"
+      "dialogueRef": "c2_unit_241_dialogue",
+      "readerRef": "c2_unit_241_reader"
     },
     {
-      "id": "unit_242",
-      "unit": 242,
-      "band": "C2",
-      "canDo": "understand and use unit 242 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_25",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 242 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_242_dialogue",
-      "readerRef": "unit_242_reader"
-    },
-    {
-      "id": "unit_243",
-      "unit": 243,
-      "band": "C2",
-      "canDo": "understand and use unit 243 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_25",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 243 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_243_dialogue",
-      "readerRef": "unit_243_reader"
-    },
-    {
-      "id": "unit_244",
-      "unit": 244,
-      "band": "C2",
-      "canDo": "understand and use unit 244 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_25",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 244 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_244_dialogue",
-      "readerRef": "unit_244_reader"
-    },
-    {
-      "id": "unit_245",
-      "unit": 245,
-      "band": "C2",
-      "canDo": "understand and use unit 245 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_25",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 245 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_245_dialogue",
-      "readerRef": "unit_245_reader"
-    },
-    {
-      "id": "unit_246",
-      "unit": 246,
-      "band": "C2",
-      "canDo": "understand and use unit 246 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_25",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 246 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_246_dialogue",
-      "readerRef": "unit_246_reader"
-    },
-    {
-      "id": "unit_247",
-      "unit": 247,
-      "band": "C2",
-      "canDo": "understand and use unit 247 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_25",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 247 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_247_dialogue",
-      "readerRef": "unit_247_reader"
-    },
-    {
-      "id": "unit_248",
-      "unit": 248,
-      "band": "C2",
-      "canDo": "understand and use unit 248 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_25",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 248 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_248_dialogue",
-      "readerRef": "unit_248_reader"
-    },
-    {
-      "id": "unit_249",
-      "unit": 249,
-      "band": "C2",
-      "canDo": "understand and use unit 249 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_25",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 249 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_249_dialogue",
-      "readerRef": "unit_249_reader"
-    },
-    {
-      "id": "unit_250",
-      "unit": 250,
-      "band": "C2",
-      "canDo": "understand and use unit 250 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_25",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 250 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_250_dialogue",
-      "readerRef": "unit_250_reader"
-    },
-    {
-      "id": "unit_251",
-      "unit": 251,
-      "band": "C2",
-      "canDo": "understand and use unit 251 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_26",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 251 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_251_dialogue",
-      "readerRef": "unit_251_reader"
-    },
-    {
-      "id": "unit_252",
+      "id": "c2_unit_252",
       "unit": 252,
       "band": "C2",
-      "canDo": "understand and use unit 252 C2 vocabulary in connected language",
+      "canDo": "convey fine shades of meaning idiomatically",
       "concepts": [
         "FORMAL_OFFICIAL"
       ],
@@ -4724,179 +2234,17 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 252 C2 vocabulary in connected language",
+        "function": "convey fine shades of meaning idiomatically",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_252_dialogue",
-      "readerRef": "unit_252_reader"
+      "dialogueRef": "c2_unit_252_dialogue",
+      "readerRef": "c2_unit_252_reader"
     },
     {
-      "id": "unit_253",
-      "unit": 253,
-      "band": "C2",
-      "canDo": "understand and use unit 253 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_26",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 253 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_253_dialogue",
-      "readerRef": "unit_253_reader"
-    },
-    {
-      "id": "unit_254",
-      "unit": 254,
-      "band": "C2",
-      "canDo": "understand and use unit 254 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_26",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 254 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_254_dialogue",
-      "readerRef": "unit_254_reader"
-    },
-    {
-      "id": "unit_255",
-      "unit": 255,
-      "band": "C2",
-      "canDo": "understand and use unit 255 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_26",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 255 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_255_dialogue",
-      "readerRef": "unit_255_reader"
-    },
-    {
-      "id": "unit_256",
-      "unit": 256,
-      "band": "C2",
-      "canDo": "understand and use unit 256 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_26",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 256 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_256_dialogue",
-      "readerRef": "unit_256_reader"
-    },
-    {
-      "id": "unit_257",
-      "unit": 257,
-      "band": "C2",
-      "canDo": "understand and use unit 257 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_26",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 257 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_257_dialogue",
-      "readerRef": "unit_257_reader"
-    },
-    {
-      "id": "unit_258",
-      "unit": 258,
-      "band": "C2",
-      "canDo": "understand and use unit 258 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_26",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 258 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_258_dialogue",
-      "readerRef": "unit_258_reader"
-    },
-    {
-      "id": "unit_259",
-      "unit": 259,
-      "band": "C2",
-      "canDo": "understand and use unit 259 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_26",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 259 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_259_dialogue",
-      "readerRef": "unit_259_reader"
-    },
-    {
-      "id": "unit_260",
-      "unit": 260,
-      "band": "C2",
-      "canDo": "understand and use unit 260 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_26",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 260 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_260_dialogue",
-      "readerRef": "unit_260_reader"
-    },
-    {
-      "id": "unit_261",
-      "unit": 261,
-      "band": "C2",
-      "canDo": "understand and use unit 261 C2 vocabulary in connected language",
-      "concepts": [],
-      "capstone": "c2_27",
-      "exitTicket": {
-        "recognition": 1,
-        "production": 1,
-        "listening": 1,
-        "reading": 1,
-        "function": "understand and use unit 261 C2 vocabulary in connected language",
-        "evidence": "PRACTICE"
-      },
-      "dialogueRef": "unit_261_dialogue",
-      "readerRef": "unit_261_reader"
-    },
-    {
-      "id": "unit_262",
+      "id": "c2_unit_262",
       "unit": 262,
       "band": "C2",
-      "canDo": "understand and use unit 262 C2 vocabulary in connected language",
+      "canDo": "interpret stylistic and pragmatic implications",
       "concepts": [
         "FORMAL_ACADEMIC"
       ],
@@ -4906,11 +2254,11 @@
         "production": 1,
         "listening": 1,
         "reading": 1,
-        "function": "understand and use unit 262 C2 vocabulary in connected language",
+        "function": "interpret stylistic and pragmatic implications",
         "evidence": "PRACTICE"
       },
-      "dialogueRef": "unit_262_dialogue",
-      "readerRef": "unit_262_reader"
+      "dialogueRef": "c2_unit_262_dialogue",
+      "readerRef": "c2_unit_262_reader"
     }
   ]
 }

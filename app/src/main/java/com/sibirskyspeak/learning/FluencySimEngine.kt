@@ -13,7 +13,20 @@ import kotlin.random.Random
 /** Runs the production pace controller and FSRS scheduler forward day by day. */
 object FluencySimEngine {
     const val DAY_MILLIS = 86_400_000L
-    private const val MAX_DAYS = 3_650
+    // Was 3_650 (10 simulated years). PaceController.generatePace() (called once
+    // per simulated day) does several O(n) scans over the accumulated `cards` list
+    // internally (reviewLoadNow/atRisk/dueForecast), and that list only ever grows
+    // over the simulated horizon — so total cost is roughly O(days * finalCardCount),
+    // which measured 34s on-device for a real account (see
+    // ReviewViewModel.maybeRefreshFluencyForecast, which now also runs this off the
+    // Main dispatcher as the primary fix). Rewriting PaceController's internals to
+    // avoid the scans isn't safe to do here — it's also the real production
+    // scheduling path, not just this simulation. Capping the horizon at 4 years
+    // bounds the worst case to roughly (1460/3650)^2 ≈ 16% of the original cost
+    // instead. Past a few years, "reached in 2,800 days" isn't meaningfully more
+    // useful to a learner than "not reached within 4 years" — the UI (see
+    // FluencyForecastCard) already handles an unreached milestone gracefully.
+    private const val MAX_DAYS = 1_460
     private val MILESTONES = linkedMapOf(
         "A1" to 700, "A2" to 1_353, "B1" to 2_538,
         "B2" to 4_209, "C1" to 5_192, "C2" to 6_983
@@ -47,13 +60,12 @@ object FluencySimEngine {
         initialActiveCards: List<Card>,
         totalKnownStart: Int,
         evidenceDays: Int = 0,
-        doctrine: Doctrine = Doctrine.BALANCED,
         recentAccuracy: Double = 0.88,
         startTimeMillis: Long = System.currentTimeMillis()
     ): SimResult {
         val core = simulate(
             currentCapacity, currentWillingness, initialActiveCards,
-            totalKnownStart, doctrine, recentAccuracy, startTimeMillis
+            totalKnownStart, recentAccuracy, startTimeMillis
         )
         // Data scarcity widens the interval. At zero history the displayed range
         // is deliberately broad; it tightens smoothly through the first month.
@@ -74,7 +86,6 @@ object FluencySimEngine {
         initialWillingness: WillingnessBelief,
         initialCards: List<Card>,
         knownStart: Int,
-        doctrine: Doctrine,
         accuracy: Double,
         start: Long
     ): SimResult {
@@ -121,7 +132,6 @@ object FluencySimEngine {
                     recentAccuracy = accuracy,
                     medianReviewMinutes = 0.18
                 ),
-                doctrine = doctrine,
                 now = now
             )
             var reviews = 0

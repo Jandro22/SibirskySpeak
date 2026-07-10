@@ -20,51 +20,35 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
 
 
+def run_step(step: int, total: int, description: str, script: str) -> int | None:
+    """Run one pipeline script, printing its banner. Returns an exit code on
+    failure, or None on success, so main() can just `return` a non-None result."""
+    print(f"\n=== Step {step}/{total}: {description} ===")
+    try:
+        subprocess.run([sys.executable, f"tools/preprocess/{script}"], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error during step {step}: {e}", file=sys.stderr)
+        return 1
+    return None
+
+
 def main() -> int:
     # Ensure commands are run from the repo root
     os.chdir(REPO_ROOT)
 
-    print("=== Step 0/5: Generating GrammarConcepts.kt ===")
-    try:
-        subprocess.run(
-            [sys.executable, "tools/preprocess/generate_concepts.py"],
-            check=True,
-        )
-    except subprocess.CalledProcessError as e:
-        print(f"Error during step 0: {e}", file=sys.stderr)
-        return 1
+    steps = [
+        ("Generating GrammarConcepts.kt", "generate_concepts.py"),
+        ("Compiling curriculum notes (initial build)", "build_bootstrap.py"),
+        ("Running lexicon verification", "verify_lexicon.py"),
+        ("Re-compiling curriculum notes (final build)", "build_bootstrap.py"),
+    ]
+    total_steps = len(steps) + 1  # + the informational reader-gap report below
+    for step, (description, script) in enumerate(steps):
+        failure = run_step(step, total_steps, description, script)
+        if failure is not None:
+            return failure
 
-    print("\n=== Step 1/5: Compiling curriculum notes (initial build) ===")
-    try:
-        subprocess.run(
-            [sys.executable, "tools/preprocess/build_bootstrap.py"],
-            check=True,
-        )
-    except subprocess.CalledProcessError as e:
-        print(f"Error during step 1: {e}", file=sys.stderr)
-        return 1
-
-    print("\n=== Step 2/5: Running lexicon verification ===")
-    try:
-        subprocess.run(
-            [sys.executable, "tools/preprocess/verify_lexicon.py"],
-            check=True,
-        )
-    except subprocess.CalledProcessError as e:
-        print(f"Error during step 2: {e}", file=sys.stderr)
-        return 1
-
-    print("\n=== Step 3/5: Re-compiling curriculum notes (final build) ===")
-    try:
-        subprocess.run(
-            [sys.executable, "tools/preprocess/build_bootstrap.py"],
-            check=True,
-        )
-    except subprocess.CalledProcessError as e:
-        print(f"Error during step 3: {e}", file=sys.stderr)
-        return 1
-
-    print("\n=== Step 4/5: Reader coverage gap report (informational, non-blocking) ===")
+    print(f"\n=== Step {len(steps)}/{total_steps}: Reader coverage gap report (informational, non-blocking) ===")
     subprocess.run(
         [sys.executable, "tools/preprocess/reader_gap_report.py"],
         check=False,

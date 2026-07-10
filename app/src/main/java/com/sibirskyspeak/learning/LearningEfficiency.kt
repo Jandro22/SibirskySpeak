@@ -242,12 +242,10 @@ fun AnswerMode.isHardProduction(): Boolean =
     this == AnswerMode.RUSSIAN_TYPED || this == AnswerMode.RUSSIAN_STRESS_TYPED ||
         this == AnswerMode.SPEAK || this == AnswerMode.AUDIO_ONLY
 
-enum class SessionMode { QUICK, FULL, STRETCH }
 enum class SessionPhase { WARM_UP, CORE, COOL_DOWN }
 enum class FlowState { STRUGGLING, STEADY, FLOW }
 
 data class SessionBlueprint(
-    val mode: SessionMode,
     val atRiskCardIds: Set<Long>,
     val reviewBudget: Int,
     val newBudget: Int,
@@ -259,6 +257,10 @@ data class SessionBlueprint(
     val totalBudget: Int get() = reviewBudget + newBudget
 }
 
+// Builds one generously-sized pool of candidate work; how much of it a learner
+// actually sees is a real-time decision (SessionMpcController), not something
+// pre-declared here. `capacity` is a pagination hint (how much to materialize
+// at once), not a hard ceiling — the caller refills it as it's consumed.
 object BlueprintBuilder {
     private const val DAY_MS = 86_400_000.0
 
@@ -270,7 +272,6 @@ object BlueprintBuilder {
         capacity: Int,
         backlog: Boolean,
         recentAccuracy: Double,
-        mode: SessionMode = SessionMode.FULL,
         successProbability: ((Card) -> Double)? = null,
         decay: Double = FsrsScheduler.decayOf(FsrsScheduler.DEFAULT_WEIGHTS)
     ): SessionBlueprint {
@@ -289,22 +290,19 @@ object BlueprintBuilder {
             successProbability?.invoke(card)?.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0)
                 ?: FsrsScheduler.retrievabilityOf(elapsed, card.stability, decay)
         }
-        val hardCapacity = when (mode) {
-            SessionMode.QUICK -> risks.size
-            SessionMode.FULL -> safeCapacity
-            SessionMode.STRETCH -> (safeCapacity.toLong() + max(3, safeCapacity / 4)).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        }
-            .coerceAtLeast(0)
+        val hardCapacity = safeCapacity
         val reviews = minOf(risks.size, hardCapacity)
         val adaptiveNew = when {
-            mode == SessionMode.QUICK || backlog -> 0
+            backlog -> 0
             safeAccuracy < 0.75 -> safeNewCap / 2
-            safeAccuracy > 0.90 && mode == SessionMode.STRETCH -> safeNewCap.toLong().plus(3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            // A small continuous bonus when accuracy is comfortably high — replaces
+            // the old STRETCH mode's fixed +3, now always available rather than
+            // gated behind a pre-declared plan-time choice.
+            safeAccuracy > 0.90 -> (safeNewCap.toLong() + 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
             else -> safeNewCap
         }.coerceAtMost((hardCapacity - reviews).coerceAtLeast(0))
         val total = reviews + adaptiveNew
         return SessionBlueprint(
-            mode = mode,
             atRiskCardIds = risks.take(reviews).mapTo(linkedSetOf()) { it.id },
             reviewBudget = reviews,
             newBudget = adaptiveNew,
@@ -329,7 +327,17 @@ data class LiveSessionState(
     val recentCardTypes: List<CardType> = emptyList(),
     // Whether each of the most-recently-shown cards was a "hard" productive card, so
     // the scorer can actually alternate hard/easy. Last element = previous card.
-    val recentHard: List<Boolean> = emptyList()
+    val recentHard: List<Boolean> = emptyList(),
+    // Cards left in an active confidence-rebuild window (see MpcAction.RECOVER):
+    // >0 means NextCardSelector should bias toward high-success-probability review
+    // material instead of continuing to serve at-risk/new cards. Decrements to 0 as
+    // the window is consumed; a struggle signal that persists past that point is a
+    // real fatigue signal, not "this topic is hard" (see SessionMpcController).
+    val recoveryWindowRemaining: Int = 0,
+    // Whether a recovery window has already been tried and exhausted this sitting,
+    // without accuracy recovering — once true, further struggle escalates straight
+    // to STOP instead of offering another recovery attempt.
+    val recoveryAttempted: Boolean = false
 ) {
     val flow: FlowState get() {
         if (recent.size < 3) return FlowState.STEADY
@@ -371,7 +379,14 @@ object NextCardSelector {
         // Prefer note spacing, but do not end a session merely because the only
         // prerequisite-safe work happens to be a sibling of the previous card.
         val spaced = prerequisiteSafe.filter { it.note.id !in live.recentNoteIds.takeLast(1) }
-        val eligible = spaced.ifEmpty { prerequisiteSafe }
+        val spacedEligible = spaced.ifEmpty { prerequisiteSafe }
+        // Inside a confidence-rebuild window, favor well-known material (high
+        // success probability) over at-risk/new cards, so the sitting recovers
+        // instead of ejecting or grinding on the exact thing that's failing.
+        val eligible = if (live.recoveryWindowRemaining > 0) {
+            val confident = spacedEligible.filter { successProbability(it) >= 0.85 }
+            confident.ifEmpty { spacedEligible }
+        } else spacedEligible
         return eligible.maxByOrNull { prompt ->
             val success = successProbability(prompt)
             score(prompt, phase, blueprint, live, confusableNoteIds, targetDifficulty, productionRatio, success) +
@@ -426,7 +441,7 @@ object NextCardSelector {
     fun recoveryGap(flow: FlowState): Int = when (flow) { FlowState.STRUGGLING -> 4; FlowState.STEADY -> 6; FlowState.FLOW -> 8 }
 }
 
-enum class MpcAction { CARD, STOP, STRETCH }
+enum class MpcAction { CARD, STOP, STRETCH, GRACE, RECOVER }
 
 data class MpcInputs(
     val targetAccuracy: Double = 0.85,
@@ -435,7 +450,14 @@ data class MpcInputs(
     val debtLimit: Double = 0.35,
     val pReturn: Double = 0.8,
     val stretchAlreadyOffered: Boolean = false,
-    val minimumEvidenceCards: Int = 6
+    val minimumEvidenceCards: Int = 6,
+    // The id of the card whose rating just triggered this decision, IF it failed this
+    // sitting and hasn't yet been granted its one extra "GRACE" attempt — null when the
+    // just-rated card succeeded, or already had its grace rep. Abandoning a card right
+    // after it fails (rather than letting it graduate like a card that fails once and
+    // then succeeds normally would) just defers an uncorrected lapse to next time, which
+    // re-trips the same stop — see MpcAction.GRACE.
+    val justFailedUngracedCardId: Long? = null
 )
 
 object SessionMpcController {
@@ -457,9 +479,18 @@ object SessionMpcController {
         val severeFatigue = live.shown >= 4 && inputs.fatigue >= 0.80
         val sustainedStruggle = recent.size >= 4 && accuracy <= 0.50 &&
             (inputs.fatigue >= 0.45 || !speedHolding)
+        val struggling = severeFatigue || sustainedStruggle
         val stretchUtility = if (canStretch) 1.25 + 0.8 * (accuracy - inputs.targetAccuracy) - 0.4 * inputs.fatigue else Double.NEGATIVE_INFINITY
         return when {
-            severeFatigue || sustainedStruggle -> MpcAction.STOP
+            struggling && inputs.justFailedUngracedCardId != null -> MpcAction.GRACE
+            // Already inside a confidence-rebuild window: let it play out on easy
+            // material rather than re-triggering another decision every card.
+            struggling && live.recoveryWindowRemaining > 0 -> MpcAction.CARD
+            // First sign of sustained struggle this sitting: try recovery instead
+            // of ejecting outright. Only escalate to STOP once recovery has
+            // already been tried and exhausted without accuracy coming back.
+            struggling && !live.recoveryAttempted -> MpcAction.RECOVER
+            struggling -> MpcAction.STOP
             stretchUtility > 0.9 -> MpcAction.STRETCH
             else -> MpcAction.CARD
         }

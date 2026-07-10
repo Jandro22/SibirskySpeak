@@ -51,10 +51,14 @@ def validate_and_expand():
         spine_2.append({
             "id": spec_id,
             "title": title,
-            "lesson": f"This stage develops {title.lower()} as a reusable contrast in connected Russian.",
-            "exampleRu": title,
-            "exampleEn": title,
-            "hint": title,
+            # Real content should live in concepts.json (see the 66 staged_specs
+            # entries authored 2026-07-10). This fallback only covers ids that
+            # haven't been authored yet, so it should never surface as real
+            # lesson content in the app — it's a scaffold, not a substitute.
+            "lesson": spec.get("lesson", f"This stage develops {title.lower()} as a reusable contrast in connected Russian."),
+            "exampleRu": spec.get("exampleRu", title),
+            "exampleEn": spec.get("exampleEn", title),
+            "hint": spec.get("hint", title),
             "order": order,
             "spine": False,
             "cefrLevel": band,
@@ -167,6 +171,22 @@ def validate_and_expand():
     lines.append("")
     
     lines.append("    private val byId: Map<String, GrammarConcept> = ALL.associateBy { it.id }")
+    lines.append("")
+    lines.append("    init {")
+    lines.append("        require(byId.size == ALL.size) { \"Duplicate grammar concept id\" }")
+    lines.append("        val ids = byId.keys")
+    lines.append("        ALL.forEach { concept ->")
+    lines.append("            require(concept.prerequisites.all(ids::contains)) { \"Unknown prerequisite on ${concept.id}\" }")
+    lines.append("            require(concept.interferesWith.all(ids::contains)) { \"Unknown interference edge on ${concept.id}\" }")
+    lines.append("        }")
+    lines.append("        fun visit(id: String, visiting: MutableSet<String>, visited: MutableSet<String>) {")
+    lines.append("            if (id in visited) return")
+    lines.append("            require(visiting.add(id)) { \"Grammar prerequisite cycle at $id\" }")
+    lines.append("            byId.getValue(id).prerequisites.forEach { visit(it, visiting, visited) }")
+    lines.append("            visiting.remove(id); visited.add(id)")
+    lines.append("        }")
+    lines.append("        ALL.forEach { visit(it.id, mutableSetOf(), mutableSetOf()) }")
+    lines.append("    }")
     lines.append("")
     lines.append("    fun byId(id: String?): GrammarConcept? = id?.let { byId[it] }")
     lines.append("")

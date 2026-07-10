@@ -1,6 +1,15 @@
 package com.sibirskyspeak
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -37,9 +46,11 @@ import kotlin.math.roundToInt
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -76,6 +87,7 @@ import com.sibirskyspeak.review.ReviewUiState
 import com.sibirskyspeak.learning.AbilitySkill
 import com.sibirskyspeak.learning.Rival
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 // ---------------------------------------------------------------------------
 // Dashboard
@@ -85,17 +97,15 @@ import java.util.Locale
 internal fun DashboardPanel(
     state: ReviewUiState,
     onStart: () -> Unit,
-    onOpenReader: (Long) -> Unit,
-    onTimeBudget: (Int) -> Unit = {},
     onLoadLeeches: () -> Unit = {},
     onReleaseLeech: (LeechItem) -> Unit = {},
     onSaveLeechEdit: (LeechItem, String?, String?, String?, String?) -> Unit = { _, _, _, _, _ -> },
-    onApplyDoctrineNudge: () -> Unit = {},
-    onDismissDoctrineNudge: () -> Unit = {},
     onStartExitTicket: () -> Unit = {},
     onDismissExitTicketOffer: () -> Unit = {},
     onSubmitExitTicketAnswer: (String) -> Unit = {},
-    onCloseExitTicket: () -> Unit = {}
+    onCloseExitTicket: () -> Unit = {},
+    onSpeakRussian: (String) -> Unit = {},
+    onGoToBackupSettings: () -> Unit = {}
 ) {
     val stats = state.dashboardStats
     if (stats == null) {
@@ -119,15 +129,24 @@ internal fun DashboardPanel(
     var editingLeech by remember { mutableStateOf<LeechItem?>(null) }
     LaunchedEffect(stats.leechCount) { if (stats.leechCount > 0) onLoadLeeches() }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        state.sessionPlan?.doctrineNudge?.let { nudge ->
-            DoctrineNudgeCard(nudge, onApplyDoctrineNudge, onDismissDoctrineNudge)
+        // The local backup (see BackupManager) lives in app-private storage, which
+        // does NOT survive an uninstall or "Clear storage" — by design, per its own
+        // doc comment. BackupManager now mirrors to public Downloads/SibirskySpeak
+        // via MediaStore automatically (Android 10+, no folder picker, no
+        // permission prompt) — backupLastDurableAt lands the moment the first
+        // post-update session completes, so this card only shows for the narrow
+        // window before that first automatic mirror, or on a pre-Android-10 device
+        // where MediaStore.Downloads isn't available and a manually-chosen SAF
+        // folder (Settings > Data) is the only durable option.
+        if (state.backupLastDurableAt <= 0L && stats.noteCount > 0) {
+            BackupNotConfiguredCard(onGoToBackupSettings)
         }
         if (state.exitTicketSession != null) {
-            ExitTicketCard(state, onSubmitExitTicketAnswer, onCloseExitTicket)
+            ExitTicketCard(state, onSubmitExitTicketAnswer, onCloseExitTicket, onSpeakRussian)
         } else if (state.exitTicketOfferUnit != null) {
             ExitTicketOfferCard(state.exitTicketOfferUnit, state.exitTicketOfferCanDo, onStartExitTicket, onDismissExitTicketOffer)
         }
-        DashboardNextActionCard(state, onStart, onOpenReader, onTimeBudget)
+        DashboardNextActionCard(state, onStart)
         stats.goalProgress?.let { goal ->
             SectionCard {
                 Text("${goal.unknownLemmaCount} words to «${goal.textTitle}»", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -155,26 +174,56 @@ internal fun DashboardPanel(
     }
 }
 
+/**
+ * The local full-state backup (BackupManager) lives in app-private storage —
+ * gone forever on uninstall or "Clear storage." BackupManager now mirrors
+ * automatically to public Downloads/SibirskySpeak (Android 10+, no folder
+ * picker, no permission prompt); this card is only reachable in the narrow
+ * window before that first automatic mirror lands, or on a pre-Android-10
+ * device where a manually-chosen SAF folder is the only durable option.
+ * Deliberately styled with the error container (not the neutral SectionCard)
+ * so it reads as "your data has a real gap," not routine chrome.
+ */
 @Composable
-internal fun DoctrineNudgeCard(
-    nudge: com.sibirskyspeak.learning.DoctrineNudge,
-    onApply: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    SectionCard {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(Icons.Filled.Insights, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Pace check", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(nudge.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+internal fun BackupNotConfiguredCard(onGoToBackupSettings: () -> Unit) {
+    val automatic = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(Icons.Filled.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.onErrorContainer)
+                Text(
+                    if (automatic) "Waiting for first backup copy" else "Backup folder not set up",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
             }
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onApply, modifier = Modifier.testTag(TestTags.DOCTRINE_NUDGE_APPLY)) {
-                Text("Switch to ${nudge.suggested.name.lowercase().replaceFirstChar(Char::uppercase)}")
+            Text(
+                if (automatic) {
+                    "Your review history is backed up on this phone, but only in a location that an uninstall or \"Clear storage\" wipes along with the app. " +
+                        "A durable copy mirrors automatically to Downloads/SibirskySpeak after your next completed session — no setup needed."
+                } else {
+                    "Your review history is backed up on this phone, but only in a location that an uninstall or \"Clear storage\" wipes along with the app. " +
+                        "Pick a folder once (e.g. a synced Downloads or Drive folder) and it mirrors there automatically after every session."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.9f)
+            )
+            if (!automatic) {
+                Button(
+                    onClick = onGoToBackupSettings,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.onErrorContainer,
+                        contentColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Text("Choose a backup folder")
+                }
             }
-            TextButton(onClick = onDismiss, modifier = Modifier.testTag(TestTags.DOCTRINE_NUDGE_DISMISS)) { Text("Not now") }
         }
     }
 }
@@ -223,12 +272,14 @@ internal fun ExitTicketOfferCard(
 internal fun ExitTicketCard(
     state: ReviewUiState,
     onSubmit: (String) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onSpeakRussian: (String) -> Unit
 ) {
     val session = state.exitTicketSession ?: return
     val item = session.items.getOrNull(state.exitTicketIndex)
     SectionCard {
-        Text("Unit ${session.unit} quick check", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("${session.band} · Unit ${session.unit} quick check", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        session.canDoLabel?.let { Text("Can-do: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         when {
             item != null -> {
                 var answer by rememberSaveable(state.exitTicketIndex) { mutableStateOf("") }
@@ -236,17 +287,32 @@ internal fun ExitTicketCard(
                 Text(
                     when (item.kind) {
                         "recognition", "reading" -> "What does this mean? ${item.prompt}"
-                        else -> "Say it in Russian: ${item.prompt}"
+                        "listening" -> item.prompt
+                        else -> "Write the connected Russian: ${item.prompt}"
                     },
                     style = MaterialTheme.typography.bodyLarge
                 )
-                androidx.compose.material3.OutlinedTextField(
-                    value = answer,
-                    onValueChange = { answer = it },
-                    modifier = Modifier.fillMaxWidth().testTag(TestTags.EXIT_TICKET_INPUT),
-                    label = { Text("Your answer") }
-                )
-                Button(onClick = { onSubmit(answer) }, modifier = Modifier.testTag(TestTags.EXIT_TICKET_SUBMIT)) { Text("Submit") }
+                item.audioPrompt?.let { audio ->
+                    OutlinedButton(onClick = { onSpeakRussian(audio) }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Filled.VolumeUp, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Listen")
+                    }
+                }
+                if (item.choices.isNotEmpty()) {
+                    item.choices.forEach { choice ->
+                        OutlinedButton(onClick = { onSubmit(choice) }, modifier = Modifier.fillMaxWidth()) { Text(choice) }
+                    }
+                }
+                if (item.choices.isEmpty()) {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = answer,
+                        onValueChange = { answer = it },
+                        modifier = Modifier.fillMaxWidth().testTag(TestTags.EXIT_TICKET_INPUT),
+                        label = { Text("Your answer") }
+                    )
+                    Button(onClick = { onSubmit(answer) }, modifier = Modifier.testTag(TestTags.EXIT_TICKET_SUBMIT)) { Text("Submit") }
+                }
             }
             else -> {
                 val correct = state.exitTicketResults.count { it }
@@ -338,16 +404,13 @@ internal fun LeechCard(
 @Composable
 internal fun DashboardNextActionCard(
     state: ReviewUiState,
-    onStart: () -> Unit,
-    onOpenReader: (Long) -> Unit,
-    onTimeBudget: (Int) -> Unit = {}
+    onStart: () -> Unit
 ) {
     val prompts = state.sessionPlan?.reviewQueue.orEmpty()
     val reader = state.sessionPlan?.readingAssignment?.recommendation
     val hasGrammar = prompts.any { it.card.queue.name == "GRAMMAR" }
     val hasNew = prompts.any { it.card.state.name == "NEW" }
     val leechCount = state.dashboardStats?.leechCount ?: 0
-    val readingFirst = prompts.isEmpty()
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Icon(Icons.Filled.Insights, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
@@ -373,33 +436,22 @@ internal fun DashboardNextActionCard(
             if (leechCount > 0) PracticeFocusChip("Repair needed", null)
             if (reader != null) PracticeFocusChip("${(reader.coverage * 100).toInt()}% reader fit", null)
         }
-        Spacer(Modifier.height(14.dp))
-        Text("Time available", style = MaterialTheme.typography.labelMedium)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(5, 15, 45).forEach { minutes ->
-                AssistChip(
-                    onClick = { onTimeBudget(minutes) },
-                    label = { Text("$minutes min") },
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = if (state.preferredSessionMinutes == minutes) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface
-                    )
-                )
-            }
-        }
-        state.sessionPlan?.timeBudget?.let { budget ->
-            Text("${budget.spilledCards} cards safely spill beyond this session", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
         // One action, same as the Practice screen: the session already interleaves
         // reviews + new vocab + grammar and folds reading in, so there is no separate
-        // Read/Practice split. When caught up, the button opens the recommended text.
+        // Read/Practice split. When caught up, the button starts a session that opens
+        // the recommended text through the same state machine (see onClick below).
         // Adding material (import/reader text) is a Settings action, not a Dashboard one —
         // when there's nothing sessionable, this card just says so above with no button.
-        val startSession = prompts.isNotEmpty() && !readingFirst
+        val startSession = prompts.isNotEmpty()
         if (startSession || reader != null) {
             Spacer(Modifier.height(14.dp))
             Button(
-                onClick = { if (startSession) onStart() else reader?.let { onOpenReader(it.text.id) } },
-                modifier = Modifier.fillMaxWidth()
+                // A due reading must enter through the study-session state machine (same
+                // as the Practice tab's CTA) so its checkpoint updates the reading
+                // schedule — opening it as a manual reader here left the assignment due
+                // forever, since onOpenReader() never marks it complete.
+                onClick = onStart,
+                modifier = Modifier.fillMaxWidth().testTag(TestTags.DASHBOARD_NEXT_ACTION_BUTTON)
             ) {
                 Icon(if (startSession) Icons.Filled.School else Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
@@ -449,11 +501,27 @@ internal fun LevelCard(game: GamificationStats) {
 internal fun StreakCard(game: GamificationStats) {
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            // A small living pulse on the flame when there's an active streak —
+            // static achievement icons read as inert; this one gentle animation
+            // gives that "still burning" a bit of the "satisfaction" a purely
+            // static badge doesn't.
+            val pulse = rememberInfiniteTransition(label = "streak-pulse")
+            val flameScale by pulse.animateFloat(
+                initialValue = 1f,
+                targetValue = if (game.currentStreak > 0) 1.12f else 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(900, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "streak-flame-scale"
+            )
             Icon(
                 Icons.Filled.LocalFireDepartment,
                 contentDescription = null,
                 tint = if (game.currentStreak > 0) Color(0xFFE0612E) else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(44.dp)
+                modifier = Modifier
+                    .size(44.dp)
+                    .graphicsLayer { scaleX = flameScale; scaleY = flameScale }
             )
             Column(Modifier.weight(1f)) {
                 Text("${game.currentStreak}", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -474,36 +542,85 @@ internal fun StreakCard(game: GamificationStats) {
             }
         }
         Spacer(Modifier.height(14.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            // last7Days is a rolling window: index 6 is today, index 0 is six days ago.
-            // Derive the real weekday letter for each cell so the labels actually match
-            // the days shown (a fixed S-M-T-W-T-F-S week would mislabel every dot).
-            val labels = remember(game.last7Days.size) {
-                val letters = listOf("S", "M", "T", "W", "T", "F", "S")
-                val cal = java.util.Calendar.getInstance()
-                (6 downTo 0).map { offset ->
-                    val c = cal.clone() as java.util.Calendar
-                    c.add(java.util.Calendar.DAY_OF_YEAR, -offset)
-                    letters[c.get(java.util.Calendar.DAY_OF_WEEK) - 1]
-                }
+        ActivityHeatmap(game.activityHeatmap, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "${com.sibirskyspeak.data.GamificationStats.HEATMAP_WEEKS} weeks - ${game.activeDays} active days total",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+/**
+ * A compact GitHub/Anki-style activity heatmap: one column per calendar week,
+ * one row per day-of-week (Sun top, Sat bottom), color intensity by review
+ * count that day. Replaces the old "last 7 days" dot row, which couldn't show
+ * any history beyond the current week.
+ */
+@Composable
+internal fun ActivityHeatmap(dailyCounts: List<Int>, modifier: Modifier = Modifier) {
+    if (dailyCounts.isEmpty()) return
+    // dailyCounts is oldest-first, ending with today. Left-pad with "no data"
+    // sentinel cells (-1) so the first real day lands under the correct
+    // day-of-week row and every column is a genuine Sun-Sat calendar week —
+    // the last (current) column is naturally partial until the week is over.
+    val padded = remember(dailyCounts) {
+        val calendar = java.util.Calendar.getInstance()
+        calendar.add(java.util.Calendar.DAY_OF_YEAR, -(dailyCounts.size - 1))
+        val firstDow = calendar.get(java.util.Calendar.DAY_OF_WEEK) - 1
+        List(firstDow) { -1 } + dailyCounts
+    }
+    val weeks = remember(padded) { padded.chunked(7) }
+    val maxCount = remember(dailyCounts) { dailyCounts.maxOrNull()?.coerceAtLeast(1) ?: 1 }
+    @Composable fun levelColor(count: Int): Color = when {
+        count < 0 -> Color.Transparent
+        count == 0 -> MaterialTheme.colorScheme.surfaceVariant
+        else -> {
+            // 4 intensity buckets scaled to this learner's own busiest day, so a
+            // 10-review day and a 60-review day don't collapse into the same shade.
+            val ratio = count.toDouble() / maxCount
+            val alpha = when {
+                ratio <= 0.25 -> 0.35f
+                ratio <= 0.5 -> 0.55f
+                ratio <= 0.75 -> 0.75f
+                else -> 1.0f
             }
-            game.last7Days.forEachIndexed { i, active ->
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            MaterialTheme.colorScheme.primary.copy(alpha = alpha)
+        }
+    }
+    // The grid is narrower than the card (14-15 columns of small cells vs. the
+    // full card width), so left-aligning it (Row's default) left it looking
+    // stuck to one edge instead of sitting in the middle of the card like the
+    // streak number/best-streak stats above it.
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterHorizontally)) {
+        weeks.forEachIndexed { columnIndex, week ->
+            // A left-to-right stagger per week-column (not per cell — 98 individually
+            // staggered cells would just look like slow, laggy loading) reads as the
+            // history "building up" on first appearance instead of the whole grid
+            // just snapping into existence.
+            val columnAlpha = remember(columnIndex) { Animatable(0f) }
+            LaunchedEffect(columnIndex) {
+                delay(columnIndex * 18L)
+                columnAlpha.animateTo(1f, tween(220, easing = FastOutSlowInEasing))
+            }
+            Column(
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+                modifier = Modifier.graphicsLayer { alpha = columnAlpha.value }
+            ) {
+                repeat(7) { row ->
+                    val count = week.getOrElse(row) { -1 }
                     Box(
                         modifier = Modifier
-                            .size(26.dp)
-                            .clip(RoundedCornerShape(50))
-                            .background(if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (active) Icon(Icons.Filled.LocalFireDepartment, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(15.dp))
-                    }
-                    Text(labels.getOrElse(i) { "" }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            .size(11.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(levelColor(count))
+                    )
                 }
             }
         }
-        Spacer(Modifier.height(4.dp))
-        Text("Last 7 days - ${game.activeDays} active days total", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -766,12 +883,24 @@ internal fun RivalProgressCard(rivalState: com.sibirskyspeak.data.RivalState?, h
             }
             Column(Modifier.weight(1f)) {
                 Text("Rival / season", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    displayRating?.let { Rival.tier(it) } ?: "No ranked match yet",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.secondary
-                )
+                val tierName = displayRating?.let { Rival.tier(it) }
+                // Keying on the tier name (not displayRating) means this only pops on
+                // an actual promotion/demotion, not on every minor rating wobble
+                // within the same tier — a small celebratory beat exactly when it's
+                // earned, not noise on every match.
+                key(tierName) {
+                    val scale = remember { androidx.compose.animation.core.Animatable(0.7f) }
+                    LaunchedEffect(tierName) {
+                        scale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
+                    }
+                    Text(
+                        displayRating?.let { "${Rival.tierEmoji(it)}  ${Rival.tier(it)}" } ?: "No ranked match yet",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.graphicsLayer { scaleX = scale.value; scaleY = scale.value }
+                    )
+                }
             }
             if (rivalState != null) {
                 Column(horizontalAlignment = Alignment.End) {
@@ -964,10 +1093,16 @@ internal fun DetailsSection(stats: com.sibirskyspeak.data.DashboardStats, expand
                 val report = stats.importQualityReport
                 Text("Import readiness", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(10.dp))
+                // "X/Y" here used to pair a count against its *minimum-readiness
+                // threshold* (readyNominalRows/minNominalRows etc.), not a total —
+                // e.g. "201/100" meant 201 verified rows against a 100-row minimum
+                // bar, not "201 out of 100." That reads as a broken fraction (over
+                // 100%) rather than "well past the minimum," so spell out what the
+                // second number actually is instead of implying it's a denominator.
                 FlowRowWithStats(
-                    "Noun rows" to "${report.readyNominalRows}/${report.minNominalRows}",
-                    "Aspect verbs" to "${report.aspectReadyVerbRows}/${report.minVerbRows}",
-                    "Aktionsart" to "${report.verifiedAktionsartVerbRows}/${report.minVerbRows}",
+                    "Noun rows" to "${report.readyNominalRows} (min ${report.minNominalRows})",
+                    "Aspect verbs" to "${report.aspectReadyVerbRows} (min ${report.minVerbRows})",
+                    "Aktionsart" to "${report.verifiedAktionsartVerbRows} (min ${report.minVerbRows})",
                     "Ranked" to report.domainRankedRows.toString(),
                     "Readable examples" to report.exampleRows.toString(),
                     "90% texts" to report.targetTextsAtOrAbove90.toString()
@@ -980,10 +1115,24 @@ internal fun DetailsSection(stats: com.sibirskyspeak.data.DashboardStats, expand
 @Composable
 internal fun FluencyForecastCard(forecast: com.sibirskyspeak.learning.FluencySimEngine.SimResult?) {
     if (forecast == null) return
+    val anyMilestone = listOf("A1", "A2", "B1", "B2", "C1", "C2").any { forecast.days(it) != null }
     SectionCard {
         Text("Days to Fluency Forecast", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        
+
+        if (!anyMilestone) {
+            // Every milestone() call below silently no-ops when its level isn't
+            // reached in the simulated horizon — with nothing reached yet, that used
+            // to leave this card showing just a title and no content, which read as
+            // the whole feature having disappeared. Say so explicitly instead.
+            Text(
+                "Still building a pace estimate — keep studying and this fills in.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            return@SectionCard
+        }
+
         if (forecast.isEarlyEstimate) {
             Text(
                 "Early estimate — based on ${forecast.evidenceDays} of 14 recommended history days.",

@@ -33,7 +33,12 @@ data class ReviewPrompt(
     val queueReason: String? = null,
     val supportOnly: Boolean = false,
     val practiceOnly: Boolean = false,
-    val supportLevel: Int = 0
+    val supportLevel: Int = 0,
+    /** Progressive listening challenge; ignored for non-audio prompts. */
+    val audioRate: Float = 1.0f,
+    val audioPitch: Float = 1.0f,
+    val audioVoiceVariant: Int = 0,
+    val audioChallengeLabel: String? = null
 )
 
 data class LessonContent(
@@ -485,13 +490,18 @@ internal fun String.tidyPunctuationSpacing(): String =
         .trim()
 
 private fun Note.exampleFor(card: Card): ExampleContext {
-    val examples = listOf(
+    val allExamples = listOf(
         exampleSentence to exampleTranslation,
         exampleSentence2 to exampleTranslation2,
         exampleSentence3 to exampleTranslation3
     ).mapNotNull { (sentence, translation) ->
         sentence?.takeIf { it.isNotBlank() }?.let { ExampleContext(it, translation?.takeIf { value -> value.isNotBlank() }) }
     }
+    // Starter examples 1/2 are controlled at authoring time; example 3 is commonly
+    // corpus enrichment and may contain much later syntax. Repetition count alone is
+    // not evidence that an A1/A2 learner can comprehend it, so reserve that transfer
+    // carrier until the item itself is established.
+    val examples = if (cefrLevel in setOf("A1", "A2") && card.reps < 5) allExamples.take(2) else allExamples
     return examples.getOrNull(card.reps.floorMod(examples.size.coerceAtLeast(1))) ?: ExampleContext(null, null)
 }
 

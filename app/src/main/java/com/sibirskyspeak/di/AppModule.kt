@@ -17,6 +17,8 @@ import com.sibirskyspeak.data.LearningModelDao
 import com.sibirskyspeak.data.LearningRepository
 import com.sibirskyspeak.data.MinedExampleDao
 import com.sibirskyspeak.data.NoteDao
+import com.sibirskyspeak.data.NoteEvidenceDao
+import com.sibirskyspeak.data.NoteFormDao
 import com.sibirskyspeak.data.PrefsSettingsStore
 import com.sibirskyspeak.data.ReaderEncounterDao
 import com.sibirskyspeak.data.ReaderTextDao
@@ -58,6 +60,8 @@ object AppModule {
     fun provideContentDatabase(@ApplicationContext context: Context): ContentDatabase = ContentDatabase.get(context)
 
     @Provides fun provideNoteDao(db: AppDatabase): NoteDao = db.noteDao()
+    @Provides fun provideNoteEvidenceDao(db: AppDatabase): NoteEvidenceDao = db.noteEvidenceDao()
+    @Provides fun provideNoteFormDao(db: AppDatabase): NoteFormDao = db.noteFormDao()
     @Provides fun provideCardDao(db: AppDatabase): CardDao = db.cardDao()
     @Provides fun provideReviewLogDao(db: AppDatabase): ReviewLogDao = db.reviewLogDao()
     @Provides fun provideConfusablePairDao(db: AppDatabase): ConfusablePairDao = db.confusablePairDao()
@@ -108,6 +112,8 @@ object AppModule {
     fun provideLearningRepository(
         appDatabase: AppDatabase,
         noteDao: NoteDao,
+        noteEvidenceDao: NoteEvidenceDao,
+        noteFormDao: NoteFormDao,
         cardDao: CardDao,
         reviewLogDao: ReviewLogDao,
         confusablePairDao: ConfusablePairDao,
@@ -131,6 +137,8 @@ object AppModule {
         backup: BackupManager
     ): LearningRepository = LearningRepository(
         noteDao = noteDao,
+        noteEvidenceDao = noteEvidenceDao,
+        noteFormDao = noteFormDao,
         cardDao = cardDao,
         reviewLogDao = reviewLogDao,
         confusablePairDao = confusablePairDao,
@@ -164,14 +172,18 @@ object AppModule {
                 sessionSize = settings.sessionSize,
                 newCardsPerDay = settings.newCardsPerDay,
                 desiredRetention = settings.desiredRetention,
-                doctrine = settings.doctrine
-                , restDayCredits = settings.restDayCredits
-                , preferredDomain = settings.preferredDomain
+                restDayCredits = settings.restDayCredits,
+                preferredDomain = settings.preferredDomain,
+                adaptiveEnabled = settings.adaptiveEnabled
             )
         },
         decayProvider = { FsrsScheduler.decayOf(settings.fsrsWeights) },
         restoreBackup = { withContext(Dispatchers.IO) { backup.read() } },
-        writeBackup = { content -> withContext(Dispatchers.IO) { backup.write(content) } }
+        restoreBackupLines = { withContext(Dispatchers.IO) { backup.readLines() } },
+        writeBackup = { content -> withContext(Dispatchers.IO) { backup.write(content) } },
+        writeBackupLines = { lines -> withContext(Dispatchers.IO) { backup.writeLines(lines) } },
+        enrichFullState = backup::enrichFullState,
+        restoreFullStateMetadata = backup::restoreMetadata
     )
 
     @Provides fun provideConfusionEventDao(db: AppDatabase): ConfusionEventDao = db.confusionEventDao()

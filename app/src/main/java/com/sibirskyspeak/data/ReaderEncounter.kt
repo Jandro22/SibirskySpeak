@@ -4,7 +4,8 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 
-/** One durable exposure credit per note per text. */
+/** Most recent explicit lookup of a note in a text. A lookup is evidence of need,
+ * never positive exposure or mastery; the composite key keeps only its latest time. */
 @Entity(
     tableName = "reader_encounters",
     primaryKeys = ["readerTextId", "noteId"],

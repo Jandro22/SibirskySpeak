@@ -99,10 +99,7 @@ class RussianSpeechRecognizer(context: Context) {
 
     fun shutdown() = stop()
 
-    private fun bestHypothesis(bundle: Bundle?): String? =
-        bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            ?.firstOrNull { it.isNotBlank() }
-            ?.trim()
+    private fun bestHypothesis(bundle: Bundle?): String? = bestHypothesisWithConfidence(bundle).first
 
     // CONFIDENCE_SCORES (API 14+) is a float[] parallel to RESULTS_RECOGNITION, values
     // 0f-1f or -1f for "unavailable" per-entry. It's optional and many on-device

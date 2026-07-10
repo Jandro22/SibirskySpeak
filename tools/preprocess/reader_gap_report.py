@@ -114,10 +114,33 @@ def coverage(toks: list[str], vocab: set[str], morph: pymorphy3.MorphAnalyzer) -
     return (len(toks) - miss) / len(toks)
 
 
+def _token_lemma_sets(toks: list[str], morph: pymorphy3.MorphAnalyzer) -> list[set[str] | None]:
+    """Each token's lemma set, computed once. None marks a CHARACTER_NAMES token
+    (always exempt, regardless of which band's vocab is being checked)."""
+    result: list[set[str] | None] = []
+    for t in toks:
+        if normalize(t) in CHARACTER_NAMES:
+            result.append(None)
+        else:
+            result.append({normalize(p.normal_form) for p in morph.parse(t)})
+    return result
+
+
+def _coverage_from_lemma_sets(lemma_sets: list[set[str] | None], vocab: set[str]) -> float:
+    if not lemma_sets:
+        return 0.0
+    miss = sum(1 for lemmas in lemma_sets if lemmas is not None and not (lemmas & vocab))
+    return (len(lemma_sets) - miss) / len(lemma_sets)
+
+
 def report(bands: list[tuple[int, int]], threshold: float = 0.90) -> tuple[str, bool]:
     notes = load_ranked_tier0_notes()
     texts = load_texts()
     morph = pymorphy3.MorphAnalyzer()
+    # A token's lemma set doesn't depend on which band's vocab is being checked,
+    # only band membership does — parse each text's tokens once instead of once
+    # per band (9 bands would otherwise re-run pymorphy3 on every token 9x).
+    texts_with_lemmas = [(name, _token_lemma_sets(toks, morph)) for name, toks in texts]
     lines = [f"tier0 ranked notes: {len(notes)}, reader texts: {len(texts)}",
              f"{'known words <=':>16} {'qualifying texts':>17} {'min expected':>13} {'status':>8}"]
     any_gap = False
@@ -125,7 +148,10 @@ def report(bands: list[tuple[int, int]], threshold: float = 0.90) -> tuple[str, 
         if max_rank >= 999_999:
             continue
         vocab = known_lemmas_at_rank(notes, max_rank)
-        qualifying = sum(1 for _, toks in texts if coverage(toks, vocab, morph) >= threshold)
+        qualifying = sum(
+            1 for _, lemma_sets in texts_with_lemmas
+            if _coverage_from_lemma_sets(lemma_sets, vocab) >= threshold
+        )
         gap = qualifying < min_expected
         any_gap = any_gap or gap
         status = "GAP" if gap else "ok"

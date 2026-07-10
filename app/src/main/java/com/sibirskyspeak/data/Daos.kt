@@ -24,6 +24,18 @@ data class DueDayCount(
     val count: Int
 )
 
+data class ActivityDayCount(
+    val day: Long,
+    val count: Int
+)
+
+data class CardDashboardCounts(
+    val vocabCards: Int,
+    val grammarCards: Int,
+    val dueVocab: Int,
+    val dueGrammar: Int
+)
+
 data class ReviewCategoryRatingRow(
     val cardType: CardType,
     val gramCase: String?,
@@ -65,22 +77,54 @@ data class GrammarDrillOutcome(
 )
 
 @Dao
+interface NoteEvidenceDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun ensure(value: NoteEvidence): Long
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(value: NoteEvidence): Long
+    @Query("SELECT * FROM note_evidence WHERE noteId = :noteId") suspend fun get(noteId: Long): NoteEvidence?
+    @Query("SELECT * FROM note_evidence") suspend fun all(): List<NoteEvidence>
+    @Query("DELETE FROM note_evidence WHERE noteId = :noteId") suspend fun delete(noteId: Long): Int
+    @Query("UPDATE note_evidence SET directRetrievals = directRetrievals + 1, lastDirectAt = :at WHERE noteId = :noteId") suspend fun incrementDirect(noteId: Long, at: Long): Int
+    @Query("UPDATE note_evidence SET passiveExposures = passiveExposures + 1, lastPassiveAt = :at WHERE noteId = :noteId") suspend fun incrementPassive(noteId: Long, at: Long): Int
+    @Query("UPDATE note_evidence SET completedReadings = completedReadings + 1 WHERE noteId = :noteId") suspend fun incrementReading(noteId: Long): Int
+    @Query("UPDATE note_evidence SET lookups = lookups + 1, lastLookupAt = :at WHERE noteId = :noteId") suspend fun incrementLookup(noteId: Long, at: Long): Int
+    @Query("UPDATE note_evidence SET placementPriors = placementPriors + 1 WHERE noteId = :noteId") suspend fun incrementPlacement(noteId: Long): Int
+}
+
+@Dao
+interface NoteFormDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertAll(values: List<NoteForm>): List<Long>
+    @Query("SELECT * FROM note_forms") suspend fun all(): List<NoteForm>
+    @Query("SELECT COUNT(*) FROM note_forms") suspend fun count(): Int
+    @Query("DELETE FROM note_forms WHERE noteId = :noteId") suspend fun deleteForNote(noteId: Long): Int
+}
+
+@Dao
 interface CardDao {
-    @Query("SELECT * FROM cards WHERE due <= :now AND state NOT IN ('NEW', 'GRADUATED') AND suspended = 0 ORDER BY due ASC, id ASC LIMIT :limit")
+    @Query("""
+        SELECT
+          COALESCE(SUM(CASE WHEN c.queue = 'VOCAB' THEN 1 ELSE 0 END),0) AS vocabCards,
+          COALESCE(SUM(CASE WHEN c.queue = 'GRAMMAR' THEN 1 ELSE 0 END),0) AS grammarCards,
+          COALESCE(SUM(CASE WHEN c.queue = 'VOCAB' AND c.due <= :now AND c.state NOT IN ('NEW','GRADUATED') AND c.suspended = 0 AND n.status != 'IGNORED' THEN 1 ELSE 0 END),0) AS dueVocab,
+          COALESCE(SUM(CASE WHEN c.queue = 'GRAMMAR' AND c.due <= :now AND c.state NOT IN ('NEW','GRADUATED') AND c.suspended = 0 AND n.status != 'IGNORED' THEN 1 ELSE 0 END),0) AS dueGrammar
+        FROM cards c JOIN notes n ON c.noteId = n.id
+    """)
+    suspend fun dashboardCounts(now: Long): CardDashboardCounts
+
+    @Query("SELECT c.* FROM cards c JOIN notes n ON c.noteId = n.id WHERE c.due <= :now AND c.state NOT IN ('NEW', 'GRADUATED') AND c.suspended = 0 AND n.status != 'IGNORED' ORDER BY c.due ASC, c.id ASC LIMIT :limit")
     suspend fun getDueCards(now: Long, limit: Int = 100): List<Card>
 
-    @Query("SELECT * FROM cards WHERE due <= :now AND queue = :queue AND state NOT IN ('NEW', 'GRADUATED') AND suspended = 0 ORDER BY due ASC, id ASC LIMIT :limit")
+    @Query("SELECT c.* FROM cards c JOIN notes n ON c.noteId = n.id WHERE c.due <= :now AND c.queue = :queue AND c.state NOT IN ('NEW', 'GRADUATED') AND c.suspended = 0 AND n.status != 'IGNORED' ORDER BY c.due ASC, c.id ASC LIMIT :limit")
     suspend fun getDueCardsByQueue(now: Long, queue: Queue, limit: Int = 100): List<Card>
 
-    @Query("SELECT * FROM cards WHERE due <= :cutoff AND state NOT IN ('NEW', 'GRADUATED') AND suspended = 0 ORDER BY due ASC, id ASC LIMIT :limit")
+    @Query("SELECT c.* FROM cards c JOIN notes n ON c.noteId = n.id WHERE c.due <= :cutoff AND c.state NOT IN ('NEW', 'GRADUATED') AND c.suspended = 0 AND n.status != 'IGNORED' ORDER BY c.due ASC, c.id ASC LIMIT :limit")
     suspend fun getOverdueCards(cutoff: Long, limit: Int = 100): List<Card>
 
-    @Query("SELECT * FROM cards WHERE due <= :now AND state NOT IN ('NEW', 'GRADUATED') AND suspended = 0 ORDER BY due ASC, id ASC")
+    @Query("SELECT c.* FROM cards c JOIN notes n ON c.noteId = n.id WHERE c.due <= :now AND c.state NOT IN ('NEW', 'GRADUATED') AND c.suspended = 0 AND n.status != 'IGNORED' ORDER BY c.due ASC, c.id ASC")
     suspend fun getAllDueCards(now: Long): List<Card>
 
     /** Distinct notes with a due-soon card (P5.2 dueOverlap reader scoring): the
      * reader deliberately favors texts that smuggle in words FSRS wants reviewed. */
-    @Query("SELECT DISTINCT noteId FROM cards WHERE due <= :cutoff AND state NOT IN ('NEW', 'GRADUATED') AND suspended = 0")
+    @Query("SELECT DISTINCT c.noteId FROM cards c JOIN notes n ON c.noteId = n.id WHERE c.due <= :cutoff AND c.state NOT IN ('NEW', 'GRADUATED') AND c.suspended = 0 AND n.status != 'IGNORED'")
     suspend fun getDueSoonNoteIds(cutoff: Long): List<Long>
 
     @Query("SELECT * FROM cards WHERE state = 'NEW' AND suspended = 0 ORDER BY due ASC, id ASC LIMIT :limit")
@@ -258,17 +302,17 @@ interface CardDao {
     @Query("SELECT * FROM cards WHERE noteId = :noteId AND cardType = :cardType LIMIT 1")
     suspend fun getByNoteAndType(noteId: Long, cardType: CardType): Card?
 
-    @Query("SELECT COUNT(*) FROM cards WHERE due <= :now AND state NOT IN ('NEW', 'GRADUATED') AND suspended = 0")
+    @Query("SELECT COUNT(*) FROM cards c JOIN notes n ON c.noteId = n.id WHERE c.due <= :now AND c.state NOT IN ('NEW', 'GRADUATED') AND c.suspended = 0 AND n.status != 'IGNORED'")
     suspend fun countDue(now: Long): Int
 
     /** Cards becoming due in the window (:start, :end], for the upcoming-load forecast. */
-    @Query("SELECT COUNT(*) FROM cards WHERE due > :start AND due <= :end AND state NOT IN ('NEW', 'GRADUATED') AND suspended = 0")
+    @Query("SELECT COUNT(*) FROM cards c JOIN notes n ON c.noteId = n.id WHERE c.due > :start AND c.due <= :end AND c.state NOT IN ('NEW', 'GRADUATED') AND c.suspended = 0 AND n.status != 'IGNORED'")
     suspend fun countDueBetween(start: Long, end: Long): Int
 
     @Query("""
-        SELECT CAST((due - :start - 1) / :dayMillis AS INTEGER) AS day, COUNT(*) AS count
-        FROM cards
-        WHERE due > :start AND due <= :end AND state NOT IN ('NEW', 'GRADUATED') AND suspended = 0
+        SELECT CAST((c.due - :start - 1) / :dayMillis AS INTEGER) AS day, COUNT(*) AS count
+        FROM cards c JOIN notes n ON c.noteId = n.id
+        WHERE c.due > :start AND c.due <= :end AND c.state NOT IN ('NEW', 'GRADUATED') AND c.suspended = 0 AND n.status != 'IGNORED'
         GROUP BY day
     """)
     suspend fun countDueByDay(start: Long, end: Long, dayMillis: Long): List<DueDayCount>
@@ -280,7 +324,7 @@ interface CardDao {
     @Query("SELECT * FROM cards WHERE reps >= :minReps AND (lapses > 0 OR difficulty >= 8.0) AND state != 'GRADUATED' AND suspended = 0 ORDER BY lapses DESC, difficulty DESC, reps DESC LIMIT :limit")
     suspend fun getProblemCards(minReps: Int = 2, limit: Int = 20): List<Card>
 
-    @Query("SELECT COUNT(*) FROM cards WHERE due <= :now AND queue = :queue AND state NOT IN ('NEW', 'GRADUATED') AND suspended = 0")
+    @Query("SELECT COUNT(*) FROM cards c JOIN notes n ON c.noteId = n.id WHERE c.due <= :now AND c.queue = :queue AND c.state NOT IN ('NEW', 'GRADUATED') AND c.suspended = 0 AND n.status != 'IGNORED'")
     suspend fun countDueByQueue(now: Long, queue: Queue): Int
 
     @Query("SELECT COUNT(*) FROM cards WHERE queue = :queue")
@@ -356,7 +400,7 @@ interface CardDao {
 
     /** Small working set used by pace/debt forecasts; excludes dormant new and
      * graduated cards so a large curriculum does not inflate every session build. */
-    @Query("SELECT * FROM cards WHERE state NOT IN ('NEW', 'GRADUATED') AND suspended = 0")
+    @Query("SELECT c.* FROM cards c JOIN notes n ON c.noteId = n.id WHERE c.state NOT IN ('NEW', 'GRADUATED') AND c.suspended = 0 AND n.status != 'IGNORED'")
     suspend fun getSchedulingCards(): List<Card>
 
     @Query("SELECT COUNT(*) FROM cards WHERE state = 'GRADUATED' OR reps >= 2")
@@ -424,17 +468,6 @@ interface CardDao {
           AND consecutiveCorrect >= 3
     """)
     suspend fun graduateVerbFormCategory(formKey: String): Int
-
-    @Query("""
-        UPDATE cards
-        SET state = 'GRADUATED'
-        WHERE queue = 'VOCAB'
-          AND state != 'GRADUATED'
-          AND noteId IN (
-              SELECT noteId FROM reader_encounters GROUP BY noteId HAVING COUNT(*) >= :minEncounterCount
-          )
-    """)
-    suspend fun graduateVocabForReaderEncounters(minEncounterCount: Int): Int
 
     @Insert
     suspend fun insert(card: Card): Long
@@ -538,13 +571,16 @@ interface ReviewLogDao {
     @Query("SELECT reviewDatetime FROM review_logs WHERE source IN ('SRS_REVIEW','GRAMMAR_DRILL') ORDER BY reviewDatetime DESC LIMIT :limit")
     suspend fun recentReviewTimes(limit: Int = 1000): List<Long>
 
+    @Query("SELECT rating FROM review_logs WHERE source IN ('SRS_REVIEW','GRAMMAR_DRILL') ORDER BY reviewDatetime DESC, id DESC LIMIT :limit")
+    suspend fun recentDirectRatings(limit: Int = 200): List<Rating>
+
     @Query("SELECT COUNT(*) FROM review_logs WHERE cardId = :cardId AND reviewDatetime >= :dayStart AND source IN ('READING','LISTENING','PRODUCTION')")
     suspend fun passiveEvidenceCountSince(cardId: Long, dayStart: Long): Int
 
-    @Query("SELECT COUNT(*) FROM review_logs WHERE reviewDatetime >= :since AND source != 'READER_LOOKUP'")
+    @Query("SELECT COUNT(*) FROM review_logs WHERE reviewDatetime >= :since AND source IN ('SRS_REVIEW','GRAMMAR_DRILL')")
     suspend fun countSince(since: Long): Int
 
-    @Query("SELECT COUNT(*) FROM review_logs WHERE source != 'READER_LOOKUP'")
+    @Query("SELECT COUNT(*) FROM review_logs WHERE source IN ('SRS_REVIEW','GRAMMAR_DRILL')")
     suspend fun countAll(): Int
 
     /** Recall quality and card maturity both contribute; reader lookups earn no XP. */
@@ -553,7 +589,7 @@ interface ReviewLogDao {
             CASE rating WHEN 'AGAIN' THEN 2 WHEN 'HARD' THEN 8 WHEN 'GOOD' THEN 10 WHEN 'EASY' THEN 14 END
             + CASE WHEN stateBefore IN ('REVIEW', 'RELEARNING') AND elapsedDays > 0 THEN 2 ELSE 0 END
         ), 0)
-        FROM review_logs WHERE source != 'READER_LOOKUP'
+        FROM review_logs WHERE source IN ('SRS_REVIEW','GRAMMAR_DRILL')
     """)
     suspend fun weightedXp(): Int
 
@@ -564,12 +600,12 @@ interface ReviewLogDao {
      * which silently calcifies every retention-driven adaptation. Pass [since] = 0
      * for the all-time figure.
      */
-    @Query("SELECT COUNT(*) FROM review_logs WHERE reviewDatetime >= :since AND stateBefore IN ('REVIEW', 'RELEARNING') AND elapsedDays > 0 AND source != 'READER_LOOKUP'")
+    @Query("SELECT COUNT(*) FROM review_logs WHERE reviewDatetime >= :since AND stateBefore IN ('REVIEW', 'RELEARNING') AND elapsedDays > 0 AND source IN ('SRS_REVIEW','GRAMMAR_DRILL')")
     suspend fun matureReviewCount(since: Long = 0): Int
 
     /** Mature-card reviews the learner got right (did not lapse), within the same
      * rolling window as [matureReviewCount]. True-retention numerator. */
-    @Query("SELECT COUNT(*) FROM review_logs WHERE reviewDatetime >= :since AND stateBefore IN ('REVIEW', 'RELEARNING') AND elapsedDays > 0 AND rating != 'AGAIN' AND source != 'READER_LOOKUP'")
+    @Query("SELECT COUNT(*) FROM review_logs WHERE reviewDatetime >= :since AND stateBefore IN ('REVIEW', 'RELEARNING') AND elapsedDays > 0 AND rating != 'AGAIN' AND source IN ('SRS_REVIEW','GRAMMAR_DRILL')")
     suspend fun matureRetainedCount(since: Long = 0): Int
 
     /** Mature-review retention grouped by card type, over the same rolling window as
@@ -583,7 +619,7 @@ interface ReviewLogDao {
         WHERE review_logs.reviewDatetime >= :since
           AND review_logs.stateBefore IN ('REVIEW', 'RELEARNING')
           AND review_logs.elapsedDays > 0
-          AND review_logs.source != 'READER_LOOKUP'
+          AND review_logs.source IN ('SRS_REVIEW','GRAMMAR_DRILL')
         GROUP BY cards.cardType
         HAVING total > 0
     """)
@@ -597,7 +633,7 @@ interface ReviewLogDao {
         INNER JOIN cards ON cards.id = review_logs.cardId
         WHERE reviewDatetime >= :since
           AND stateBefore = 'NEW'
-          AND source != 'READER_LOOKUP'
+          AND source IN ('SRS_REVIEW','GRAMMAR_DRILL')
           AND cards.cardType != 'LESSON'
     """)
     suspend fun countNewIntroducedSince(since: Long): Int
@@ -607,7 +643,7 @@ interface ReviewLogDao {
         SELECT DISTINCT cards.noteId
         FROM review_logs
         INNER JOIN cards ON cards.id = review_logs.cardId
-        WHERE review_logs.source != 'READER_LOOKUP'
+        WHERE review_logs.source IN ('SRS_REVIEW','GRAMMAR_DRILL')
           AND cards.cardType != 'LESSON'
     """)
     suspend fun getReviewedNoteIds(): List<Long>
@@ -620,7 +656,7 @@ interface ReviewLogDao {
         FROM review_logs
         INNER JOIN cards ON cards.id = review_logs.cardId
         WHERE review_logs.reviewDatetime >= :since
-          AND review_logs.source != 'READER_LOOKUP'
+          AND review_logs.source IN ('SRS_REVIEW','GRAMMAR_DRILL')
     """)
     suspend fun getReviewedCardsSince(since: Long): List<Card>
 
@@ -631,8 +667,19 @@ interface ReviewLogDao {
 
     // Distinct local-day buckets that have at least one review, newest first.
     // Used for streak and active-day stats without loading every log row.
-    @Query("SELECT DISTINCT (reviewDatetime + :tzOffset) / :dayMillis AS day FROM review_logs WHERE source != 'READER_LOOKUP' ORDER BY day DESC")
+    @Query("SELECT DISTINCT (reviewDatetime + :tzOffset) / :dayMillis AS day FROM review_logs WHERE source IN ('SRS_REVIEW','GRAMMAR_DRILL') ORDER BY day DESC")
     suspend fun reviewDayBuckets(tzOffset: Long, dayMillis: Long): List<Long>
+
+    // Per-day review counts (not just presence/absence) since :sinceDay, for the
+    // GitHub/Anki-style activity heatmap — StreakCard needs intensity, not just a
+    // boolean, to color a cell.
+    @Query("""
+        SELECT (reviewDatetime + :tzOffset) / :dayMillis AS day, COUNT(*) AS count
+        FROM review_logs
+        WHERE source IN ('SRS_REVIEW','GRAMMAR_DRILL') AND (reviewDatetime + :tzOffset) / :dayMillis >= :sinceDay
+        GROUP BY day
+    """)
+    suspend fun reviewCountsByDay(tzOffset: Long, dayMillis: Long, sinceDay: Long): List<ActivityDayCount>
 
     /** One bounded query replaces a separate query for every grammar category. */
     @Query("""
@@ -647,7 +694,7 @@ interface ReviewLogDao {
         FROM review_logs rl
         JOIN cards c ON rl.cardId = c.id
         JOIN notes n ON c.noteId = n.id
-        WHERE rl.source != 'READER_LOOKUP'
+        WHERE rl.source IN ('SRS_REVIEW','GRAMMAR_DRILL')
           AND c.cardType IN ('CASE_FILL', 'ASPECT_SELECT', 'VERB_FORM')
         ORDER BY rl.reviewDatetime DESC, rl.id DESC
         LIMIT :limit
@@ -658,7 +705,7 @@ interface ReviewLogDao {
         SELECT rl.rating FROM review_logs rl
         JOIN cards c ON rl.cardId = c.id
         WHERE c.gramCase = :gramCase AND c.gramGender = :gramGender AND c.gramNumber = :gramNumber
-          AND rl.source != 'READER_LOOKUP'
+          AND rl.source IN ('SRS_REVIEW','GRAMMAR_DRILL')
         ORDER BY rl.reviewDatetime DESC
         LIMIT :limit
     """)
@@ -669,7 +716,7 @@ interface ReviewLogDao {
         JOIN cards c ON rl.cardId = c.id
         JOIN notes n ON c.noteId = n.id
         WHERE n.aktionsart = :aktionsart AND n.aspect = :aspect AND c.gramContextCue = :contextCue
-          AND rl.source != 'READER_LOOKUP'
+          AND rl.source IN ('SRS_REVIEW','GRAMMAR_DRILL')
         ORDER BY rl.reviewDatetime DESC
         LIMIT :limit
     """)
@@ -679,7 +726,7 @@ interface ReviewLogDao {
         SELECT rl.rating FROM review_logs rl
         JOIN cards c ON rl.cardId = c.id
         WHERE c.cardType = 'VERB_FORM' AND c.gramContextCue = :formKey
-          AND rl.source != 'READER_LOOKUP'
+          AND rl.source IN ('SRS_REVIEW','GRAMMAR_DRILL')
         ORDER BY rl.reviewDatetime DESC
         LIMIT :limit
     """)
@@ -696,7 +743,7 @@ interface ReviewLogDao {
     @Query("""
         SELECT cardId, reviewDatetime, rating, stateBefore, elapsedDays, stabilityBefore
         FROM review_logs
-        WHERE source != 'READER_LOOKUP' AND reviewDatetime >= :since
+        WHERE source IN ('SRS_REVIEW','GRAMMAR_DRILL') AND reviewDatetime >= :since
         ORDER BY cardId ASC, reviewDatetime ASC, id ASC
     """)
     suspend fun reviewFitRows(since: Long = 0): List<ReviewFitRow>
@@ -781,14 +828,19 @@ interface ReadingScheduleDao {
 
     @Query("DELETE FROM reading_schedules WHERE readerTextId = :readerTextId")
     suspend fun deleteForText(readerTextId: Long)
+
+    /** Remove only never-started schedules that are not currently readable. A
+     * completed reading keeps its durable recurrence even if coverage later moves. */
+    @Query("DELETE FROM reading_schedules WHERE readerTextId IN (:readerTextIds) AND reps = 0 AND lastCompleted IS NULL")
+    suspend fun deletePristineForTexts(readerTextIds: List<Long>): Int
 }
 
 @Dao
 interface ReaderEncounterDao {
-    @Insert(onConflict = androidx.room.OnConflictStrategy.IGNORE)
+    @Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
     suspend fun insert(encounter: ReaderEncounter): Long
 
-    @Insert(onConflict = androidx.room.OnConflictStrategy.IGNORE)
+    @Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
     suspend fun insertAll(encounters: List<ReaderEncounter>): List<Long>
 
     @Query("SELECT * FROM reader_encounters")
@@ -900,6 +952,9 @@ interface LearningModelDao {
     @Query("SELECT * FROM item_difficulty WHERE cardId IN (:cardIds)")
     suspend fun difficultiesFor(cardIds: List<Long>): List<ItemDifficulty>
 
+    @Query("DELETE FROM item_difficulty WHERE cardId = :cardId")
+    suspend fun deleteDifficulty(cardId: Long): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertMastery(value: ConceptMastery)
 
@@ -907,6 +962,9 @@ interface LearningModelDao {
     suspend fun mastery(concept: String): ConceptMastery?
 
     @Query("SELECT * FROM concept_mastery") suspend fun masteries(): List<ConceptMastery>
+
+    @Query("DELETE FROM concept_mastery WHERE concept IN (:concepts)")
+    suspend fun deleteMasteries(concepts: List<String>): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertParameter(value: OptimizerParameter)
@@ -936,6 +994,9 @@ interface LearningModelDao {
 
     @Query("SELECT * FROM skill_rating WHERE skill = :skill")
     suspend fun skillRating(skill: String): SkillRating?
+
+    @Query("DELETE FROM skill_rating WHERE skill IN (:skills)")
+    suspend fun deleteSkillRatings(skills: List<String>): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertCapacityState(value: CapacityState)
@@ -978,6 +1039,7 @@ interface LearningModelDao {
     @Query("SELECT * FROM pace_log ORDER BY at DESC LIMIT :limit")
     suspend fun paceLogs(limit: Int = 20): List<PaceLog>
     @Query("SELECT * FROM pace_log ORDER BY at") suspend fun allPaceLogs(): List<PaceLog>
+    @Query("SELECT COUNT(*) FROM pace_log") suspend fun paceLogCount(): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertBanditPending(value: BanditPending)
@@ -998,11 +1060,15 @@ interface LearningModelDao {
 
 @Dao interface WeeklyReportDao {
     @Insert suspend fun insert(report: WeeklyReport): Long
+    @Insert suspend fun insertAll(reports: List<WeeklyReport>): List<Long>
     @Query("SELECT * FROM weekly_reports ORDER BY generatedAt DESC LIMIT :limit") suspend fun recent(limit: Int=12): List<WeeklyReport>
+    @Query("SELECT * FROM weekly_reports ORDER BY generatedAt") suspend fun all(): List<WeeklyReport>
 }
 
 @Dao interface ConfusionEventDao {
     @Insert suspend fun insert(event: ConfusionEvent): Long
+    @Insert suspend fun insertAll(events: List<ConfusionEvent>): List<Long>
+    @Query("SELECT * FROM confusion_events ORDER BY at") suspend fun all(): List<ConfusionEvent>
     @Query("""
         SELECT expectedKey, producedKey, category, cardType, COUNT(*) as count FROM confusion_events
         WHERE at >= :since GROUP BY expectedKey, producedKey, category, cardType
@@ -1017,6 +1083,7 @@ interface LearningModelDao {
     @Insert suspend fun insertAll(results: List<CheckpointResult>): List<Long>
     @Query("SELECT * FROM checkpoint_results WHERE at >= :since ORDER BY at DESC") suspend fun since(since: Long): List<CheckpointResult>
     @Query("SELECT * FROM checkpoint_results ORDER BY at DESC LIMIT :limit") suspend fun recent(limit: Int = 200): List<CheckpointResult>
+    @Query("SELECT * FROM checkpoint_results ORDER BY at") suspend fun all(): List<CheckpointResult>
 }
 
 @Dao interface CurriculumStateDao {

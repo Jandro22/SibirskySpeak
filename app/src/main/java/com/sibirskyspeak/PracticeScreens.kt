@@ -2,6 +2,7 @@ package com.sibirskyspeak
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -30,6 +31,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,7 +45,6 @@ import com.sibirskyspeak.data.GamificationStats
 import com.sibirskyspeak.data.ReaderStatus
 import com.sibirskyspeak.data.SessionPlan
 import com.sibirskyspeak.review.ReviewUiState
-import com.sibirskyspeak.learning.SessionMode
 import androidx.compose.runtime.key
 
 // ---------------------------------------------------------------------------
@@ -53,7 +54,7 @@ import androidx.compose.runtime.key
 @Composable
 internal fun PracticeScreen(
     state: ReviewUiState,
-    onStart: (SessionMode) -> Unit,
+    onStart: () -> Unit,
     onOpenReader: (Long) -> Unit
 ) {
     // Narrowed to the two fields these panels actually use, instead of passing the
@@ -102,6 +103,11 @@ internal fun UnitMasteryPanel(sessionPlan: SessionPlan?) {
     if (units.isEmpty()) return
     val activeIndex = units.indexOfFirst { it.unlocked && it.progress < 0.80 }.let { if (it < 0) units.lastIndex else it }
     val visible = units.drop((activeIndex - 1).coerceAtLeast(0)).take(3)
+    // The focused 3-unit window (above) intentionally hides the other ~100+
+    // units so the card stays scannable, but that left no way to see the rest
+    // at all — "no roadmap." Toggle into a compact, scrollable full list instead
+    // of trying to cram every unit into the always-visible view.
+    var showRoadmap by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     SectionCard {
         // This is the master curriculum progression (hand-authored spine + the
         // frequency-promoted band) that drives FSRS sequencing, not the literal
@@ -137,12 +143,51 @@ internal fun UnitMasteryPanel(sessionPlan: SessionPlan?) {
             }
           }
         }
+        OutlinedButton(onClick = { showRoadmap = !showRoadmap }, modifier = Modifier.fillMaxWidth()) {
+            Text(if (showRoadmap) "Hide full roadmap" else "View full roadmap (${units.size} units)")
+        }
+        if (showRoadmap) {
+            Spacer(Modifier.height(10.dp))
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier.fillMaxWidth().height(320.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                items(units, key = { it.stableKey }) { unit ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Unit numbers restart at 1 within every CEFR band (that's
+                        // exactly why UnitMastery.stableKey exists), so "Unit 1"
+                        // alone is ambiguous once every band is on screen at once.
+                        Text(
+                            "${unit.band} · Unit ${unit.unit}${if (!unit.unlocked) " · locked" else ""}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (unit.unlocked) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AppLinearProgressIndicator(
+                                progress = { unit.progress.toFloat().coerceIn(0f, 1f) },
+                                modifier = Modifier.width(70.dp).height(5.dp).clip(RoundedCornerShape(99.dp))
+                            )
+                            Text(
+                                "${(unit.progress * 100).toInt()}%",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.width(34.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun DailyPlanPanel(dailyPlan: DailyPlan?, sessionPlan: SessionPlan?, onStart: (SessionMode) -> Unit) {
+internal fun DailyPlanPanel(dailyPlan: DailyPlan?, sessionPlan: SessionPlan?, onStart: () -> Unit) {
     val plan = dailyPlan ?: return
     val prompts = sessionPlan?.reviewQueue.orEmpty()
     val sessionSize = prompts.size
@@ -190,9 +235,10 @@ internal fun DailyPlanPanel(dailyPlan: DailyPlan?, sessionPlan: SessionPlan?, on
         }
         // ONE route, ONE button (see docs/DESIGN_VISION.md). The learner never chooses a
         // pace/mode — the system generates the optimal session. Quick/Full/Stretch are an
-        // INTERNAL decision of the pace engine, never user-facing buttons. (The mode is
-        // chosen for the session when it starts; until the generative PaceController lands
-        // it defaults to FULL, which BlueprintBuilder already adapts by at-risk + accuracy.)
+        // INTERNAL decision of the pace engine, never user-facing buttons: onStart routes
+        // to ReviewViewModel.startRecommendedSession(), which reads sessionPlan.blueprint.mode
+        // (PaceController already set it — EARLY_STOP -> QUICK, STRETCH_ARMED -> STRETCH —
+        // when the plan was generated) instead of this composable re-deriving it.
         // Adding material (import/reader text) is a Settings action, not a Study one — when
         // there's nothing sessionable, this card just says so above with no button.
         if (sessionSize > 0 || reader != null) {
@@ -201,7 +247,7 @@ internal fun DailyPlanPanel(dailyPlan: DailyPlan?, sessionPlan: SessionPlan?, on
                 // A due reading must enter through the study-session state machine so
                 // its checkpoint updates the reading schedule. Opening it as a manual
                 // reader leaves the assignment due forever.
-                onClick = { onStart(SessionMode.FULL) },
+                onClick = onStart,
                 modifier = Modifier.fillMaxWidth().testTag(TestTags.DASHBOARD_STUDY_BUTTON),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.onPrimary,

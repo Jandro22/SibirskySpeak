@@ -15,8 +15,7 @@ internal object TestTags {
 
     // Dashboard / Practice landing
     const val DASHBOARD_STUDY_BUTTON = "dashboard_study_button"
-    const val DOCTRINE_NUDGE_APPLY = "doctrine_nudge_apply"
-    const val DOCTRINE_NUDGE_DISMISS = "doctrine_nudge_dismiss"
+    const val DASHBOARD_NEXT_ACTION_BUTTON = "dashboard_next_action_button"
 
     // Study session header
     const val SESSION_MORE_MENU = "session_more_menu"

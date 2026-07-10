@@ -29,7 +29,13 @@ data class PromotionSeries(val lockedTier: Int = 0, val targetTier: Int = 0, val
 data class PromotionUpdate(val series: PromotionSeries, val locked: Boolean, val failed: Boolean)
 
 object Rival {
-    val tierBoundaries = doubleArrayOf(Double.NEGATIVE_INFINITY, 0.0, 8.0, 16.0, 24.0, 32.0)
+    // One more boundary than the old 6-tier CEFR ladder (Iron replaces "Новичок",
+    // Challenger replaces "Гроссмейстер") — CEFR labels doubled as both a language
+    // level and a competitive rank, which read as low-stakes/academic rather than
+    // a ladder worth climbing. League-style tiers separate "how good at Russian
+    // are you" (the actual CEFR/proficiency map) from "how did this match go,"
+    // which is what this rating has always actually measured.
+    val tierBoundaries = doubleArrayOf(Double.NEGATIVE_INFINITY, 0.0, 8.0, 16.0, 24.0, 32.0, 40.0)
 
     fun tierIndex(displayRating: Double): Int = tierBoundaries.indexOfLast { displayRating >= it }.coerceAtLeast(0)
 
@@ -87,12 +93,26 @@ object Rival {
     }
 
     fun tier(displayRating: Double): String = when {
-        displayRating < 0.0 -> "Новичок A1"
-        displayRating < 8.0 -> "A1"
-        displayRating < 16.0 -> "A2"
-        displayRating < 24.0 -> "B1"
-        displayRating < 32.0 -> "B2"
-        else -> "Гроссмейстер C1"
+        displayRating < 0.0 -> "Iron"
+        displayRating < 8.0 -> "Bronze"
+        displayRating < 16.0 -> "Silver"
+        displayRating < 24.0 -> "Gold"
+        displayRating < 32.0 -> "Platinum"
+        displayRating < 40.0 -> "Diamond"
+        else -> "Challenger"
+    }
+
+    /** A cheap, always-safe (no image assets, no Canvas) bit of visual identity per
+     * tier — used next to [tier] wherever the rank is the headline, not in plain
+     * list/history text. */
+    fun tierEmoji(displayRating: Double): String = when {
+        displayRating < 0.0 -> "🔩"      // 🔩 (Iron)
+        displayRating < 8.0 -> "🥉"      // 🥉 (Bronze)
+        displayRating < 16.0 -> "🥈"     // 🥈 (Silver)
+        displayRating < 24.0 -> "🥇"     // 🥇 (Gold)
+        displayRating < 32.0 -> "💎"     // 💎 (Platinum)
+        displayRating < 40.0 -> "🔷"     // 🔷 (Diamond)
+        else -> "👑"                     // 👑 (Challenger)
     }
 
     fun updatePromotion(series: PromotionSeries, displayRating: Double, outcome: MatchOutcome): PromotionUpdate {

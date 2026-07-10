@@ -40,12 +40,23 @@ FUNCTIONS = {
     19: "refer to someone's own possession",
 }
 
+FUNCTION_PATTERNS = {
+    "A1": ["exchange basic personal information", "describe familiar people and objects", "handle a simple everyday transaction", "understand a short message about daily life"],
+    "A2": ["describe routines and recent events", "make and respond to practical plans", "ask for and give everyday information", "follow a short connected account on a familiar topic"],
+    "B1": ["narrate an experience with supporting detail", "explain a preference or decision", "handle an unplanned travel or social situation", "understand the main point of connected standard language"],
+    "B2": ["develop and support a viewpoint", "reformulate information in a more formal register", "follow detailed argument on a concrete or abstract topic", "interact fluently in a practical or professional situation"],
+    "C1": ["express a nuanced position precisely", "adapt register to an academic or professional context", "interpret implicit relationships in extended discourse", "synthesize complex information into a coherent response"],
+    "C2": ["convey fine shades of meaning idiomatically", "restructure dense discourse without loss of nuance", "interpret stylistic and pragmatic implications", "produce precise language for a complex unfamiliar situation"],
+}
+
 def all_rows():
     return a1_rows() + a2_rows() + b1_rows() + b2_rows() + c1_rows() + c2_rows() + spine2_rows()
 
-def band_for(unit, rows):
-    bands = [r.get("cefrLevel") for r in rows if r.get("unit") == unit and r.get("cefrLevel")]
-    return bands[0] if bands else ("A1" if unit <= 11 else "A2" if unit <= 20 else "B1" if unit <= 49 else "B2" if unit <= 128 else "C1" if unit <= 220 else "C2")
+def can_do_for(band, unit):
+    if band == "A1" and unit in FUNCTIONS:
+        return FUNCTIONS[unit]
+    patterns = FUNCTION_PATTERNS[band]
+    return patterns[unit % len(patterns)]
 
 def completeness():
     db = sqlite3.connect(ASSETS / "tatoeba.db")
@@ -63,16 +74,19 @@ def completeness():
 def main():
     rows = all_rows()
     units = []
-    for unit in range(1, 263):
-        concepts = sorted({r["conceptId"] for r in rows if r.get("unit") == unit and r.get("conceptId")})
-        band = band_for(unit, rows)
-        can_do = FUNCTIONS.get(unit, f"understand and use unit {unit} {band} vocabulary in connected language")
+    keys = sorted(
+        {(r["cefrLevel"], int(r["unit"])) for r in rows if r.get("cefrLevel") and r.get("unit") is not None},
+        key=lambda item: (("A1", "A2", "B1", "B2", "C1", "C2").index(item[0]), item[1]),
+    )
+    for band, unit in keys:
+        concepts = sorted({r["conceptId"] for r in rows if r.get("unit") == unit and r.get("cefrLevel") == band and r.get("conceptId")})
+        can_do = can_do_for(band, unit)
         units.append({
-            "id": f"unit_{unit:03d}", "unit": unit, "band": band, "canDo": can_do,
+            "id": f"{band.lower()}_unit_{unit:03d}", "unit": unit, "band": band, "canDo": can_do,
             "concepts": concepts, "capstone": f"{band.lower()}_{(unit - 1) // 10 + 1}",
             "exitTicket": {"recognition": 1, "production": 1, "listening": 1, "reading": 1,
                            "function": can_do, "evidence": "PRACTICE"},
-            "dialogueRef": f"unit_{unit:03d}_dialogue", "readerRef": f"unit_{unit:03d}_reader",
+            "dialogueRef": f"{band.lower()}_unit_{unit:03d}_dialogue", "readerRef": f"{band.lower()}_unit_{unit:03d}_reader",
         })
     # JSON is a strict subset of YAML and avoids adding a runtime/build dependency.
     (HERE / "units.yaml").write_text(json.dumps({"schemaVersion": 1, "units": units}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

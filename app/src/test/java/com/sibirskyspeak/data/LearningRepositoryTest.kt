@@ -1,6 +1,10 @@
 package com.sibirskyspeak.data
 
 import com.sibirskyspeak.scheduler.FsrsScheduler
+import com.sibirskyspeak.learning.EvidenceEvent
+import com.sibirskyspeak.learning.EvidenceStrength
+import com.sibirskyspeak.learning.FluencySimEngine
+import com.sibirskyspeak.learning.LearningFacet
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -14,6 +18,88 @@ import java.time.Instant
 import java.util.TimeZone
 
 class LearningRepositoryTest {
+    @Test
+    fun learnerSnapshotFeedsSessionAndFluencyReadsFromTheSameModelRows() = runTest {
+        val model = FakeLearningModelDao().apply {
+            capacity = CapacityState(mu = 19.0, sigma = 3.0)
+            willingness = WillingnessState(
+                habit = 0.74,
+                coeffsJson = "[0.2,0.8,-0.5,0.4,-0.6,-0.7]"
+            )
+            parameterRows["global_skill_mu"] = OptimizerParameter("global_skill_mu", 28.0)
+            parameterRows["global_skill_sigma"] = OptimizerParameter("global_skill_sigma", 6.0)
+            skillRows["production"] = SkillRating("production", mu = 1.5, sigma = 4.0)
+            skillRows["not-a-real-skill"] = SkillRating("not-a-real-skill", mu = 99.0, sigma = 1.0)
+            paceRows[1_000L] = PaceLog(1_000L, 12.0, 4, 0.9, 0.1, 0.9, "adaptive", "CLEAN_STOP")
+        }
+        val fixture = RepoFixture(withTelemetry = true, learningModelDao = model)
+        fixture.notes.insert(Note(russian = "known", lemma = "known", translation = "known", partOfSpeech = "word", status = WordStatus.KNOWN))
+        val activeNoteId = fixture.notes.insert(Note(russian = "дом", lemma = "дом", translation = "house", partOfSpeech = "noun"))
+        val activeCardId = fixture.cards.insert(
+            Card(
+                noteId = activeNoteId,
+                cardType = CardType.RU_TO_MEANING,
+                queue = Queue.VOCAB,
+                state = CardState.REVIEW,
+                due = 0L,
+                reps = 2,
+                consecutiveCorrect = 2,
+                lastReview = 0L,
+                stability = 3.0
+            )
+        )
+        val now = 86_400_000L * 20
+        val snapshot = fixture.repository.currentSnapshot(
+            now = now,
+            daily = fixture.repository.dailyPlan(now),
+            gamification = fixture.repository.gamificationStats(now),
+            recentTelemetry = fixture.repository.recentTelemetry(200)
+        )
+
+        assertEquals(19.0, snapshot.capacity.mu, 0.0)
+        assertEquals(3.0, snapshot.capacity.sigma, 0.0)
+        assertEquals(0.74, snapshot.willingness.habit, 0.0)
+        assertEquals(1, snapshot.activeCards.count { it.id == activeCardId })
+        assertEquals(2, snapshot.totalKnown)
+        assertEquals(0.85, snapshot.recentAccuracy, 0.0)
+        assertEquals(setOf(com.sibirskyspeak.learning.AbilitySkill.PRODUCTION), snapshot.world.skills.keys)
+
+        val evidenceDays = model.allPaceLogs()
+            .map { it.at / FluencySimEngine.DAY_MILLIS }
+            .distinct()
+            .size
+        val expectedForecast = FluencySimEngine.runSimulation(
+            currentCapacity = snapshot.capacity,
+            currentWillingness = snapshot.willingness,
+            initialActiveCards = snapshot.activeCards,
+            totalKnownStart = snapshot.totalKnown,
+            evidenceDays = evidenceDays,
+            recentAccuracy = snapshot.recentAccuracy,
+            startTimeMillis = now
+        )
+        assertEquals(expectedForecast, fixture.repository.getFluencyForecast(now))
+        assertNotNull(fixture.repository.sessionPlan(now, includeReaderInsights = false).pace)
+    }
+
+    @Test
+    fun worldSkillHelperKeepsWritePathFatigueSpecific() = runTest {
+        val model = FakeLearningModelDao().apply {
+            parameterRows["global_skill_mu"] = OptimizerParameter("global_skill_mu", 25.0)
+            parameterRows["global_skill_sigma"] = OptimizerParameter("global_skill_sigma", 8.0)
+            skillRows["production"] = SkillRating("production", mu = 1.0, sigma = 5.0)
+        }
+        val fixture = RepoFixture(withTelemetry = true, learningModelDao = model)
+        val noteId = fixture.notes.insert(Note(russian = "слово", lemma = "слово", translation = "word", partOfSpeech = "noun"))
+        val cardId = fixture.cards.insert(Card(noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB))
+        val card = fixture.cards.cards.single { it.id == cardId }
+
+        val low = fixture.repository.captureSuccessCalibrationExposure(card, fatigue = 0.1, at = 1_000L)
+        val high = fixture.repository.captureSuccessCalibrationExposure(card, fatigue = 0.8, at = 1_000L)
+
+        assertEquals(0.1, low?.sample?.fatigue ?: -1.0, 0.0)
+        assertEquals(0.8, high?.sample?.fatigue ?: -1.0, 0.0)
+    }
+
     @Test
     fun authoredConceptDrillsCoverUpperLevelGrammarConcepts() {
         val upperConceptIds = setOf(
@@ -204,16 +290,18 @@ class LearningRepositoryTest {
     }
 
     @Test
-    fun ignoredNoiseCountsAsReaderCoverageButNotAsKnownVocabulary() = runTest {
+    fun ignoredNoiseIsExcludedFromReaderCoverageAndKnownVocabulary() = runTest {
         val fixture = RepoFixture()
         val noteId = fixture.notes.insert(Note(russian = "Том", lemma = "том", translation = "Tom", partOfSpeech = "noun", status = WordStatus.IGNORED))
         fixture.cards.insert(Card(noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.GRADUATED))
         fixture.readers.insert(ReaderText(title = "Names", body = "Том пришёл.", source = "local"))
 
         val plan = fixture.repository.sessionPlan()
+        val reader = fixture.repository.readerTexts().single()
 
         assertEquals(0, plan.gamification.knownWords)
-        assertTrue(fixture.repository.readerTexts().single().knownTokens > 0)
+        assertEquals(0, reader.knownTokens)
+        assertEquals(0.0, reader.coverage, 0.0001)
     }
 
     @Test
@@ -371,7 +459,7 @@ class LearningRepositoryTest {
     }
 
     @Test
-    fun readerLookupLogsEncounterAndVocabGraduatesAtFifteenEncounters() = runTest {
+    fun readerLookupRecordsNeedForHelpButNeverGraduatesVocabulary() = runTest {
         val fixture = RepoFixture()
         fixture.repository.seedIfEmpty()
 
@@ -381,9 +469,10 @@ class LearningRepositoryTest {
         }
 
         val note = fixture.notes.getByLemma("войска")
-        assertEquals(15, note?.encounterCount)
+        assertEquals(0, note?.encounterCount)
+        assertEquals(15, fixture.readerEncounters.encounters.size)
         assertTrue("reader lookup is exposure, not recall review", fixture.logs.logs.none { it.source == ReviewSource.READER_LOOKUP })
-        assertTrue(fixture.cards.cards.filter { it.noteId == note?.id && it.queue == Queue.VOCAB }.all { it.state == CardState.GRADUATED })
+        assertFalse(fixture.cards.cards.filter { it.noteId == note?.id && it.queue == Queue.VOCAB }.all { it.state == CardState.GRADUATED })
     }
 
     @Test
@@ -399,7 +488,9 @@ class LearningRepositoryTest {
         }
 
         val note = fixture.notes.getByLemma("книга")
-        assertEquals(1, note?.encounterCount)
+        assertEquals(0, note?.encounterCount)
+        assertEquals(1, fixture.readerEncounters.encounters.size)
+        assertEquals(14L, fixture.readerEncounters.encounters.single().encounteredAt)
         assertFalse(
             "same-text repeated taps should not graduate vocab",
             fixture.cards.cards.filter { it.noteId == note?.id && it.queue == Queue.VOCAB }.all { it.state == CardState.GRADUATED }
@@ -407,21 +498,21 @@ class LearningRepositoryTest {
     }
 
     @Test
-    fun readerLookupLogsDoNotCountAsRecallMetrics() = runTest {
+    fun passiveEvidenceDoesNotCountAsRecallMetrics() = runTest {
         val fixture = RepoFixture()
         val noteId = fixture.notes.insert(Note(russian = "word", lemma = "word", translation = "word", partOfSpeech = "noun"))
         val cardId = fixture.cards.insert(Card(noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.REVIEW))
-        fixture.logs.insert(
-            ReviewLog(
+        listOf(ReviewSource.READER_LOOKUP, ReviewSource.READING, ReviewSource.LISTENING, ReviewSource.PRODUCTION).forEachIndexed { index, source ->
+            fixture.logs.insert(ReviewLog(
                 cardId = cardId,
-                reviewDatetime = 1_000L,
+                reviewDatetime = 1_000L + index,
                 rating = Rating.GOOD,
                 stateBefore = CardState.REVIEW,
                 scheduledDays = 5,
                 elapsedDays = 5,
-                source = ReviewSource.READER_LOOKUP
-            )
-        )
+                source = source
+            ))
+        }
 
         assertEquals(0, fixture.logs.countAll())
         assertEquals(0, fixture.logs.countSince(0L))
@@ -1308,7 +1399,7 @@ class LearningRepositoryTest {
     }
 
     @Test
-    fun placementAfterLevelGraduatesEarlierCourseMaterial() = runTest {
+    fun placementAfterLevelCreatesUncertainRecognitionPriorOnly() = runTest {
         val fixture = RepoFixture()
         val jsonl = """
             {"russian":"дом","lemma":"дом","pos":"noun","translation":"house","tier":0,"unit":1,"cefrLevel":"A1","exampleSentence":"Это дом.","exampleTranslation":"This is a house."}
@@ -1321,9 +1412,11 @@ class LearningRepositoryTest {
         val a1 = fixture.notes.getByLemma("дом")!!
         val a2 = fixture.notes.getByLemma("урок")!!
         assertEquals(1, placed)
-        assertEquals(WordStatus.KNOWN, a1.status)
+        assertEquals(WordStatus.LEARNING, a1.status)
         assertEquals(WordStatus.NEW, a2.status)
-        assertTrue(fixture.cards.cards.filter { it.noteId == a1.id }.all { it.state == CardState.GRADUATED })
+        val a1Cards = fixture.cards.cards.filter { it.noteId == a1.id }
+        assertTrue(a1Cards.first { it.cardType == CardType.RU_TO_MEANING }.state == CardState.GRADUATED)
+        assertTrue(a1Cards.filterNot { it.cardType == CardType.RU_TO_MEANING }.all { it.state == CardState.NEW })
         assertTrue(fixture.cards.cards.filter { it.noteId == a2.id }.all { it.state == CardState.NEW })
     }
 
@@ -1647,36 +1740,6 @@ class LearningRepositoryTest {
     }
 
     @Test
-    fun extraCreditAddsNewCardsBeyondTheDailyCap() = runTest {
-        val fixture = RepoFixture(config = { LearningConfig(newCardsPerDay = 0) })
-        fixture.repository.importJsonLines(
-            """{"russian":"дом","lemma":"дом","pos":"noun","translation":"house","tier":0,"unit":1,"cefrLevel":"A1"}"""
-        )
-        // Cap is 0: no new cards available.
-        assertTrue("no new cards under a zero cap",
-            fixture.repository.sessionPlan(now = 1_000L).reviewQueue.isEmpty())
-
-        fixture.repository.grantExtraCredit(amount = 5, now = 1_000L)
-        assertFalse("extra credit unlocks new cards",
-            fixture.repository.sessionPlan(now = 1_000L).reviewQueue.isEmpty())
-    }
-
-    @Test
-    fun extraCreditIsCappedToOneBatchPerDay() = runTest {
-        val fixture = RepoFixture(config = { LearningConfig(newCardsPerDay = 0, sessionSize = 50) })
-        val jsonl = (1..30).joinToString("\n") { i ->
-            """{"russian":"word$i","lemma":"word$i","pos":"noun","translation":"word $i","tier":0,"unit":1}"""
-        }
-        fixture.repository.importJsonLines(jsonl)
-
-        assertEquals(10, fixture.repository.grantExtraCredit(amount = 10, now = 1_000L))
-        assertEquals(0, fixture.repository.grantExtraCredit(amount = 10, now = 1_000L))
-
-        val session = fixture.repository.sessionPlan(now = 1_000L).reviewQueue
-        assertEquals(10, session.size)
-    }
-
-    @Test
     fun newWordBudgetIsIndependentOfReviewGoal() = runTest {
         val fixture = RepoFixture(config = { LearningConfig(dailyGoal = 5, newCardsPerDay = 80, sessionSize = 50) })
         val jsonl = (1..30).joinToString("\n") { i ->
@@ -1842,6 +1905,24 @@ class LearningRepositoryTest {
     }
 
     @Test
+    fun lockedFutureCardsAreNotReportedAsAnExhaustedDailyBudget() = runTest {
+        val fixture = RepoFixture(config = { LearningConfig(newCardsPerDay = 10, sessionSize = 10) })
+        fixture.repository.importJsonLines(
+            """
+            {"russian":"one","lemma":"one","pos":"word","translation":"one","tier":0,"unit":1}
+            {"russian":"two","lemma":"two","pos":"word","translation":"two","tier":0,"unit":2}
+            """.trimIndent()
+        )
+        val first = fixture.notes.getByLemma("one")!!
+        fixture.notes.update(first.copy(status = WordStatus.KNOWN))
+
+        val plan = fixture.repository.sessionPlan(now = 1_000L)
+
+        assertTrue(plan.reviewQueue.isEmpty())
+        assertEquals(DailyLearningStatus.SCHEDULED_COMPLETE, plan.completion.status)
+    }
+
+    @Test
     fun unitMasterySlidingWindowOpensUnitsAheadOnceTheFrontierIsStarted() = runTest {
         // P6.5: once the current (frontier) unit has genuine progress — not full
         // mastery, just started — the next two units open too, instead of staying
@@ -1898,6 +1979,7 @@ class LearningRepositoryTest {
             fixture.notes.getByLemma("стол")!!.id
         )
         assertTrue(session.items.all { it.noteId == null || it.noteId in unitOneIds })
+        assertTrue("listening must hide its carrier and expose it only as audio", session.items.first { it.kind == "listening" }.audioPrompt?.isNotBlank() == true)
     }
 
     @Test
@@ -2232,6 +2314,21 @@ class LearningRepositoryTest {
     }
 
     @Test
+    fun unreadableLibraryTextsDoNotCreatePhantomReadingDebt() = runTest {
+        val fixture = RepoFixture()
+        val pristineId = fixture.repository.addReaderText("Too hard", "unknown words only", "graded:c2")
+        val startedId = fixture.repository.addReaderText("Started", "also unknown", "graded:c2")
+        fixture.readingSchedules.update(
+            fixture.readingSchedules.get(startedId)!!.copy(reps = 1, lastCompleted = 100L, due = 200L)
+        )
+
+        fixture.repository.sessionPlan(now = 1_000L)
+
+        assertNull(fixture.readingSchedules.get(pristineId))
+        assertNotNull(fixture.readingSchedules.get(startedId))
+    }
+
+    @Test
     fun readingAssignmentAlternatesListeningAndReadingModePerRep() = runTest {
         // P5.3: the same ReadingSchedule SRS alternates modality per rep instead of
         // needing a separate schedule/table for listening.
@@ -2515,7 +2612,7 @@ class LearningRepositoryTest {
     }
 
     @Test
-    fun placeAfterLevelGraduatesWithCoherentFsrsState() = runTest {
+    fun placeAfterLevelMaturesOnlyRecognitionWithCoherentFsrsState() = runTest {
         val fixture = RepoFixture()
         fixture.repository.importJsonLines(
             """{"russian":"вода","lemma":"вода","pos":"noun","translation":"water","cefrLevel":"A1"}"""
@@ -2526,9 +2623,57 @@ class LearningRepositoryTest {
         assertTrue("at least one note placed", placed >= 1)
         val cards = fixture.cards.cards.filter { it.queue == Queue.VOCAB }
         assertTrue(cards.isNotEmpty())
-        assertTrue("placed cards graduate", cards.all { it.state == CardState.GRADUATED })
-        assertTrue("placed cards carry coherent FSRS state",
-            cards.none { it.stability <= 0.0 || it.difficulty <= 0.0 })
+        val recognition = cards.first { it.cardType == CardType.RU_TO_MEANING }
+        assertEquals(CardState.GRADUATED, recognition.state)
+        assertTrue(recognition.stability > 0.0 && recognition.difficulty > 0.0)
+        assertTrue(cards.filterNot { it.cardType == CardType.RU_TO_MEANING }.all { it.state == CardState.NEW })
+    }
+
+    @Test
+    fun passiveReadingEvidenceCannotChangeProductionSchedule() = runTest {
+        val fixture = RepoFixture()
+        val noteId = fixture.notes.insert(Note(russian = "дом", lemma = "дом", translation = "house", partOfSpeech = "noun", status = WordStatus.LEARNING))
+        val recognitionId = fixture.cards.insert(Card(noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.REVIEW, stability = 10.0, difficulty = 5.0, scheduledDays = 5, due = 100L, lastReview = 1L))
+        val productionId = fixture.cards.insert(Card(noteId = noteId, cardType = CardType.MEANING_TO_RU, queue = Queue.VOCAB, state = CardState.REVIEW, stability = 10.0, difficulty = 5.0, scheduledDays = 5, due = 100L, lastReview = 1L))
+
+        fixture.repository.recordEvidence(EvidenceEvent(noteId = noteId, facet = LearningFacet.CONTEXT, strength = EvidenceStrength.PRACTICE, correct = true, source = ReviewSource.READING, at = 86_400_000L))
+
+        assertTrue(fixture.cards.cards.first { it.id == recognitionId }.stability > 10.0)
+        assertEquals(10.0, fixture.cards.cards.first { it.id == productionId }.stability, 0.0)
+    }
+
+    @Test
+    fun passiveEvidenceCapUsesTheLearnersLocalDayAcrossUtcMidnight() = runTest {
+        val original = java.util.TimeZone.getDefault()
+        java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("GMT-03:00"))
+        try {
+            val fixture = RepoFixture()
+            val noteId = fixture.notes.insert(Note(russian = "word", lemma = "word", translation = "word", partOfSpeech = "noun"))
+            val cardId = fixture.cards.insert(Card(
+                noteId = noteId,
+                cardType = CardType.RU_TO_MEANING,
+                queue = Queue.VOCAB,
+                state = CardState.REVIEW,
+                stability = 10.0,
+                difficulty = 5.0,
+                due = 0L,
+                lastReview = 1L
+            ))
+            val first = 86_400_000L + 30 * 60_000L
+            val second = 86_400_000L + 2 * 3_600_000L
+
+            assertEquals(1, fixture.repository.recordEvidence(EvidenceEvent(
+                noteId = noteId, facet = LearningFacet.CONTEXT, strength = EvidenceStrength.PRACTICE,
+                correct = true, source = ReviewSource.READING, at = first
+            )))
+            assertEquals(0, fixture.repository.recordEvidence(EvidenceEvent(
+                noteId = noteId, facet = LearningFacet.CONTEXT, strength = EvidenceStrength.PRACTICE,
+                correct = true, source = ReviewSource.READING, at = second
+            )))
+            assertEquals(1, fixture.logs.logs.count { it.cardId == cardId && it.source == ReviewSource.READING })
+        } finally {
+            java.util.TimeZone.setDefault(original)
+        }
     }
 
     @Test
@@ -2633,7 +2778,7 @@ class LearningRepositoryTest {
         fixture.repository.completeScheduledReading(textId, mistakes = 0, now = 0L)
 
         val updated = fixture.cards.cards.first { it.id == cardId }
-        assertEquals(10.0 * 1.15, updated.stability, 1e-9)
+        assertEquals(10.0 * (1.0 + 0.15 * 0.45 * 0.18), updated.stability, 1e-9)
     }
 
     @Test
@@ -2647,7 +2792,7 @@ class LearningRepositoryTest {
         fixture.repository.completeScheduledReading(textId, mistakes = 0, now = 0L)
 
         val updated = fixture.cards.cards.first { it.id == cardId }
-        assertEquals(10.0 * 0.90, updated.stability, 1e-9)
+        assertEquals(10.0 * (1.0 - 0.10 * 0.45 * 0.18), updated.stability, 1e-9)
     }
 
     @Test

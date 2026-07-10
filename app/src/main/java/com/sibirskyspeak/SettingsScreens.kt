@@ -52,7 +52,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sibirskyspeak.data.SettingsStore
 import com.sibirskyspeak.learning.PlacementTest
-import com.sibirskyspeak.learning.Doctrine
 import com.sibirskyspeak.review.ReviewUiState
 
 // ---------------------------------------------------------------------------
@@ -72,6 +71,7 @@ internal fun ImportExportPanel(
     selectedArea: SettingsArea,
     onSelectedArea: (SettingsArea) -> Unit,
     onImportText: (String) -> Unit,
+    onPreviewImport: () -> Unit,
     onImport: () -> Unit,
     onExport: () -> Unit,
     onFullBackup: () -> Unit,
@@ -83,7 +83,7 @@ internal fun ImportExportPanel(
     onSessionSize: (Int) -> Unit,
     onNewCardsPerDay: (Int) -> Unit,
     onRetention: (Double) -> Unit,
-    onDoctrine: (Doctrine) -> Unit,
+    onAdaptiveEnabled: (Boolean) -> Unit,
     onPlaceAfterLevel: (String) -> Unit,
     onStartPlacementTest: () -> Unit,
     onAnswerPlacementQuestion: (Int) -> Unit,
@@ -142,7 +142,20 @@ internal fun ImportExportPanel(
                         SectionCard {
                             Text("Study Pace", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(12.dp))
-                            DoctrinePicker(selected = state.doctrineSetting, onSelect = onDoctrine)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Adaptive tutor", fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        state.sessionPlan?.adaptiveReason ?: "Learns workload from your results",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    state.sessionPlan?.let {
+                                        Text("Influence ${(it.adaptiveTrust * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                                Switch(checked = state.adaptiveEnabled, onCheckedChange = onAdaptiveEnabled)
+                            }
                         }
                         SectionCard {
                             Text("Placement", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -288,18 +301,37 @@ internal fun ImportExportPanel(
                             )
                             Spacer(Modifier.height(12.dp))
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Button(onClick = onImport, enabled = state.importText.isNotBlank()) { Text("Import Notes") }
+                                OutlinedButton(onClick = onPreviewImport, enabled = state.importText.isNotBlank()) { Text("Preview Restore") }
+                                Button(onClick = onImport, enabled = state.importPreview?.valid == true) { Text("Commit Import") }
                                 OutlinedButton(onClick = onExport) { Text("Export") }
                                 OutlinedButton(onClick = onFullBackup) { Text("Full Backup") }
                                 OutlinedButton(onClick = { backupTreeLauncher.launch(null) }) {
-                                    Text(if (state.backupTreeUri.isBlank()) "Choose Backup Folder" else "Change Backup Folder")
+                                    Text(if (state.backupTreeUri.isBlank()) "Choose Custom Backup Folder (optional)" else "Change Custom Backup Folder")
                                 }
                                 if (state.exportText.isNotBlank()) {
                                     OutlinedButton(onClick = { saveLauncher.launch("sibirskyspeak-export.jsonl") }) { Text("Save to File") }
                                 }
                             }
+                            state.importPreview?.let { preview ->
+                                Spacer(Modifier.height(10.dp))
+                                Text(
+                                    if (preview.valid) "Ready: ${preview.notes} notes · ${preview.cards} cards · ${preview.reviews} reviews · ${preview.readerTexts} texts · settings ${if (preview.restoresSettings) "included" else "not included"}"
+                                    else "Cannot import: ${preview.errors.joinToString("; ")}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (preview.valid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
                             Text(
-                                "Export saves note content. Full Backup includes SRS and mirrors rolling snapshots to the selected folder.",
+                                "Last local backup: ${if (state.backupLastValidatedAt > 0) "validated · ${state.backupLastSizeBytes / 1024 / 1024} MB" else "not yet validated"}. " +
+                                    "Durable copy (Downloads/SibirskySpeak" + (if (state.backupTreeUri.isNotBlank()) " + your custom folder" else "") + "): " +
+                                    (if (state.backupLastDurableAt > 0) "current" else "waiting for next completed session") + ".",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                "Export saves note content. Full Backup includes SRS, and mirrors rolling snapshots to Downloads/SibirskySpeak automatically " +
+                                    "(Android 10+, no setup needed) plus your custom folder if you've chosen one.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -411,33 +443,6 @@ internal fun SettingsAreaPicker(selected: SettingsArea, onSelect: (SettingsArea)
                 label = { Text(area.label) }
             )
         }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-internal fun DoctrinePicker(selected: Doctrine, onSelect: (Doctrine) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Doctrine.entries.forEach { doctrine ->
-                FilterChip(
-                    selected = selected == doctrine,
-                    onClick = { onSelect(doctrine) },
-                    label = { Text(doctrine.name.lowercase().replaceFirstChar { it.uppercase() }) }
-                )
-            }
-        }
-        Text(
-            when (selected) {
-                Doctrine.RECOVERY -> "Reviews only, with shorter sessions and no new material."
-                Doctrine.CONSERVE -> "A lighter pace with fewer new words and less production pressure."
-                Doctrine.BALANCED -> "A sustainable mix of reviews, new material, and active recall."
-                Doctrine.AMBITIOUS -> "More new material and production practice when your workload allows it."
-                Doctrine.SPRINT -> "The highest short-term pace; expect longer sessions and more future reviews."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
 

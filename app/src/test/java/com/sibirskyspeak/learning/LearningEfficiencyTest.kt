@@ -49,17 +49,17 @@ class LearningEfficiencyTest {
         assertFalse(built.prompt.contains("книгу"))
     }
 
-    @Test fun `quick blueprint is exactly its at risk set`() {
+    @Test fun `blueprint caps reviews and new cards by capacity, not a plan-time mode`() {
         val now = 20L * 86_400_000
         val due = (1L..4L).map { id -> Card(
             id = id, noteId = id, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB,
             state = CardState.REVIEW, stability = 2.0, lastReview = now - 10 * 86_400_000
         ) }
         val fresh = Card(id = 9, noteId = 9, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB)
-        val blueprint = BlueprintBuilder.build(due + fresh, now, .9, 10, 20, false, .9, SessionMode.QUICK)
-        assertEquals(0, blueprint.newBudget)
-        assertEquals(blueprint.atRiskCardIds.size, blueprint.totalBudget)
+        val blueprint = BlueprintBuilder.build(due + fresh, now, .9, 10, 20, false, .9)
         assertEquals(due.map { it.id }.toSet(), blueprint.atRiskCardIds)
+        assertEquals(4, blueprint.reviewBudget)
+        assertTrue("capacity, not a fixed mode, bounds total budget", blueprint.totalBudget <= 20)
     }
 
     @Test fun `selector enforces sibling lesson and lapse spacing constraints`() {
@@ -69,7 +69,7 @@ class LearningEfficiencyTest {
         val locked = prompt(Card(id = 3, noteId = 2, cardType = CardType.CASE_FILL, queue = Queue.GRAMMAR, gramConcept = "ACC"), note(2, "стол", "table"))
         val lapsed = prompt(Card(id = 4, noteId = 3, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB), note(3, "вода", "water"))
         val eligible = prompt(Card(id = 5, noteId = 4, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB), note(4, "хлеб", "bread"))
-        val blueprint = SessionBlueprint(SessionMode.FULL, emptySet(), 4, 0, 0, 0, emptyList(), .88)
+        val blueprint = SessionBlueprint(emptySet(), 4, 0, 0, 0, emptyList(), .88)
         val live = LiveSessionState(shown = 3, recentNoteIds = listOf(1), lapsedShownAt = mapOf(4L to 1), introducedConcepts = emptySet())
         assertEquals(5L, NextCardSelector.select(listOf(sibling, locked, lapsed, eligible), blueprint, live, now)?.card?.id)
     }
@@ -79,7 +79,7 @@ class LearningEfficiencyTest {
             Card(id = 2, noteId = 1, cardType = CardType.CLOZE, queue = Queue.VOCAB),
             note(1, "до́м", "house")
         )
-        val blueprint = SessionBlueprint(SessionMode.FULL, emptySet(), 1, 0, 0, 0, emptyList(), .88)
+        val blueprint = SessionBlueprint(emptySet(), 1, 0, 0, 0, emptyList(), .88)
         val live = LiveSessionState(shown = 1, recentNoteIds = listOf(1))
         assertEquals(2L, NextCardSelector.select(listOf(sibling), blueprint, live, 0L)?.card?.id)
     }
@@ -94,7 +94,7 @@ class LearningEfficiencyTest {
             Card(id = 2, noteId = 2, cardType = CardType.MEANING_TO_RU, queue = Queue.VOCAB, state = CardState.REVIEW, stability = 5.0, lastReview = now - 86_400_000),
             note(2, "стол", "table"), AnswerMode.RUSSIAN_TYPED
         )
-        val blueprint = SessionBlueprint(SessionMode.FULL, emptySet(), 4, 0, 0, 0, emptyList(), .88)
+        val blueprint = SessionBlueprint(emptySet(), 4, 0, 0, 0, emptyList(), .88)
         // Previous card was hard -> prefer the easy card next (and vice versa). The old
         // bug compared against `recentNoteIds.size >= 2`, so it never actually alternated.
         val afterHard = LiveSessionState(shown = 2, recentHard = listOf(true))
@@ -106,7 +106,7 @@ class LearningEfficiencyTest {
     @Test fun `selector uses bounded uncertainty to break otherwise equal frontier ties`() {
         val low = prompt(Card(id = 1, noteId = 1, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB), note(1, "до́м", "house"))
         val high = prompt(Card(id = 2, noteId = 2, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB), note(2, "стол", "table"))
-        val blueprint = SessionBlueprint(SessionMode.FULL, emptySet(), 2, 0, 0, 0, emptyList(), .88)
+        val blueprint = SessionBlueprint(emptySet(), 2, 0, 0, 0, emptyList(), .88)
         val selected = NextCardSelector.select(
             listOf(low, high), blueprint, LiveSessionState(), 0L,
             successProbability = { .85 },

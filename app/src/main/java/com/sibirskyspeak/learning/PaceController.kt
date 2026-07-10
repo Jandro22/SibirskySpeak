@@ -2,33 +2,13 @@ package com.sibirskyspeak.learning
 
 import com.sibirskyspeak.data.Card
 import com.sibirskyspeak.data.CardState
-import com.sibirskyspeak.data.PaceLog
 import com.sibirskyspeak.scheduler.FsrsScheduler
 import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.max
+import kotlin.math.exp
 import kotlin.math.pow
 import kotlin.math.roundToInt
-
-/**
- * Named per-doctrine tuning knobs, in addition to the new-card cap. Values are
- * ordered consistently with [doctrineNewCap]'s existing intensity ranking
- * (RECOVERY < CONSERVE < BALANCED < AMBITIOUS < SPRINT).
- *
- * @param debtTolerance multiplies [debtDelta] — how much future review load this
- *   doctrine is willing to bank before it stops offering new material.
- * @param productionBias additive nudge to the production-vs-recognition ratio
- *   ([Pace.productionRatio] and the production term in the internal demand probe).
- * @param demandScale multiplies the sustainable-minutes target ([Pace.targetMinutes]'s
- *   base before capacity-fit blending) — how large a session this doctrine reaches for.
- */
-enum class Doctrine(val doctrineNewCap: Int, val debtTolerance: Double, val productionBias: Double, val demandScale: Double) {
-    BALANCED(15, 1.00, 0.00, 1.00),
-    CONSERVE(8, 0.75, -0.10, 0.85),
-    AMBITIOUS(24, 1.15, 0.10, 1.10),
-    SPRINT(30, 1.25, 0.15, 1.20),
-    RECOVERY(0, 0.50, -0.20, 0.60)
-}
 
 enum class StopPolicy { CLEAN_STOP, STRETCH_ARMED, EARLY_STOP }
 
@@ -42,20 +22,49 @@ data class Pace(
     val readingInserts: List<Int>,
     val stretchStopPolicy: StopPolicy,
     val debtRatio: Double,
-    val pReturn: Double,
-    val doctrine: Doctrine
+    val pReturn: Double
 )
 
 data class AdoptedPacePlan(
     val capacity: Int,
     val newBudget: Int,
     val retention: Double,
-    val mode: SessionMode
+    val adaptiveTrust: Double = 0.35,
+    val trustReason: String = "Cold-start settings prior"
 )
+
+data class AdaptiveEvidence(
+    val completedSessions: Int = 0,
+    val calibratedObservations: Int = 0,
+    val capacitySigma: Double = TrueSkill.SIGMA0,
+    val calibrationDrifted: Boolean = false
+)
+
+object AdaptiveTrustPolicy {
+    fun trust(evidence: AdaptiveEvidence): Double {
+        if (evidence.completedSessions <= 0 && evidence.calibratedObservations <= 0) return 0.35
+        val sessionConfidence = 1.0 - exp(-evidence.completedSessions.coerceAtLeast(0) / 12.0)
+        val calibrationConfidence = 1.0 - exp(-evidence.calibratedObservations.coerceAtLeast(0) / 80.0)
+        val uncertaintyConfidence = ((TrueSkill.SIGMA0 - evidence.capacitySigma) / (TrueSkill.SIGMA0 - 2.0))
+            .coerceIn(0.0, 1.0)
+        val learnedConfidence = (0.50 * sessionConfidence + 0.30 * calibrationConfidence + 0.20 * uncertaintyConfidence)
+            .coerceIn(0.0, 1.0)
+        val trust = 0.35 + 0.65 * learnedConfidence
+        return if (evidence.calibrationDrifted) trust.coerceAtMost(0.50) else trust
+    }
+
+    fun reason(evidence: AdaptiveEvidence, trust: Double): String = when {
+        evidence.calibrationDrifted -> "Adaptive influence limited because recent predictions drifted"
+        trust < 0.50 -> "Mostly using your chosen settings while the tutor gathers evidence"
+        trust < 0.80 -> "Blending your settings with ${evidence.completedSessions} completed adaptive sessions"
+        else -> "Primarily using a well-supported personal pace model"
+    }
+}
 
 data class PaceInputs(
     val capacity: CapacityBelief = CapacityBelief(),
     val willingness: WillingnessBelief = WillingnessBelief(),
+    val willingnessObserved: Boolean = false,
     val returnContext: ReturnContext = ReturnContext(),
     val activeCards: List<Card> = emptyList(),
     val plannedNewFraction: Double = 0.0,
@@ -80,11 +89,21 @@ object PaceController {
         configuredSessionSize: Int,
         configuredNewCardsPerDay: Int,
         configuredRetention: Double,
-        hasAdaptiveSignal: Boolean
+        evidence: AdaptiveEvidence = AdaptiveEvidence(),
+        adaptiveEnabled: Boolean = true
     ): AdoptedPacePlan {
-        // Personal evidence should steer the user's settings, not erase them. Full
-        // trust created a self-reinforcing tiny-session loop after a few short runs.
-        val trust = if (hasAdaptiveSignal) 0.70 else 0.35
+        if (!adaptiveEnabled) return AdoptedPacePlan(
+            capacity = configuredSessionSize.coerceAtLeast(1),
+            newBudget = configuredNewCardsPerDay.coerceIn(0, configuredSessionSize.coerceAtLeast(1)),
+            retention = configuredRetention.coerceIn(0.80, 0.95),
+            adaptiveTrust = 0.0,
+            trustReason = "Adaptive pacing paused; using your selected settings"
+        )
+        // Numeric settings are cold-start priors only. Once personal evidence exists,
+        // executing a blend with hidden legacy sliders makes the one-button tutor learn
+        // from and prescribe different policies indefinitely.
+        val trust = AdaptiveTrustPolicy.trust(evidence)
+        val hasAdaptiveSignal = evidence.completedSessions > 0 || evidence.calibratedObservations > 0
         val paceCapacity = (pace.reviewBudget + pace.newItemBudget).coerceAtLeast(1)
         val capacity = blendCount(configuredSessionSize.coerceAtLeast(1), paceCapacity, trust)
         val configuredNewBudget = configuredNewCardsPerDay.coerceAtLeast(0)
@@ -95,15 +114,17 @@ object PaceController {
             blendedNewBudget.coerceAtMost(configuredNewBudget)
         }.coerceAtMost(capacity)
         val retention = blendDouble(configuredRetention.coerceIn(0.80, 0.95), pace.targetRetention, trust).coerceIn(0.80, 0.95)
-        val mode = when {
-            pace.stretchStopPolicy == StopPolicy.EARLY_STOP -> SessionMode.QUICK
-            hasAdaptiveSignal && pace.stretchStopPolicy == StopPolicy.STRETCH_ARMED -> SessionMode.STRETCH
-            else -> SessionMode.FULL
-        }
-        return AdoptedPacePlan(capacity, newBudget, retention, mode)
+        return AdoptedPacePlan(capacity, newBudget, retention, trust, AdaptiveTrustPolicy.reason(evidence, trust))
     }
 
-    fun generatePace(inputs: PaceInputs, doctrine: Doctrine = Doctrine.BALANCED, now: Long = System.currentTimeMillis()): Pace {
+    // Fixed, generous safety ceiling on new items per session — not a tunable
+    // preset. The real regulator is the continuous demand/debt math below; this
+    // just bounds worst-case cognitive load regardless of how favorable the
+    // signals look (matches the old SPRINT doctrine's cap, kept as a constant
+    // rather than a selectable intensity).
+    private const val SAFETY_NEW_CAP = 40
+
+    fun generatePace(inputs: PaceInputs, now: Long = System.currentTimeMillis()): Pace {
         val sustainable = inputs.capacity.sustainableMinutes.coerceAtLeast(5.0)
         val reviewMinutes = inputs.medianReviewMinutes.takeIf { it.isFinite() && it > 0.0 } ?: 0.18
         val decay = inputs.decay.takeIf { it.isFinite() && it in 0.05..1.0 }
@@ -112,15 +133,25 @@ object PaceController {
         val fatigue = inputs.fatigue.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.0
         val sessionsPerDay = inputs.sessionsPerDayExpected.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
         val productionSigma = inputs.productionSigma.takeIf { it.isFinite() && it >= 0.0 } ?: TrueSkill.SIGMA0
-        val delta = (debtDelta(inputs.totalKnown) * doctrine.debtTolerance).coerceIn(0.05, 0.95)
+        val recoveryLike = accuracy < 0.75 || fatigue > 0.65
+        // Continuous replacements for the old Doctrine presets' three knobs — same
+        // numeric ranges the presets used to span, now derived from live signals
+        // instead of a hand-picked name so there's nothing to manually select.
+        val debtToleranceMultiplier = (0.75 + 0.5 * accuracy - 0.3 * fatigue).coerceIn(0.5, 1.25)
+        val productionBias = (-0.20 + 0.35 * accuracy).coerceIn(-0.20, 0.15)
+        val delta = (debtDelta(inputs.totalKnown) * debtToleranceMultiplier).coerceIn(0.05, 0.95)
         val loadNow = reviewLoadNow(inputs.activeCards, reviewMinutes, decay)
         val debtPerNew = debtNew(reviewMinutes, decay)
-        val pReturnBase = maxOf(0.86, WillingnessModel.returnProbability(inputs.willingness, inputs.returnContext))
+        // Use an optimistic habit-forming prior only before the first willingness
+        // observation. Once personal evidence exists, a low return forecast must be
+        // respected rather than hidden behind the cold-start floor.
+        val learnedPReturn = WillingnessModel.returnProbability(inputs.willingness, inputs.returnContext).coerceIn(0.0, 1.0)
+        val pReturnBase = if (inputs.willingnessObserved) learnedPReturn else maxOf(0.86, learnedPReturn)
         val targetRetention = inputs.tunedTargetRetention?.takeIf(Double::isFinite)?.coerceIn(0.85, 0.95)
             ?: ReviewControl.optimalRetention((delta - currentDebtRatio(loadNow, 0, debtPerNew, sustainable, HORIZON_DAYS)).coerceAtLeast(0.0))
         val atRisk = atRisk(inputs.activeCards, now, targetRetention, decay)
         val forecast = dueForecast(inputs.activeCards, now, decay)
-        val productionFraction = ((if (productionSigma < 4.0 && doctrine != Doctrine.RECOVERY) 0.45 else 0.25) + doctrine.productionBias).coerceIn(0.0, 1.0)
+        val productionFraction = ((if (productionSigma < 4.0 && !recoveryLike) 0.45 else 0.25) + productionBias).coerceIn(0.0, 1.0)
         val demandProbe = SessionDemand(
             minutes = (sustainable * 0.55).coerceIn(5.0, 28.0),
             newFraction = inputs.plannedNewFraction.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.0,
@@ -129,17 +160,18 @@ object PaceController {
             debtPressure = currentDebtRatio(loadNow, 0, debtPerNew, sustainable, HORIZON_DAYS).coerceIn(0.0, 1.0)
         )
         val capacityFit = CapacityModel.successProbability(inputs.capacity, demandProbe)
-        val t0 = (sustainable * (0.70 + 0.30 * capacityFit) * doctrine.demandScale).coerceIn(5.0, 40.0)
+        val demandScale = (0.60 + 0.60 * capacityFit).coerceIn(0.60, 1.20)
+        val t0 = (sustainable * (0.70 + 0.30 * capacityFit) * demandScale).coerceIn(5.0, 40.0)
         val budgetScale = inputs.tunedNewBudgetScale.takeIf(Double::isFinite)?.coerceIn(0.5, 1.5) ?: 1.0
         val nMax = (maxNewItems(loadNow, debtPerNew, sustainable * sessionsPerDay, delta) * budgetScale).toInt().coerceAtLeast(0)
         val lookahead = SessionLookahead.choose(cap = nMax.coerceAtLeast(0), dueForecast = forecast, retention = targetRetention)
         val reviewBudget = minOf(atRisk.size, (t0 / reviewMinutes.coerceAtLeast(0.05)).toInt().coerceAtLeast(0))
         val accuracyScaled = when {
-            accuracy < 0.75 || doctrine == Doctrine.RECOVERY || fatigue > 0.65 -> 0
+            recoveryLike -> 0
             accuracy < 0.82 -> nMax / 2
             else -> nMax
         }
-        val newBudget = minOf(accuracyScaled, lookahead.newCards, doctrine.doctrineNewCap, ((t0 - reviewBudget * reviewMinutes) / 0.45).toInt().coerceAtLeast(0))
+        val newBudget = minOf(accuracyScaled, lookahead.newCards, SAFETY_NEW_CAP, ((t0 - reviewBudget * reviewMinutes) / 0.45).toInt().coerceAtLeast(0))
         val debtRatio = currentDebtRatio(loadNow, newBudget, debtPerNew, sustainable, HORIZON_DAYS)
         val rawPReturn = (pReturnBase - 0.005 * (newBudget / 5.0) - 0.006 * (t0 / 20.0) - 0.12 * fatigue - 0.08 * (1.0 - capacityFit)).coerceIn(0.0, 1.0)
         // When the unconstrained candidate risks tomorrow, the controller chooses an
@@ -168,8 +200,7 @@ object PaceController {
             readingInserts = reading,
             stretchStopPolicy = stopPolicy,
             debtRatio = currentDebtRatio(loadNow, safeNewBudget, debtPerNew, sustainable, HORIZON_DAYS),
-            pReturn = pReturn,
-            doctrine = doctrine
+            pReturn = pReturn
         )
     }
 
@@ -235,61 +266,5 @@ object PaceController {
     private fun blendDouble(configured: Double, generated: Double, trust: Double): Double {
         val boundedTrust = trust.coerceIn(0.0, 1.0)
         return configured * (1.0 - boundedTrust) + generated * boundedTrust
-    }
-}
-
-enum class NudgeDirection { EASIER, HARDER }
-
-data class DoctrineNudge(
-    val direction: NudgeDirection,
-    val suggested: Doctrine,
-    val reason: String
-)
-
-/**
- * [PaceController.generatePace] already silently damps the daily new-card cap
- * session to session (see `adaptDailyLoad`), but a learner stuck on the wrong
- * [Doctrine] entirely — repeatedly cutting sessions short, or repeatedly
- * finishing with room to spare — has no visible signal that a coarser lever
- * exists. This reads the same [PaceLog] history the dashboard already
- * persists and proposes (never applies) a one-step doctrine change when a
- * majority of recent sessions land on the same extreme, so a run of one or
- * two hard days doesn't nag — see [MIN_SAMPLES]/[TRIGGER_FRACTION].
- */
-object DoctrineAdvisor {
-    // Ordered by intensity (matches Doctrine's own doctrineNewCap ordering, not
-    // its declaration order): a "step" moves exactly one entry either way.
-    private val INTENSITY = listOf(Doctrine.RECOVERY, Doctrine.CONSERVE, Doctrine.BALANCED, Doctrine.AMBITIOUS, Doctrine.SPRINT)
-    private const val MIN_SAMPLES = 4
-    private const val SAMPLE_WINDOW = 5
-    private const val TRIGGER_FRACTION = 0.75
-
-    fun suggest(recentLogsNewestFirst: List<PaceLog>, currentDoctrine: Doctrine): DoctrineNudge? {
-        val sample = recentLogsNewestFirst.take(SAMPLE_WINDOW)
-        if (sample.size < MIN_SAMPLES) return null
-        val idx = INTENSITY.indexOf(currentDoctrine)
-        if (idx < 0) return null
-        val threshold = (sample.size * TRIGGER_FRACTION)
-        val early = sample.count { it.modeChosen == SessionMode.QUICK.name }
-        val stretch = sample.count { it.modeChosen == SessionMode.STRETCH.name }
-        return when {
-            early >= threshold && idx > 0 -> {
-                val next = INTENSITY[idx - 1]
-                DoctrineNudge(
-                    NudgeDirection.EASIER, next,
-                    "Your last ${sample.size} sessions cut short more often than not. " +
-                        "Switching to ${next.name.lowercase().replaceFirstChar(Char::uppercase)} eases the daily load."
-                )
-            }
-            stretch >= threshold && idx < INTENSITY.lastIndex -> {
-                val next = INTENSITY[idx + 1]
-                DoctrineNudge(
-                    NudgeDirection.HARDER, next,
-                    "Your last ${sample.size} sessions finished with room to spare. " +
-                        "Switching to ${next.name.lowercase().replaceFirstChar(Char::uppercase)} raises the pace."
-                )
-            }
-            else -> null
-        }
     }
 }

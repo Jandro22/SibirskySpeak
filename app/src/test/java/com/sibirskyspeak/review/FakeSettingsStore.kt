@@ -1,7 +1,6 @@
 package com.sibirskyspeak.review
 
 import com.sibirskyspeak.data.SettingsStore
-import com.sibirskyspeak.learning.Doctrine
 import com.sibirskyspeak.scheduler.FsrsScheduler
 
 /** In-memory SettingsStore for tests — no Android Context/SharedPreferences needed. */
@@ -10,7 +9,6 @@ internal class FakeSettingsStore : SettingsStore {
     override var sessionSize: Int = SettingsStore.DEFAULT_SESSION_SIZE
     override var newCardsPerDay: Int = SettingsStore.DEFAULT_NEW_CARDS_PER_DAY
     override var desiredRetention: Double = SettingsStore.DEFAULT_RETENTION
-    override var doctrine: Doctrine = Doctrine.BALANCED
     override var intervalModifier: Double = 1.0
     override var fsrsWeights: DoubleArray = FsrsScheduler.DEFAULT_WEIGHTS.copyOf()
     override var lastWeightFitDay: Long = Long.MIN_VALUE
@@ -19,14 +17,17 @@ internal class FakeSettingsStore : SettingsStore {
     override var readerFontScale: Float = 1.0f
     override var lastBackupAt: Long = 0L
     override var backupTreeUri: String = ""
+    override val lastBackupSizeBytes: Long = 0L
+    override val lastBackupValidatedAt: Long = 0L
+    override val lastDurableBackupAt: Long = 0L
     override var restDayCredits: Int = 0
     override var lastRestCreditAwardDay: Long = Long.MIN_VALUE
     override var lastInsuredGapDay: Long = Long.MIN_VALUE
     override var planSkeletonCardIds: String = ""
     override var lastAdaptiveLoadDay: Long = Long.MIN_VALUE
-    override var dismissedDoctrineNudge: String = ""
+    override var lastFluencyForecastDay: Long = Long.MIN_VALUE
     override var preferredDomain: String = ""
-    override var preferredSessionMinutes: Int = 15
+    override var adaptiveEnabled: Boolean = true
     override val learningExperimentVariant: String = "A"
     override var unlockedAchievementIds: Set<String> = emptySet()
 

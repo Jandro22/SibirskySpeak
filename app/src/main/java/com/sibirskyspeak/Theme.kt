@@ -22,52 +22,54 @@ import androidx.compose.ui.text.font.FontWeight
 // Theme
 // ---------------------------------------------------------------------------
 
-// "Siberian winter" identity: icy taiga teal as primary, birch/sunset gold as
-// secondary accent, taiga-forest green as tertiary. Deliberately fixed (not
-// device-wallpaper-derived, see SibirskySpeakTheme below).
+// AnkiDroid-inspired identity: the same Material blue/green pairing AnkiDroid
+// itself is built on, echoing this app's own rating-button colors (see
+// Rating.accent() in CommonComponents.kt — GOOD is green, EASY is blue) so the
+// study-screen and the rest of the app read as one system instead of two.
+// Deliberately fixed (not device-wallpaper-derived, see SibirskySpeakTheme below).
 internal val BrandLight = lightColorScheme(
-    primary = Color(0xFF1F6E82),
+    primary = Color(0xFF1976D2),
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFC2E8F5),
-    onPrimaryContainer = Color(0xFF001F26),
-    secondary = Color(0xFF976D0C),
+    primaryContainer = Color(0xFFBBDEFB),
+    onPrimaryContainer = Color(0xFF0D47A1),
+    secondary = Color(0xFF2E7D32),
     onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFFFE4B0),
-    onSecondaryContainer = Color(0xFF3A2C00),
-    tertiary = Color(0xFF4B6C4F),
-    tertiaryContainer = Color(0xFFCDEBCE),
-    onTertiaryContainer = Color(0xFF0A2010),
-    background = Color(0xFFF5F9FA),
-    onBackground = Color(0xFF171D1E),
+    secondaryContainer = Color(0xFFC8E6C9),
+    onSecondaryContainer = Color(0xFF1B5E20),
+    tertiary = Color(0xFF976D0C),
+    tertiaryContainer = Color(0xFFFFE4B0),
+    onTertiaryContainer = Color(0xFF3A2C00),
+    background = Color(0xFFFAFBFC),
+    onBackground = Color(0xFF1A1C1E),
     surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF171D1E),
-    surfaceVariant = Color(0xFFDCE4E5),
-    onSurfaceVariant = Color(0xFF40484A),
-    outline = Color(0xFF707879),
+    onSurface = Color(0xFF1A1C1E),
+    surfaceVariant = Color(0xFFE1E5E8),
+    onSurfaceVariant = Color(0xFF44484C),
+    outline = Color(0xFF74777A),
     error = Color(0xFFBA1A1A),
     onError = Color(0xFFFFFFFF)
 )
 
 internal val BrandDark = darkColorScheme(
-    primary = Color(0xFF8ED2E8),
-    onPrimary = Color(0xFF00363F),
-    primaryContainer = Color(0xFF004E5C),
-    onPrimaryContainer = Color(0xFFC2E8F5),
-    secondary = Color(0xFFF0D47E),
-    onSecondary = Color(0xFF3D2E00),
-    secondaryContainer = Color(0xFF5C4300),
-    onSecondaryContainer = Color(0xFFFFE4B0),
-    tertiary = Color(0xFFB1CFB1),
-    onTertiary = Color(0xFF1D361F),
-    tertiaryContainer = Color(0xFF344D36),
-    onTertiaryContainer = Color(0xFFCDEBCE),
-    background = Color(0xFF0D1416),
-    onBackground = Color(0xFFDEE4E5),
-    surface = Color(0xFF12191B),
-    onSurface = Color(0xFFDEE4E5),
-    surfaceVariant = Color(0xFF40484A),
-    onSurfaceVariant = Color(0xFFC0C8CA),
-    outline = Color(0xFF8A9294),
+    primary = Color(0xFF90CAF9),
+    onPrimary = Color(0xFF00325B),
+    primaryContainer = Color(0xFF1565C0),
+    onPrimaryContainer = Color(0xFFBBDEFB),
+    secondary = Color(0xFFA5D6A7),
+    onSecondary = Color(0xFF0F3512),
+    secondaryContainer = Color(0xFF2E7D32),
+    onSecondaryContainer = Color(0xFFC8E6C9),
+    tertiary = Color(0xFFF0D47E),
+    onTertiary = Color(0xFF3D2E00),
+    tertiaryContainer = Color(0xFF5C4300),
+    onTertiaryContainer = Color(0xFFFFE4B0),
+    background = Color(0xFF121316),
+    onBackground = Color(0xFFE3E5E7),
+    surface = Color(0xFF17181B),
+    onSurface = Color(0xFFE3E5E7),
+    surfaceVariant = Color(0xFF43474A),
+    onSurfaceVariant = Color(0xFFC3C7CA),
+    outline = Color(0xFF8D9195),
     error = Color(0xFFFFB4AB),
     onError = Color(0xFF690005)
 )
@@ -85,7 +87,7 @@ internal val RussianDisplay = TextStyle(fontSize = 30.sp, lineHeight = 40.sp, fo
 @Composable
 internal fun SibirskySpeakTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
-    // Keep the deliberate icy-teal/gold/taiga-green identity. Device wallpaper-derived
+    // Keep the deliberate blue/green/gold identity. Device wallpaper-derived
     // dynamic palettes can collapse the learning UI into nearly monochrome tones.
     val colors = if (dark) BrandDark else BrandLight
     MaterialTheme(colorScheme = colors, shapes = AppShapes, content = content)

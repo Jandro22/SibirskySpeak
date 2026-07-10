@@ -2,7 +2,6 @@ package com.sibirskyspeak.data
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.sibirskyspeak.learning.Doctrine
 import com.sibirskyspeak.scheduler.FsrsScheduler
 
 /**
@@ -16,7 +15,6 @@ interface SettingsStore {
     var sessionSize: Int
     var newCardsPerDay: Int
     var desiredRetention: Double
-    var doctrine: Doctrine
     var intervalModifier: Double
     /** The active FSRS weight vector (21 params). Defaults to stock FSRS-6 until the
      * on-device fit personalizes the high-leverage subset (init stability + decay). */
@@ -28,6 +26,9 @@ interface SettingsStore {
     var readerFontScale: Float
     var lastBackupAt: Long
     var backupTreeUri: String
+    val lastBackupSizeBytes: Long
+    val lastBackupValidatedAt: Long
+    val lastDurableBackupAt: Long
     var restDayCredits: Int
     var lastRestCreditAwardDay: Long
     /** Day-bucket streak insurance last actually spent a credit on, so re-loading
@@ -35,13 +36,13 @@ interface SettingsStore {
     var lastInsuredGapDay: Long
     var planSkeletonCardIds: String
     var lastAdaptiveLoadDay: Long
-    /** Doctrine name (e.g. "RECOVERY") the learner last dismissed a pacing nudge
-     * for. Suppresses re-showing that exact suggestion; a nudge in a different
-     * direction still surfaces. Empty string = nothing dismissed. */
-    var dismissedDoctrineNudge: String
+    /** Local epoch-day the "days to fluency" forecast last recomputed — it runs a
+     * real day-by-day simulation (FluencySimEngine) that can take tens of seconds,
+     * so it's throttled to daily and always run off the Main dispatcher. */
+    var lastFluencyForecastDay: Long
     /** Empty means the general inventory; otherwise a build-time validated domain tag. */
     var preferredDomain: String
-    var preferredSessionMinutes: Int
+    var adaptiveEnabled: Boolean
     val learningExperimentVariant: String
     var unlockedAchievementIds: Set<String>
     fun newlyUnlocked(currentUnlocked: Set<String>): Set<String>
@@ -78,6 +79,17 @@ interface SettingsStore {
 class PrefsSettingsStore(context: Context) : SettingsStore {
     private val prefs: SharedPreferences =
         context.applicationContext.getSharedPreferences("sibirsky_settings", Context.MODE_PRIVATE)
+    @Volatile private var cachedWeights: DoubleArray? = null
+    private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == KEY_FSRS_WEIGHTS) cachedWeights = null
+    }
+
+    init {
+        // BackupManager restores preferences through the shared file rather than
+        // this wrapper. Invalidate the parse cache so the scheduler immediately
+        // observes restored personalized weights in the same process.
+        prefs.registerOnSharedPreferenceChangeListener(preferenceListener)
+    }
 
     override var dailyGoal: Int
         get() = prefs.getInt(KEY_DAILY_GOAL, SettingsStore.DEFAULT_DAILY_GOAL).coerceIn(SettingsStore.MIN_DAILY_GOAL, SettingsStore.MAX_DAILY_GOAL)
@@ -97,12 +109,6 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         get() = prefs.getFloat(KEY_RETENTION, SettingsStore.DEFAULT_RETENTION.toFloat()).toDouble().coerceIn(SettingsStore.MIN_RETENTION, SettingsStore.MAX_RETENTION)
         set(value) = prefs.edit().putFloat(KEY_RETENTION, value.coerceIn(SettingsStore.MIN_RETENTION, SettingsStore.MAX_RETENTION).toFloat()).apply()
 
-    override var doctrine: Doctrine
-        get() = prefs.getString(KEY_DOCTRINE, Doctrine.BALANCED.name)
-            ?.let { runCatching { Doctrine.valueOf(it) }.getOrNull() }
-            ?: Doctrine.BALANCED
-        set(value) = prefs.edit().putString(KEY_DOCTRINE, value.name).apply()
-
     /**
      * Data-driven FSRS interval multiplier, learned from the user's own mature-card
      * retention vs their target (a lightweight personalization in place of a full
@@ -116,7 +122,6 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
     // Persisted as a CSV string and parse-cached: read on every scheduler call, so
     // re-splitting on each access would be wasteful. A stored vector of the wrong
     // length (corrupt/old) falls back to the stock defaults.
-    @Volatile private var cachedWeights: DoubleArray? = null
     override var fsrsWeights: DoubleArray
         get() = cachedWeights ?: run {
             val stored = prefs.getString(KEY_FSRS_WEIGHTS, null)
@@ -159,6 +164,9 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
     override var backupTreeUri: String
         get() = prefs.getString(KEY_BACKUP_TREE_URI, "") ?: ""
         set(value) = prefs.edit().putString(KEY_BACKUP_TREE_URI, value).apply()
+    override val lastBackupSizeBytes: Long get() = prefs.getLong("backup_last_size", 0L)
+    override val lastBackupValidatedAt: Long get() = prefs.getLong("backup_last_validated_at", 0L)
+    override val lastDurableBackupAt: Long get() = prefs.getLong("backup_last_saf_at", 0L)
 
     override var restDayCredits: Int
         get() = prefs.getInt(KEY_REST_DAY_CREDITS, 0).coerceIn(0, 2)
@@ -178,17 +186,17 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         get() = prefs.getLong(KEY_LAST_ADAPTIVE_LOAD_DAY, Long.MIN_VALUE)
         set(value) = prefs.edit().putLong(KEY_LAST_ADAPTIVE_LOAD_DAY, value).apply()
 
-    override var dismissedDoctrineNudge: String
-        get() = prefs.getString(KEY_DISMISSED_DOCTRINE_NUDGE, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_DISMISSED_DOCTRINE_NUDGE, value).apply()
+    override var lastFluencyForecastDay: Long
+        get() = prefs.getLong(KEY_LAST_FLUENCY_FORECAST_DAY, Long.MIN_VALUE)
+        set(value) = prefs.edit().putLong(KEY_LAST_FLUENCY_FORECAST_DAY, value).apply()
 
     override var preferredDomain: String
         get() = prefs.getString(KEY_PREFERRED_DOMAIN, "") ?: ""
         set(value) = prefs.edit().putString(KEY_PREFERRED_DOMAIN, value.trim().lowercase()).apply()
 
-    override var preferredSessionMinutes: Int
-        get() = prefs.getInt(KEY_SESSION_MINUTES, 15).takeIf { it in setOf(5, 15, 45) } ?: 15
-        set(value) = prefs.edit().putInt(KEY_SESSION_MINUTES, value.takeIf { it in setOf(5, 15, 45) } ?: 15).apply()
+    override var adaptiveEnabled: Boolean
+        get() = prefs.getBoolean(KEY_ADAPTIVE_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_ADAPTIVE_ENABLED, value).apply()
 
     /** Stable, installation-local learning experiment. Never changes mid-course. */
     override val learningExperimentVariant: String
@@ -234,7 +242,6 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         private const val KEY_SESSION_SIZE = "session_size"
         private const val KEY_NEW_CARDS_PER_DAY = "new_cards_per_day"
         private const val KEY_RETENTION = "desired_retention"
-        private const val KEY_DOCTRINE = "doctrine"
         private const val KEY_REMINDER_ENABLED = "reminder_enabled"
         private const val KEY_REMINDER_HOUR = "reminder_hour"
         private const val KEY_READER_FONT_SCALE = "reader_font_scale"
@@ -250,9 +257,9 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         private const val KEY_FSRS_WEIGHTS = "fsrs_weights_v1"
         private const val KEY_LAST_WEIGHT_FIT_DAY = "last_weight_fit_day"
         private const val KEY_LAST_ADAPTIVE_LOAD_DAY = "last_adaptive_load_day"
-        private const val KEY_DISMISSED_DOCTRINE_NUDGE = "dismissed_doctrine_nudge"
+        private const val KEY_LAST_FLUENCY_FORECAST_DAY = "last_fluency_forecast_day"
         private const val KEY_LEARNING_EXPERIMENT = "learning_experiment_v1"
         private const val KEY_PREFERRED_DOMAIN = "preferred_domain"
-        private const val KEY_SESSION_MINUTES = "preferred_session_minutes"
+        private const val KEY_ADAPTIVE_ENABLED = "adaptive_enabled"
     }
 }

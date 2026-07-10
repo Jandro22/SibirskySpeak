@@ -251,21 +251,6 @@ class ReviewViewModelTest {
     }
 
     @Test
-    fun extraCreditDoesNotClaimCardsOrStartAnEmptySession() = runTest(dispatcher) {
-        val fixture = RepoFixture()
-        fixture.repository.seedIfEmpty()
-        fixture.cards.cards.toList().forEach { fixture.cards.update(it.copy(suspended = true)) }
-        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore(), Dispatchers.Unconfined)
-        advanceUntilIdle()
-
-        viewModel.grantExtraCredit()
-        advanceUntilIdle()
-
-        assertFalse(viewModel.state.value.inStudySession)
-        assertTrue(viewModel.state.value.statusMessage.orEmpty().startsWith("No more eligible cards"))
-    }
-
-    @Test
     fun overridingPracticeMissRemovesItsFalseScaffold() = runTest(dispatcher) {
         val fixture = RepoFixture()
         fixture.repository.importJsonLines(

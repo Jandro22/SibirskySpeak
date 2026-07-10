@@ -106,6 +106,7 @@ internal fun SessionCompleteCard(
     matchReport: MatchReport? = null,
     tomorrowReviews: Int = 0,
     tomorrowMinutes: Int = 0,
+    tomorrowNewCards: Int = 0,
     onReadNext: () -> Unit = {}
 ) {
     val sessionAccuracy = if (sessionReviewed > 0) sessionCorrect.toDouble() / sessionReviewed else null
@@ -137,7 +138,17 @@ internal fun SessionCompleteCard(
                 color = MaterialTheme.colorScheme.onPrimary
             )
             Text(
-                "Tomorrow: $tomorrowReviews reviews, ~$tomorrowMinutes min",
+                // tomorrowReviews only counts cards already scheduled to come due —
+                // it deliberately excludes NEW cards, which don't get a due date
+                // until their first review. Without the "+ up to N new" half this
+                // read as "tomorrow's total session," which for an account doing a
+                // lot of first-time learning (or a lot of "already know this")
+                // dramatically undercounts what will actually show up.
+                if (tomorrowNewCards > 0) {
+                    "Tomorrow: $tomorrowReviews due + up to $tomorrowNewCards new, ~$tomorrowMinutes min"
+                } else {
+                    "Tomorrow: $tomorrowReviews reviews due, ~$tomorrowMinutes min"
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimary,
                 fontWeight = FontWeight.SemiBold
@@ -894,8 +905,12 @@ internal fun reviewContext(prompt: ReviewPrompt): String? =
  */
 internal fun reviewRevealContext(prompt: ReviewPrompt): Pair<String, String?>? =
     when (prompt.card.cardType) {
+        // CASE_FILL is deliberately excluded here too: its carrier phrase is a synthetic
+        // agreement drill that usually differs from the note's corpus example (see
+        // reviewContext above), so showing that example on reveal would be just as
+        // misleading as showing it on the prompt.
         CardType.RU_TO_MEANING, CardType.MEANING_TO_RU, CardType.CLOZE, CardType.AUDIO_TO_RU,
-        CardType.CASE_FILL, CardType.VERB_FORM ->
+        CardType.VERB_FORM ->
             prompt.exampleSentence?.let { ru ->
                 ru to prompt.exampleTranslation?.takeIf { prompt.hasSentenceGloss() }
             }

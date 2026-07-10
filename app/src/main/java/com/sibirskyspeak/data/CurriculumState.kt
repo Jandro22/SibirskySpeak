@@ -29,6 +29,7 @@ data class CurriculumMigrationReport(
 data class ExitTicketResult(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val unit: Int,
+    val band: String = "A1",
     val recognition: Boolean,
     val production: Boolean,
     val listening: Boolean,

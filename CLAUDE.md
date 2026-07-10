@@ -49,7 +49,7 @@ These are the fastest way to visually verify a Compose UI change end-to-end. For
 .\gradlew.bat testDebugUnitTest                          # JVM unit tests (app/src/test)
 .\gradlew.bat testDebugUnitTest --tests "com.sibirskyspeak.review.ReviewPromptTest"   # single class
 .\gradlew.bat testDebugUnitTest --tests "*.ReviewPromptTest.lessonCardBuildsTeachingContentFromConcept"  # single test
-.\gradlew.bat connectedDebugAndroidTest                   # instrumented tests, needs a device/emulator
+.\gradlew.bat connectedQaAndroidTest                      # isolated com.sibirskyspeak.qa; never uninstalls learner data
 .\gradlew.bat lint                                        # Android Lint
 ```
 
@@ -81,7 +81,7 @@ Always run the full rebuild (via `rebuild_all.py`) and `python -m pytest -q tool
 
 ### Two Room databases, different lifecycles
 
-- **`AppDatabase`** (`sibirsky_speak.db`, currently schema v19, `data/AppDatabase.kt`) — the learner's mutable state: `Note`, `Card`, `ReviewLog`, reader progress, telemetry, and the adaptive-learning model tables (`SkillRating`, `RivalState`, `PaceLog`, etc.). Has real `Migration` objects (12+ so far) — adding/changing a Room entity field requires bumping `version` and writing a migration, not just editing the entity.
+- **`AppDatabase`** (`sibirsky_speak.db`, currently schema v30, `data/AppDatabase.kt`) — the learner's mutable state: `Note`, `Card`, `ReviewLog`, reader progress, telemetry, evidence, curriculum state, and the adaptive-learning model tables (`SkillRating`, `RivalState`, `PaceLog`, etc.). Has a real versioned migration history — adding/changing a Room entity field requires bumping `version`, exporting the schema, and writing a migration, not just editing the entity.
 - **`ContentDatabase`** (`content.db`, `data/ContentDatabase.kt`) — read-only, `createFromAsset("tatoeba.db")`. Holds Tatoeba example sentences, lemma index, collocations, and semantic neighbors used to enrich lesson cards (word family, "useful chunks", cognate detection). Never migrated in place — schema changes here mean regenerating and reshipping the asset.
 
 ### Note → Card is one-to-many
@@ -99,12 +99,12 @@ Concept progression is **not** a separate Room table. A grammar concept counts a
 ### Three cooperating "brains"
 
 - **`scheduler/`** — `FsrsScheduler` is pure per-card interval math (FSRS-6-style). Takes a `weightsProvider: () -> DoubleArray` (not a fixed array) so an on-device weight refit applies without reconstructing the scheduler. `FsrsWeightFitter` re-estimates initial-stability and decay weights from the learner's own `ReviewLog` history.
-- **`learning/`** — session/pace-level intelligence: `PaceController`/`Doctrine` (RECOVERY…SPRINT presets tuning new-card caps and production bias), `WorldModel` (a per-skill Bayesian ability estimate used to pick session difficulty), and `Rival`/`TrueSkill` (a simulated opponent + match rating shown on session-complete, independent of FSRS scheduling).
-- **`data/LearningRepository.kt`** (~4k lines) — the orchestrator. Builds the daily session plan, decides which cards are due/blocked/new, wires the scheduler and pace/world models together, and is the only place that talks to the DAOs for review-flow purposes. Most feature work touches this file.
+- **`learning/`** — session/pace-level intelligence: `PaceController` and `LearnerSnapshot` derive continuous adaptive load from capacity, willingness, fatigue, return context, and card demand; `WorldModel` estimates per-skill ability and success; `Rival`/`TrueSkill` provide the simulated opponent and match rating shown on session-complete, independent of FSRS scheduling.
+- **`data/LearningRepository.kt`** (~5.5k lines) — the orchestrator. Builds the daily session plan, decides which cards are due/blocked/new, wires the scheduler and pace/world models together, and is the only place that talks to the DAOs for review-flow purposes. Most feature work touches this file.
 
 ### UI: single-Activity Compose, one big ViewModel
 
-`MainActivity.kt` hosts one `ReviewScreen` composable; screens (`DashboardScreens.kt`, `StudyScreens.kt`, `PracticeScreens.kt`, `ReaderScreens.kt`, `SettingsScreens.kt`) are all driven by one `ReviewViewModel` (~2.2k lines) exposing a single `StateFlow<ReviewUiState>`. There's no navigation library — screen switching is `AnimatedContent` keyed on a `SessionStep` enum plus a local `studyActive` boolean in `MainActivity`. Below that, there are two top-level layout branches: the open-text reader (its own bounded-height `Column`, since the reader screen virtualizes tokens in a `LazyColumn` that can't live inside the other branch's `verticalScroll`), and everything else, which shares one scrollable `Column` whose `rememberScrollState()` is scoped with `key(pageKey)` (derived from the active tab or the current card's id) so switching cards/tabs can't leak a stale scroll offset into the next screen. Both branches invoke the same hoisted `achievementOverlay` lambda at their top so the achievement toast pushes content down in either layout instead of floating over it.
+`MainActivity.kt` hosts one `ReviewScreen` composable; screens (`DashboardScreens.kt`, `StudyScreens.kt`, `PracticeScreens.kt`, `ReaderScreens.kt`, `SettingsScreens.kt`) are all driven by one `ReviewViewModel` (~2.9k lines) exposing a single `StateFlow<ReviewUiState>`. There's no navigation library — screen switching is `AnimatedContent` keyed on a `SessionStep` enum plus a local `studyActive` boolean in `MainActivity`. Below that, there are two top-level layout branches: the open-text reader (its own bounded-height `Column`, since the reader screen virtualizes tokens in a `LazyColumn` that can't live inside the other branch's `verticalScroll`), and everything else, which shares one scrollable `Column` whose `rememberScrollState()` is scoped with `key(pageKey)` (derived from the active tab or the current card's id) so switching cards/tabs can't leak a stale scroll offset into the next screen. Both branches invoke the same hoisted `achievementOverlay` lambda at their top so the achievement toast pushes content down in either layout instead of floating over it.
 
 Session-mutating ViewModel actions (rate, suspend, mark-known, the debug card-type jump, …) follow the same shape: `viewModelScope.launch { runCatching { repository.xxx(...) }.onSuccess { ... }.onFailure { mutableState.value = mutableState.value.copy(statusMessage = it.message ?: "...") } }`. Match this pattern for new one-off actions instead of inventing a new error-handling style.
 

@@ -1,62 +1,64 @@
 # SibirskySpeak
 
-SibirskySpeak is a native Android reading-proficiency trainer for Russian learners. It combines a progressive CEFR curriculum, FSRS-based spaced repetition, explicit grammar drills, and a coverage-aware reader so learners can move from controlled beginner sentences toward authentic Russian text.
+SibirskySpeak is an offline-first Android tutor for learning Russian from beginner foundations through advanced reading. It combines a CEFR curriculum, FSRS spaced repetition, grammar-aware practice, adaptive session pacing, audio practice, and a coverage-aware reader. Learner state stays on the device and can be exported through the full-state backup flow.
 
-## Highlights
+## What is included
 
-- **Progressive A1–C1 course:** tiered content introduces vocabulary and grammar in order, with lesson cards shown before related drills.
-- **Dual-queue review:** vocabulary cards use FSRS scheduling while grammar cards stay capped until the learner graduates each category.
-- **Grammar-aware practice:** generated cards cover vocabulary, case fill-ins, aspect selection, confusable pairs, and concept-specific drills.
-- **Coverage-aware reader:** bundled reader texts track known-word coverage, target-source readiness, token lookup, and reading activity.
-- **Offline-first app:** review, reader, dashboard, and bundled bootstrap data all run locally from Room databases.
-- **Preprocessing pipeline:** desktop tools build domain frequency lists, validate notes, generate starter content, and prepare reader/deck assets.
+- **Progressive A1-C1 course:** tiered vocabulary and grammar content, numbered units, controlled examples, and teach-before-test grammar gating.
+- **Adaptive review:** FSRS-based scheduling, separate vocabulary and grammar queues, graduation rules, leech handling, due-debt control, and daily session planning.
+- **Personal pacing model:** a shared `LearnerSnapshot` feeds capacity, willingness, fatigue, return context, calibration, and per-skill world estimates into session decisions and fluency forecasts.
+- **Grammar-aware practice:** case fill-ins, aspect selection, verb forms, agreement, sentence building, cloze, transformations, concept drills, chunks, speaking, listening, dictation, stress, and phonology items.
+- **Coverage-aware reader:** bundled and user-added texts, known-word coverage, target reading goals, token lookup, narrow reading, scheduled reading, checkpoints, and mined examples.
+- **Audio practice:** Russian text-to-speech plus speech-recognition support for listening and speaking exercises.
+- **Learner diagnostics:** dashboards, streaks, review telemetry, confusion pairs, calibration reports, fluency projections, rival/ghost progress, and adaptive-policy tuning.
+- **Portable local data:** Room migrations, JSONL full-state backup/restore, content bootstrap validation, and a read-only bundled content database.
 
-## Curriculum model
+Everything runs locally. There is no backend, account system, or network dependency at runtime.
 
-The deck is organised into three tiers that are introduced in order so a beginner is not exposed to formal or political register content before the core language foundation is in place.
+## Curriculum
 
-### Tier 0 — CEFR course (A1 → C1)
+The deck is organised into three tiers so the learner builds a general foundation before encountering specialised register vocabulary.
 
-Tier 0 is the main learner-facing course. Notes are grouped into numbered units and tagged with a `cefrLevel` that appears during review. Example sentences are controlled for readability and paired with English translations.
+### Tier 0 - CEFR course (A1 to C1)
 
-The grammar spine is teach-before-test:
+Tier 0 is the main learner-facing course. Notes are grouped into numbered units and tagged with a `cefrLevel`. Lesson cards introduce grammar concepts before related drills become eligible.
 
-- **A1:** gender, plurals, cases, past tense, and aspect basics.
+- **A1:** gender, plurals, core cases, past tense, and aspect basics.
 - **A2:** future tense, imperatives, reflexives, comparison, modals, motion verbs, and `свой`.
 - **B1:** prefixed motion, conditionals, `который`, superlatives, `чтобы`, and numbers with case.
 - **B2:** participles, gerunds, passive constructions, and reported speech.
 - **C1:** complex syntax, nominal style, aspect nuance, register, and idiom.
 
-See [`docs/A1_CURRICULUM_REWORK_PLAN.md`](docs/A1_CURRICULUM_REWORK_PLAN.md) and [`docs/DESIGN_VISION.md`](docs/DESIGN_VISION.md) for more detail.
+### Tier 1 - General reading matrix
 
-### Tier 1 — General reading matrix
+High-frequency function words and coverage vocabulary support authentic reading without forcing every item into the full grammar-drill sequence.
 
-Tier 1 contains function words and common vocabulary that improve authentic-text coverage. These cards are vocabulary-focused and feed the reader coverage model.
+### Tier 2 - Formal and political domain
 
-### Tier 2 — Formal and political domain
+The original formal/security-register vocabulary remains available as a specialised domain. Its grammar drills are still gated behind Tier 0 lessons.
 
-Tier 2 contains the original Kremlin/TASS/security-register vocabulary with case and aspect drilling. Grammar drills in this tier remain gated behind Tier 0 lesson concepts, so learners encounter explanations before tests.
+See [`docs/A1_CURRICULUM_REWORK_PLAN.md`](docs/A1_CURRICULUM_REWORK_PLAN.md), [`docs/DESIGN_VISION.md`](docs/DESIGN_VISION.md), and [`docs/MASTER_PLAN.md`](docs/MASTER_PLAN.md) for the design history and roadmap.
 
-## App architecture
+## Architecture
 
-- **Language/UI:** Kotlin with Jetpack Compose.
-- **Minimum SDK:** Android 8.0 / API 26.
-- **Persistence:** Room databases for learner state and bundled content.
-- **Core entities:** `Note`, `Card`, `ReviewLog`, `ReaderText`, `ReaderEncounter`, `ConfusablePair`, and telemetry/settings models.
-- **Scheduling:** FSRS-6-inspired review scheduling plus grammar category caps and graduation rules.
-- **Audio:** Android TextToSpeech wrapper configured for Russian (`ru-RU`) and speech-recognition support.
-- **Assets:** bundled JSONL/SQLite bootstrap data for notes, reader texts, lemma lookup, and Tatoeba-derived examples.
+- **Language/UI:** Kotlin, Jetpack Compose, and a single-activity app with a state-driven review ViewModel.
+- **Learner database:** `AppDatabase` (`sibirsky_speak.db`), currently Room schema version 30, stores notes, cards, review logs, reader progress, telemetry, evidence, curriculum state, and adaptive model tables.
+- **Content database:** `ContentDatabase` (`content.db`) is read-only and bundled as `tatoeba.db`; it supplies examples, lemma lookup, collocations, semantic neighbours, and frames without entering learner backups.
+- **Scheduler:** `FsrsScheduler` handles per-card interval math and can consume fitted learner-specific weights.
+- **Learning model:** `PaceController`, `LearnerSnapshot`, `WorldModel`, `CapacityModel`, willingness/return modelling, calibration, bandit selection, and `Rival`/`TrueSkill` coordinate session-level decisions independently of FSRS card scheduling.
+- **Repository:** `LearningRepository` is the review-flow orchestrator. It assembles plans, applies gates, reads/writes learner state, and coordinates the scheduler, reader, and learning models.
 
 ## Repository layout
 
 ```text
 app/                         Android application module
 app/src/main/java/           Kotlin app, data, scheduler, review, reader, and learning code
-app/src/main/assets/         Bundled bootstrap notes, reader texts, lemma data, and Tatoeba DB
-app/src/test/                JVM unit tests
-app/src/androidTest/         Instrumented migration tests
-docs/                        Curriculum and product-design notes
-scripts/                     Windows setup/build/install helper scripts
+app/src/main/assets/         Bundled notes, reader texts, curriculum metadata, and SQLite content
+app/src/test/                JVM unit tests and in-memory repository fixtures
+app/src/androidTest/         Room migration, backup, and connected-device tests
+app/schemas/                 Versioned Room schema exports
+docs/                        Curriculum, product, and model-design documentation
+scripts/                     Windows setup, build, emulator, and install helpers
 tools/preprocess/            Python preprocessing and content-validation pipeline
 ```
 
@@ -64,22 +66,24 @@ tools/preprocess/            Python preprocessing and content-validation pipelin
 
 ### Windows quick start
 
-The repository includes PowerShell scripts that install a portable JDK, Gradle, and Android command-line SDK under `.tools/`.
+The repository can install a portable JDK, Gradle, and Android command-line SDK under `.tools/`:
 
 ```powershell
 .\scripts\setup-android.ps1
 .\scripts\build-debug.ps1
 ```
 
-After setup has run once, the Windows Gradle wrapper auto-detects the portable JDK:
+The debug APK can then be installed to exactly one authorized device or emulator:
 
 ```powershell
-.\gradlew.bat assembleDebug
+.\scripts\install-debug.ps1
 ```
 
-### macOS/Linux or preconfigured Android SDK
+The install helper preserves app data, saves the latest full-state backup before replacing an existing install, and refuses to continue if the recovery snapshot is missing or invalid.
 
-If you already have a JDK and Android SDK installed, set `ANDROID_HOME` or provide `local.properties`, then use the Gradle wrapper:
+### macOS/Linux or a preconfigured Android SDK
+
+Set `ANDROID_HOME` or provide `local.properties`, then use the Gradle wrapper:
 
 ```bash
 ./gradlew assembleDebug
@@ -87,77 +91,68 @@ If you already have a JDK and Android SDK installed, set `ANDROID_HOME` or provi
 
 ## Common commands
 
-Build the debug APK:
-
-```bash
-./gradlew assembleDebug
-```
-
-Run unit tests and build the debug APK:
-
-```bash
-./gradlew testDebugUnitTest assembleDebug
-```
-
-Run Android instrumented tests on a connected device or emulator:
-
-```bash
-./gradlew connectedDebugAndroidTest
-```
-
-Install the debug build from Windows PowerShell:
+Run the JVM test suite:
 
 ```powershell
-.\scripts\install-debug.ps1
+.\gradlew.bat testDebugUnitTest
 ```
 
-Run preprocessing tests:
+Build the debug APK:
+
+```powershell
+.\scripts\build-debug.ps1
+```
+
+Run the isolated QA instrumentation suite:
+
+```powershell
+.\gradlew.bat connectedQaAndroidTest
+```
+
+The QA variant uses an isolated application id and must not remove the learner's normal install.
+
+Run the content tests:
 
 ```bash
 python -m pytest -q tools/preprocess
 ```
 
-The debug APK is written to:
-
-```text
-app/build/outputs/apk/debug/app-debug.apk
-```
-
-## Open in Android Studio
-
-Open this folder as an Android project and let Android Studio sync Gradle. If you used `setup-android.ps1`, `local.properties` points Android Studio at the portable SDK created by the setup script.
-
-## Data preprocessing
-
-The Android app stays offline. Build import files on a development machine with the Python tools in `tools/preprocess`.
+After changing preprocessing or curriculum sources, rebuild and validate the shipped assets:
 
 ```bash
-python tools/preprocess/sibirsky_preprocess.py rank-domain --input data/raw --output data/domain_frequency.tsv
-python tools/preprocess/sibirsky_preprocess.py build-notes --lexicon data/lexicon.jsonl --domain-frequency data/domain_frequency.tsv --output data/notes.jsonl
-python tools/preprocess/sibirsky_preprocess.py draft-aktionsart --verbs data/verbs.txt --output data/aktionsart_draft.jsonl
-python tools/preprocess/sibirsky_preprocess.py generate-mvp --output data/mvp_notes.jsonl --nouns 200 --verbs 100
-python tools/preprocess/sibirsky_preprocess.py validate-notes --input data/notes.jsonl --require-verified-aktionsart
+python tools/preprocess/rebuild_all.py
+python -m pytest -q tools/preprocess
 ```
 
-Aktionsart output is intentionally marked low-confidence until human-verified. See [`tools/preprocess/README.md`](tools/preprocess/README.md) for the full preprocessing workflow.
+The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+
+## Data safety
+
+Learner state is local and portable. The app maintains versioned Room migrations and a full-state JSONL backup containing notes, cards, review history, reader progress, telemetry, and adaptive model state. The immutable content corpus is deliberately excluded from learner backups because it is shipped separately as an app asset.
+
+When testing on a real device, use the full backup flow before destructive maintenance or installation. The provided install script also checks for a valid recovery snapshot automatically.
 
 ## Testing and quality gates
 
-Useful checks before opening a pull request:
+Useful checks before publishing changes:
 
 ```bash
 ./gradlew testDebugUnitTest
 python -m pytest -q tools/preprocess
 ```
 
-Content-specific tests validate controlled vocabulary, curriculum ordering, reader quality, Tatoeba assets, declension parsing, and generated starter content.
+The Kotlin suite covers scheduling, adaptive learning, repository behaviour, prompt construction, reader coverage, migrations, backups, and UI-facing state. The Python suite covers curriculum ordering, controlled vocabulary, morphology, reader quality, asset generation, and preprocessing reproducibility.
+
+## Open in Android Studio
+
+Open this folder as an Android project and let Android Studio sync Gradle. If you used `setup-android.ps1`, `local.properties` points Android Studio at the portable SDK.
 
 ## FSRS reference
 
-The scheduler follows FSRS-6 formulas and defaults from the open-spaced-repetition project:
+The scheduler follows FSRS-6-style formulas and defaults from the open-spaced-repetition project:
 
 - <https://github.com/open-spaced-repetition/awesome-fsrs/wiki/The-Algorithm>
 
 ## Project status
 
-SibirskySpeak currently includes the v2 learning foundation: local scheduling and review, grammar-focused prompts, reader coverage tracking, dashboard metrics, bootstrap course assets, and the desktop preprocessing pipeline needed to regenerate and validate content.
+The current implementation includes the local learner database and migration history, A1-C1 curriculum assets, adaptive pacing and learner modelling, grammar and audio practice, reader coverage workflows, dashboard diagnostics, portable backups, and the desktop content pipeline used to regenerate and validate shipped assets.

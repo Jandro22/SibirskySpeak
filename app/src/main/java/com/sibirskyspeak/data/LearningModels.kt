@@ -1,8 +1,6 @@
 package com.sibirskyspeak.data
 
 import com.sibirskyspeak.review.ReviewPrompt
-import com.sibirskyspeak.learning.Doctrine
-import com.sibirskyspeak.learning.DoctrineNudge
 import com.sibirskyspeak.learning.Pace
 import com.sibirskyspeak.learning.SessionBlueprint
 
@@ -81,7 +79,9 @@ data class ExitTicketItem(
     val noteId: Long?,
     val prompt: String,
     val expectedAnswer: String,
-    val choices: List<String> = emptyList()
+    val choices: List<String> = emptyList(),
+    /** Text spoken by TTS while remaining hidden from the learner. */
+    val audioPrompt: String? = null
 )
 
 /** A unit's assembled exit ticket (Phase G6): never a hard lock — see
@@ -89,6 +89,7 @@ data class ExitTicketItem(
  * friction. [canDoLabel] mirrors the unit's units.json "canDo" line. */
 data class ExitTicketSession(
     val unit: Int,
+    val band: String = "A1",
     val canDoLabel: String?,
     val items: List<ExitTicketItem>
 )
@@ -172,6 +173,17 @@ data class ImportQualityReport(
     val warnings: List<String>
 )
 
+data class ImportPreview(
+    val valid: Boolean,
+    val notes: Int = 0,
+    val cards: Int = 0,
+    val reviews: Int = 0,
+    val readerTexts: Int = 0,
+    val historyRows: Int = 0,
+    val restoresSettings: Boolean = false,
+    val errors: List<String> = emptyList()
+)
+
 data class SessionPlan(
     val ruleSummary: String,
     val reviewQueue: List<ReviewPrompt>,
@@ -193,16 +205,9 @@ data class SessionPlan(
     val skillRatings: List<SkillRating> = emptyList(),
     val rivalState: RivalState? = null,
     val matchHistory: List<MatchHistory> = emptyList(),
-    val doctrineNudge: DoctrineNudge? = null,
-    val timeBudget: SessionTimeBudget? = null,
-    val levelConstraint: String? = null
-)
-
-data class SessionTimeBudget(
-    val requestedMinutes: Int,
-    val plannedCognitiveCost: Double,
-    val estimatedMinutes: Double,
-    val spilledCards: Int
+    val levelConstraint: String? = null,
+    val adaptiveTrust: Double = 0.35,
+    val adaptiveReason: String = "Cold-start settings prior"
 )
 
 data class ProblemCardSummary(
@@ -218,12 +223,14 @@ data class ProblemCardSummary(
 
 data class UnitMastery(
     val unit: Int,
+    val band: String = "A1",
     val vocabularyMastered: Int,
     val vocabularyTotal: Int,
     val grammarMastered: Int,
     val grammarTotal: Int,
     val unlocked: Boolean
 ) {
+    val stableKey: String get() = "$band:$unit"
     val progress: Double get() =
         if (vocabularyTotal + grammarTotal == 0) 0.0
         else (vocabularyMastered + grammarMastered).toDouble() / (vocabularyTotal + grammarTotal)
@@ -266,6 +273,11 @@ data class GamificationStats(
     val dailyGoal: Int,
     val activeDays: Int,
     val last7Days: List<Boolean>,
+    // Per-day review counts for the trailing HEATMAP_DAYS days (oldest first, today
+    // last) — an Anki/GitHub-style activity heatmap needs intensity, not just the
+    // active/inactive boolean last7Days gives. Fixed length (zero-filled for days
+    // with no history yet) so the UI can lay it out as a stable grid.
+    val activityHeatmap: List<Int> = emptyList(),
     val achievements: List<Achievement>,
     val restDayCredits: Int = 0,
     // The specific day-bucket (see LearningRepository.startOfLocalDay) that streak
@@ -279,6 +291,10 @@ data class GamificationStats(
     val goalReached: Boolean get() = dailyGoal > 0 && reviewedToday >= dailyGoal
 
     companion object {
+        // 14 weeks: enough to read as a real GitHub/Anki-style heatmap while still
+        // fitting a compact mobile card without horizontal scrolling.
+        const val HEATMAP_WEEKS = 14
+        const val HEATMAP_DAYS = HEATMAP_WEEKS * 7
         val EMPTY = GamificationStats(
             knownWords = 0, totalReviews = 0, xp = 0, level = 1, xpIntoLevel = 0,
             xpForLevel = 100, currentStreak = 0, longestStreak = 0, reviewedToday = 0,
@@ -290,17 +306,22 @@ data class GamificationStats(
 /** User-tunable study pacing levers, read live on each session build. */
 data class LearningConfig(
     val dailyGoal: Int = 20,
+    // Pagination hint only (how many prompts to materialize into the visible
+    // queue at once) — no longer a hard per-session ceiling. The queue refills
+    // automatically as it's consumed; real-time stop/recover decisions live in
+    // SessionMpcController, not here.
     val sessionSize: Int = 25,
-    // Cap on brand-new cards introduced per day. Throttling new material is the
-    // single biggest lever against overload/burnout in spaced repetition — it
-    // keeps the future review load (and the daily session) sustainable.
+    // Cold-start prior blended with the continuously-derived budget (see
+    // PaceController.adoptForSessionSettings) — not an independent hard daily
+    // ceiling; PaceController/BlueprintBuilder regulate new-card introduction
+    // live from capacity/accuracy/debt/fatigue.
     val newCardsPerDay: Int = 15,
     val desiredRetention: Double = 0.90,
-    val doctrine: Doctrine = Doctrine.BALANCED,
     val restDayCredits: Int = 0,
     // Phase G6 (domain overlays, scaled down — see LearningRepository.
     // domainBiasFor): SettingsStore.preferredDomain, a build-time validated
     // domain tag (e.g. "business", "science") matched against the "target:"/
     // "graded:" prefix on ReaderText.source. Empty means no preference.
-    val preferredDomain: String = ""
+    val preferredDomain: String = "",
+    val adaptiveEnabled: Boolean = true
 )

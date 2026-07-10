@@ -30,7 +30,6 @@ class FluencySimEngineTest {
             initialActiveCards = emptyList(),
             totalKnownStart = 6_700,
             evidenceDays = 20,
-            doctrine = Doctrine.AMBITIOUS,
             startTimeMillis = 0L
         )
 

@@ -18,11 +18,16 @@ def test_manifest_matches_bundled_notes_exactly():
     assert sum(manifest["noteCountsByTier"].values()) == len(notes)
 
 
-def test_all_262_units_have_functional_exit_tickets():
+def test_every_band_unit_has_a_functional_exit_ticket():
+    from build_curriculum_metadata import all_rows
     document = json.loads((HERE / "units.yaml").read_text(encoding="utf-8"))
-    assert [u["unit"] for u in document["units"]] == list(range(1, 263))
+    expected = {(r["cefrLevel"], int(r["unit"])) for r in all_rows() if r.get("cefrLevel") and r.get("unit") is not None}
+    actual = {(u["band"], u["unit"]) for u in document["units"]}
+    assert actual == expected
+    assert len(actual) == len(document["units"])
     for unit in document["units"]:
         assert unit["canDo"]
+        assert "understand and use unit" not in unit["canDo"]
         assert unit["exitTicket"]["function"] == unit["canDo"]
         assert all(unit["exitTicket"][key] == 1 for key in ("recognition", "production", "listening", "reading"))
 

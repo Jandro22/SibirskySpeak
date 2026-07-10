@@ -15,14 +15,18 @@ internal class RepoFixture(
     bootstrapReaderTexts: String? = null,
     restoreBackup: (suspend () -> String?)? = null,
     writeBackup: (suspend (String) -> Unit)? = null,
+    writeBackupLines: (suspend (Sequence<String>) -> Unit)? = null,
     config: () -> LearningConfig = { LearningConfig() },
     withTelemetry: Boolean = false,
     contentDao: ContentDao? = null,
     bootstrapTransformations: String? = null,
     bootstrapPhonology: String? = null,
-    morphologyEngine: com.sibirskyspeak.morph.MorphologyEngine? = null
+    morphologyEngine: com.sibirskyspeak.morph.MorphologyEngine? = null,
+    learningModelDao: LearningModelDao? = null
 ) {
     val notes = FakeNoteDao()
+    val evidence = FakeNoteEvidenceDao()
+    val forms = FakeNoteFormDao()
     val readerEncounters = FakeReaderEncounterDao()
     val cards = FakeCardDao(notes, readerEncounters)
     val logs = FakeReviewLogDao(cards, notes).also { cards.reviewLogs = it }
@@ -46,6 +50,7 @@ internal class RepoFixture(
         config = config,
         restoreBackup = restoreBackup,
         writeBackup = writeBackup,
+        writeBackupLines = writeBackupLines,
         telemetryDao = telemetry,
         readingScheduleDao = readingSchedules,
         readerEncounterDao = readerEncounters,
@@ -53,14 +58,53 @@ internal class RepoFixture(
         confusionEventDao = confusionEvents,
         checkpointResultDao = checkpointResults,
         curriculumStateDao = curriculumState,
+        noteEvidenceDao = evidence,
+        noteFormDao = forms,
         contentDao = contentDao,
         morphologyEngine = morphologyEngine,
         bootstrapTransformations = { bootstrapTransformations },
         bootstrapPhonology = { bootstrapPhonology },
+        learningModelDao = learningModelDao,
         // Unconfined runs the repository's withContext(compute) blocks inline on the
         // caller, so the deterministic test scheduler still controls all of its work.
         computeDispatcher = Dispatchers.Unconfined
     )
+}
+
+internal class FakeNoteEvidenceDao : NoteEvidenceDao {
+    val rows = mutableMapOf<Long, NoteEvidence>()
+    override suspend fun ensure(value: NoteEvidence): Long {
+        rows.putIfAbsent(value.noteId, value)
+        return value.noteId
+    }
+    override suspend fun upsert(value: NoteEvidence): Long { rows[value.noteId] = value; return value.noteId }
+    override suspend fun get(noteId: Long): NoteEvidence? = rows[noteId]
+    override suspend fun all(): List<NoteEvidence> = rows.values.toList()
+    override suspend fun delete(noteId: Long): Int = if (rows.remove(noteId) != null) 1 else 0
+    override suspend fun incrementDirect(noteId: Long, at: Long): Int = update(noteId) { it.copy(directRetrievals = it.directRetrievals + 1, lastDirectAt = at) }
+    override suspend fun incrementPassive(noteId: Long, at: Long): Int = update(noteId) { it.copy(passiveExposures = it.passiveExposures + 1, lastPassiveAt = at) }
+    override suspend fun incrementReading(noteId: Long): Int = update(noteId) { it.copy(completedReadings = it.completedReadings + 1) }
+    override suspend fun incrementLookup(noteId: Long, at: Long): Int = update(noteId) { it.copy(lookups = it.lookups + 1, lastLookupAt = at) }
+    override suspend fun incrementPlacement(noteId: Long): Int = update(noteId) { it.copy(placementPriors = it.placementPriors + 1) }
+    private fun update(noteId: Long, block: (NoteEvidence) -> NoteEvidence): Int {
+        val current = rows[noteId] ?: return 0
+        rows[noteId] = block(current)
+        return 1
+    }
+}
+
+internal class FakeNoteFormDao : NoteFormDao {
+    val rows = linkedMapOf<String, NoteForm>()
+    override suspend fun insertAll(values: List<NoteForm>): List<Long> = values.map { value ->
+        if (rows.putIfAbsent(value.surface, value) == null) 1L else -1L
+    }
+    override suspend fun all(): List<NoteForm> = rows.values.toList()
+    override suspend fun count(): Int = rows.size
+    override suspend fun deleteForNote(noteId: Long): Int {
+        val before = rows.size
+        rows.entries.removeAll { it.value.noteId == noteId }
+        return before - rows.size
+    }
 }
 
 internal class FakeNoteDao : NoteDao {
@@ -132,16 +176,23 @@ internal class FakeCardDao(
     // below needs cross-DAO access, so a late-bound reference beats restructuring
     // construction order for every other method that doesn't need it.
     var reviewLogs: FakeReviewLogDao? = null
+    private fun Card.isIgnored(): Boolean = notes.notes.firstOrNull { it.id == noteId }?.status == WordStatus.IGNORED
+    override suspend fun dashboardCounts(now: Long): CardDashboardCounts = CardDashboardCounts(
+        vocabCards = cards.count { it.queue == Queue.VOCAB },
+        grammarCards = cards.count { it.queue == Queue.GRAMMAR },
+        dueVocab = cards.count { it.queue == Queue.VOCAB && it.due <= now && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended && !it.isIgnored() },
+        dueGrammar = cards.count { it.queue == Queue.GRAMMAR && it.due <= now && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended && !it.isIgnored() }
+    )
 
     override suspend fun getDueCards(now: Long, limit: Int): List<Card> =
-        cards.filter { it.due <= now && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
+        cards.filter { it.due <= now && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended && !it.isIgnored() }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
     override suspend fun getDueCardsByQueue(now: Long, queue: Queue, limit: Int): List<Card> =
-        cards.filter { it.due <= now && it.queue == queue && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
+        cards.filter { it.due <= now && it.queue == queue && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended && !it.isIgnored() }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
     override suspend fun countDueBetween(start: Long, end: Long): Int =
-        cards.count { it.due > start && it.due <= end && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended }
+        cards.count { it.due > start && it.due <= end && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended && !it.isIgnored() }
     override suspend fun countDueByDay(start: Long, end: Long, dayMillis: Long): List<DueDayCount> =
         cards.asSequence()
-            .filter { it.due > start && it.due <= end && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended }
+            .filter { it.due > start && it.due <= end && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended && !it.isIgnored() }
             .groupingBy { ((it.due - start - 1) / dayMillis).toInt() }
             .eachCount()
             .map { (day, count) -> DueDayCount(day, count) }
@@ -151,11 +202,11 @@ internal class FakeCardDao(
         cards.filter { it.reps >= minReps && (it.lapses > 0 || it.difficulty >= 8.0) && it.state != CardState.GRADUATED && !it.suspended }
             .sortedWith(compareByDescending<Card> { it.lapses }.thenByDescending { it.difficulty }).take(limit)
     override suspend fun getOverdueCards(cutoff: Long, limit: Int): List<Card> =
-        cards.filter { it.due <= cutoff && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
+        cards.filter { it.due <= cutoff && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended && !it.isIgnored() }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
     override suspend fun getAllDueCards(now: Long): List<Card> =
-        cards.filter { it.due <= now && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id })
+        cards.filter { it.due <= now && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended && !it.isIgnored() }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id })
     override suspend fun getDueSoonNoteIds(cutoff: Long): List<Long> =
-        cards.filter { it.due <= cutoff && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended }.map { it.noteId }.distinct()
+        cards.filter { it.due <= cutoff && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended && !it.isIgnored() }.map { it.noteId }.distinct()
     override suspend fun getGraduatedRecognitionCards(): List<Card> =
         cards.filter { it.cardType == CardType.RU_TO_MEANING && it.state == CardState.GRADUATED }.sortedBy { it.lastReview ?: 0L }
     override suspend fun getNewCards(limit: Int): List<Card> =
@@ -275,8 +326,8 @@ internal class FakeCardDao(
             .mapNotNull { it.gramConcept }
             .distinct()
     override suspend fun getByNoteAndType(noteId: Long, cardType: CardType): Card? = cards.firstOrNull { it.noteId == noteId && it.cardType == cardType }
-    override suspend fun countDue(now: Long): Int = cards.count { it.due <= now && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended }
-    override suspend fun countDueByQueue(now: Long, queue: Queue): Int = cards.count { it.due <= now && it.queue == queue && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended }
+    override suspend fun countDue(now: Long): Int = cards.count { it.due <= now && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended && !it.isIgnored() }
+    override suspend fun countDueByQueue(now: Long, queue: Queue): Int = cards.count { it.due <= now && it.queue == queue && it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended && !it.isIgnored() }
     override suspend fun countByQueue(queue: Queue): Int = cards.count { it.queue == queue }
     override suspend fun getGrammarCardsForNounCategory(gramCase: String, gramGender: String, gramNumber: String): List<Card> =
         cards.filter { it.queue == Queue.GRAMMAR && it.gramCase == gramCase && it.gramGender == gramGender && it.gramNumber == gramNumber }
@@ -325,7 +376,7 @@ internal class FakeCardDao(
     override suspend fun getByIds(cardIds: List<Long>): List<Card> = cards.filter { it.id in cardIds }
     override suspend fun getAll(): List<Card> = cards.toList()
     override suspend fun getSchedulingCards(): List<Card> =
-        cards.filter { it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended }
+        cards.filter { it.state !in setOf(CardState.NEW, CardState.GRADUATED) && !it.suspended && !it.isIgnored() }
     override suspend fun countEstablishedCards(): Int =
         cards.count { it.state == CardState.GRADUATED || it.reps >= 2 }
     override suspend fun getAllVocabCards(): List<Card> = cards.filter { it.queue == Queue.VOCAB }
@@ -380,18 +431,6 @@ internal class FakeCardDao(
         }
         return changed
     }
-    override suspend fun graduateVocabForReaderEncounters(minEncounterCount: Int): Int {
-        val eligible = readerEncounters.encounters.groupingBy { it.noteId }.eachCount()
-            .filterValues { it >= minEncounterCount }.keys
-        var changed = 0
-        cards.replaceAll { card ->
-            if (card.queue == Queue.VOCAB && card.noteId in eligible && card.state != CardState.GRADUATED) {
-                changed += 1
-                card.copy(state = CardState.GRADUATED)
-            } else card
-        }
-        return changed
-    }
     override suspend fun insert(card: Card): Long {
         val id = nextId++
         cards += card.copy(id = id)
@@ -439,7 +478,14 @@ internal class FakeReviewLogDao(
     override suspend fun passiveEvidenceCountSince(cardId: Long, dayStart: Long): Int =
         logs.count { it.cardId == cardId && it.reviewDatetime >= dayStart && it.source in setOf(ReviewSource.READING, ReviewSource.LISTENING, ReviewSource.PRODUCTION) }
 
-    private fun recallLogs(): List<ReviewLog> = logs.filter { it.source != ReviewSource.READER_LOOKUP }
+    private fun recallLogs(): List<ReviewLog> = logs.filter {
+        it.source == ReviewSource.SRS_REVIEW || it.source == ReviewSource.GRAMMAR_DRILL
+    }
+
+    override suspend fun recentDirectRatings(limit: Int): List<Rating> = recallLogs()
+        .sortedWith(compareByDescending<ReviewLog> { it.reviewDatetime }.thenByDescending { it.id })
+        .take(limit)
+        .map { it.rating }
 
     override suspend fun countSince(since: Long): Int = recallLogs().count { it.reviewDatetime >= since }
     override suspend fun countAll(): Int = recallLogs().size
@@ -487,6 +533,12 @@ internal class FakeReviewLogDao(
     }
     override suspend fun reviewDayBuckets(tzOffset: Long, dayMillis: Long): List<Long> =
         recallLogs().map { (it.reviewDatetime + tzOffset) / dayMillis }.distinct().sortedDescending()
+    override suspend fun reviewCountsByDay(tzOffset: Long, dayMillis: Long, sinceDay: Long): List<ActivityDayCount> =
+        recallLogs().map { (it.reviewDatetime + tzOffset) / dayMillis }
+            .filter { it >= sinceDay }
+            .groupingBy { it }
+            .eachCount()
+            .map { (day, count) -> ActivityDayCount(day, count) }
     override suspend fun recentCategoryRatings(limit: Int): List<ReviewCategoryRatingRow> =
         recallLogs().sortedWith(compareByDescending<ReviewLog> { it.reviewDatetime }.thenByDescending { it.id })
             .mapNotNull { log ->
@@ -596,12 +648,17 @@ internal class FakeReadingScheduleDao : ReadingScheduleDao {
     override suspend fun nextDue(now: Long): ReadingSchedule? = schedules.filter { it.due <= now }.minByOrNull { it.due }
     override suspend fun getAll(): List<ReadingSchedule> = schedules.toList()
     override suspend fun deleteForText(readerTextId: Long) { schedules.removeAll { it.readerTextId == readerTextId } }
+    override suspend fun deletePristineForTexts(readerTextIds: List<Long>): Int {
+        val before = schedules.size
+        schedules.removeAll { it.readerTextId in readerTextIds && it.reps == 0 && it.lastCompleted == null }
+        return before - schedules.size
+    }
 }
 
 internal class FakeReaderEncounterDao : ReaderEncounterDao {
     val encounters = mutableListOf<ReaderEncounter>()
     override suspend fun insert(encounter: ReaderEncounter): Long {
-        if (encounters.any { it.readerTextId == encounter.readerTextId && it.noteId == encounter.noteId }) return -1L
+        encounters.removeAll { it.readerTextId == encounter.readerTextId && it.noteId == encounter.noteId }
         encounters += encounter
         return encounters.size.toLong()
     }
@@ -698,6 +755,8 @@ internal class FakeConfusionEventDao : ConfusionEventDao {
         events += event.copy(id = id)
         return id
     }
+    override suspend fun insertAll(events: List<ConfusionEvent>): List<Long> = events.map { insert(it) }
+    override suspend fun all(): List<ConfusionEvent> = events.sortedBy { it.at }
     override suspend fun topPairSince(since: Long): ConfusionPairCount? =
         events.filter { it.at >= since }
             .groupBy { Triple(it.expectedKey, it.producedKey, it.cardType) }
@@ -721,6 +780,7 @@ internal class FakeCheckpointResultDao : CheckpointResultDao {
     override suspend fun insertAll(results: List<CheckpointResult>): List<Long> = results.map { insert(it) }
     override suspend fun since(since: Long): List<CheckpointResult> = results.filter { it.at >= since }.sortedByDescending { it.at }
     override suspend fun recent(limit: Int): List<CheckpointResult> = results.sortedByDescending { it.at }.take(limit)
+    override suspend fun all(): List<CheckpointResult> = results.sortedBy { it.at }
 }
 
 internal class FakeCurriculumStateDao : CurriculumStateDao {
@@ -746,4 +806,76 @@ internal class FakeCurriculumStateDao : CurriculumStateDao {
         return id
     }
     override suspend fun exitTickets(): List<ExitTicketResult> = exitTicketResults.sortedByDescending { it.completedAt }
+}
+
+/** Small in-memory adaptive-model DAO for snapshot integration tests. */
+internal class FakeLearningModelDao : LearningModelDao {
+    val difficulties = linkedMapOf<Long, ItemDifficulty>()
+    val masteries = linkedMapOf<String, ConceptMastery>()
+    val parameterRows = linkedMapOf<String, OptimizerParameter>()
+    val skillRows = linkedMapOf<String, SkillRating>()
+    val paceRows = linkedMapOf<Long, PaceLog>()
+    val matchRows = mutableListOf<MatchHistory>()
+    val banditPendingRows = linkedMapOf<Long, BanditPending>()
+    val banditArmRows = linkedMapOf<String, BanditArmState>()
+    val ghostRows = linkedMapOf<Long, GhostSnapshot>()
+    var capacity: CapacityState? = null
+    var willingness: WillingnessState? = null
+    var rival: RivalState? = null
+    private var nextMatchId = 1L
+
+    override suspend fun upsertDifficulty(value: ItemDifficulty) { difficulties[value.cardId] = value }
+    override suspend fun difficulty(cardId: Long): ItemDifficulty? = difficulties[cardId]
+    override suspend fun difficulties(): List<ItemDifficulty> = difficulties.values.toList()
+    override suspend fun difficultiesFor(cardIds: List<Long>): List<ItemDifficulty> = cardIds.mapNotNull(difficulties::get)
+    override suspend fun deleteDifficulty(cardId: Long): Int = if (difficulties.remove(cardId) != null) 1 else 0
+
+    override suspend fun upsertMastery(value: ConceptMastery) { masteries[value.concept] = value }
+    override suspend fun mastery(concept: String): ConceptMastery? = masteries[concept]
+    override suspend fun masteries(): List<ConceptMastery> = masteries.values.toList()
+    override suspend fun deleteMasteries(concepts: List<String>): Int = concepts.count { masteries.remove(it) != null }
+
+    override suspend fun upsertParameter(value: OptimizerParameter) { parameterRows[value.key] = value }
+    override suspend fun parameters(): List<OptimizerParameter> = parameterRows.values.toList()
+    override suspend fun deleteParameters(keys: List<String>): Int = keys.count { parameterRows.remove(it) != null }
+
+    override suspend fun upsertSkillRating(value: SkillRating) { skillRows[value.skill] = value }
+    override suspend fun skillRatings(): List<SkillRating> = skillRows.values.toList()
+    override suspend fun skillRating(skill: String): SkillRating? = skillRows[skill]
+    override suspend fun deleteSkillRatings(skills: List<String>): Int = skills.count { skillRows.remove(it) != null }
+
+    override suspend fun upsertCapacityState(value: CapacityState) { capacity = value }
+    override suspend fun capacityState(): CapacityState? = capacity
+    override suspend fun upsertWillingnessState(value: WillingnessState) { willingness = value }
+    override suspend fun willingnessState(): WillingnessState? = willingness
+    override suspend fun upsertRivalState(value: RivalState) { rival = value }
+    override suspend fun rivalState(): RivalState? = rival
+
+    override suspend fun insertGhostSnapshot(value: GhostSnapshot) { ghostRows[value.takenAt] = value }
+    override suspend fun latestGhostSnapshot(): GhostSnapshot? = ghostRows.values.maxByOrNull { it.takenAt }
+    override suspend fun ghostSnapshotAtOrBefore(cutoff: Long): GhostSnapshot? =
+        ghostRows.values.filter { it.takenAt <= cutoff }.maxByOrNull { it.takenAt }
+    override suspend fun ghostSnapshots(): List<GhostSnapshot> = ghostRows.values.toList()
+
+    override suspend fun insertMatchHistory(value: MatchHistory): Long {
+        val id = if (value.id == 0L) nextMatchId++ else value.id
+        matchRows += value.copy(id = id)
+        return id
+    }
+    override suspend fun matchHistory(limit: Int): List<MatchHistory> = matchRows.sortedByDescending { it.at }.take(limit)
+    override suspend fun allMatchHistory(): List<MatchHistory> = matchRows.sortedBy { it.at }
+
+    override suspend fun upsertPaceLog(value: PaceLog) { paceRows[value.at] = value }
+    override suspend fun paceLogs(limit: Int): List<PaceLog> = paceRows.values.sortedByDescending { it.at }.take(limit)
+    override suspend fun allPaceLogs(): List<PaceLog> = paceRows.values.sortedBy { it.at }
+    override suspend fun paceLogCount(): Int = paceRows.size
+
+    override suspend fun upsertBanditPending(value: BanditPending) { banditPendingRows[value.showAt] = value }
+    override suspend fun pendingBanditCredits(itemId: Long): List<BanditPending> =
+        banditPendingRows.values.filter { it.itemId == itemId }.sortedBy { it.showAt }
+    override suspend fun allBanditPending(): List<BanditPending> = banditPendingRows.values.toList()
+    override suspend fun deleteBanditPending(showAt: Long): Int = if (banditPendingRows.remove(showAt) != null) 1 else 0
+
+    override suspend fun upsertBanditArmState(value: BanditArmState) { banditArmRows[value.action] = value }
+    override suspend fun banditArmStates(): List<BanditArmState> = banditArmRows.values.toList()
 }

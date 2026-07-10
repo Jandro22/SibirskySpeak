@@ -1,15 +1,23 @@
 package com.sibirskyspeak
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -19,6 +27,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -61,7 +71,12 @@ import org.json.JSONObject
         CurriculumCompletenessCard(state.curriculumCompleteness)
         RivalProgressCard(state.rivalState, state.matchHistory)
         CheckpointCard(state, onStartCheckpoint, onSubmitCheckpointAnswer, onDismissCheckpoint)
-        state.dashboardStats?.let { DetailsSection(it, expanded = true, onToggle = {}) }
+        // Was hardcoded to expanded = true with onToggle = {} — the collapse arrow
+        // rendered and rotated but tapping it did nothing, since there was no state
+        // for it to flip. This is the only DetailsSection call site in the app not
+        // wired to real state (compare DashboardScreens.kt's showDetails toggle).
+        var detailsExpanded by rememberSaveable { mutableStateOf(true) }
+        state.dashboardStats?.let { DetailsSection(it, detailsExpanded) { detailsExpanded = !detailsExpanded } }
         state.weeklyReports.firstOrNull()?.let { report ->
             WeeklyLetterCard(report)
         }
@@ -78,16 +93,56 @@ private fun CurriculumCompletenessCard(bands: Map<String, com.sibirskyspeak.data
         Text("Curriculum completeness", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Text(
             "% of on-device example sentences fully parseable with what's shipped so far",
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Spacer(Modifier.height(10.dp))
         val order = listOf("A1", "A2", "B1", "B2+")
-        order.forEach { band ->
-            bands[band]?.let { metrics ->
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(band, fontWeight = FontWeight.SemiBold)
-                    Text("${metrics.percent}% (${metrics.parseableSentences}/${metrics.corpusSentences})")
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            order.forEach { band ->
+                bands[band]?.let { metrics ->
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(band, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "${metrics.percent}%  ·  ${metrics.parseableSentences}/${metrics.corpusSentences}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        AppLinearProgressIndicator(
+                            progress = { (metrics.percent / 100.0).toFloat().coerceIn(0f, 1f) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                        )
+                    }
                 }
             }
+        }
+    }
+}
+
+/** One band's mastery dot in [ProficiencyMapCard]: filled + labeled when reached,
+ * a muted outline when not — replaces the previous plain "●A1 ○B1" text glyphs,
+ * which read as a rendering artifact rather than a deliberate visual on most
+ * fonts/devices. */
+@Composable
+private fun ProficiencyBandDot(band: String, reached: Boolean, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.size(26.dp),
+        shape = CircleShape,
+        color = if (reached) MaterialTheme.colorScheme.primary else Color.Transparent,
+        border = if (reached) null else BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                band,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = if (reached) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
         }
     }
 }
@@ -98,16 +153,44 @@ private fun ProficiencyMapCard(ratings: List<com.sibirskyspeak.data.SkillRating>
     fun ordinal(mu: Double) = when {
         mu < -5 -> 0; mu < 0 -> 1; mu < 5 -> 2; mu < 10 -> 3; mu < 15 -> 4; else -> 5
     }
-    val core = listOf("reading", "listening", "production")
+    // "reading" evidence comes from WorldModel.skillWeights() on every graded
+    // review, not just the Reader feature — a LESSON card (any grammar/vocab
+    // intro) already contributes 50% weight to it, since reading the lesson body
+    // is technically reading Russian text. That's real signal, but the plain
+    // "Reading" label reads as "text comprehension from the Reader," which is a
+    // distinct feature the learner may not have touched at all — hence a
+    // reported "A2 in reading" despite doing no reading exercises "in proper."
+    // Label it honestly instead of quietly conflating the two.
+    val core = listOf("reading" to "Reading (incl. lessons)", "listening" to "Listening", "production" to "Production")
     SectionCard {
         Text("Proficiency map", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Text("Checkpoint-calibrated skill evidence by CEFR band", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        core.forEach { skill ->
-            val rating = ratings.firstOrNull { it.skill == skill }
-            val reached = rating?.takeIf { it.observations > 0 }?.let { ordinal(it.mu) }
-            Text("${skill.replaceFirstChar(Char::uppercase)}  " + bands.mapIndexed { index, band ->
-                when { reached == null -> "·"; index <= reached -> "●$band"; else -> "○$band" }
-            }.joinToString("  "), style = MaterialTheme.typography.bodySmall)
+        Text(
+            "Skill evidence from graded reviews and checkpoints, by CEFR band",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(10.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            core.forEach { (skill, label) ->
+                val rating = ratings.firstOrNull { it.skill == skill }
+                val reached = rating?.takeIf { it.observations > 0 }?.let { ordinal(it.mu) }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    if (reached == null) {
+                        Text(
+                            "No checkpoint evidence yet",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            bands.forEachIndexed { index, band ->
+                                ProficiencyBandDot(band = band, reached = index <= reached)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
