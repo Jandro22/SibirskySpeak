@@ -13,11 +13,11 @@ android {
         applicationId = "com.sibirskyspeak"
         minSdk = 26
         targetSdk = 35
-        // CI passes VERSION_CODE (the run number) so each published build has a
-        // higher code and installs cleanly over the previous one. Local builds
-        // default to 1.
-        versionCode = (System.getenv("VERSION_CODE")?.toIntOrNull()) ?: 1
-        versionName = System.getenv("VERSION_NAME") ?: "0.1.0"
+        // CI passes VERSION_CODE/VERSION_NAME for rolling builds and tagged
+        // releases. Local builds default to the current public release so an
+        // APK built from this checkout identifies itself consistently.
+        versionCode = (System.getenv("VERSION_CODE")?.toIntOrNull()) ?: 2
+        versionName = System.getenv("VERSION_NAME") ?: "2.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

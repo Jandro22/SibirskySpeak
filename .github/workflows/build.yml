@@ -19,6 +19,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Verify large content assets
+        shell: bash
+        run: |
+          test -s app/src/main/assets/tatoeba.db
+          if head -c 40 app/src/main/assets/tatoeba.db | grep -q "git-lfs.github.com/spec"; then
+            echo "tatoeba.db is still an LFS pointer; refusing to run tests against it"
+            exit 1
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4

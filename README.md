@@ -155,4 +155,6 @@ The scheduler follows FSRS-6-style formulas and defaults from the open-spaced-re
 
 ## Project status
 
-The current implementation includes the local learner database and migration history, A1-C1 curriculum assets, adaptive pacing and learner modelling, grammar and audio practice, reader coverage workflows, dashboard diagnostics, portable backups, and the desktop content pipeline used to regenerate and validate shipped assets.
+The current public release is **v2.0.0**. It includes the local learner database and migration history, A1-C1 curriculum assets, adaptive pacing and learner modelling, grammar and audio practice, reader coverage workflows, dashboard diagnostics, portable backups, and the desktop content pipeline used to regenerate and validate shipped assets.
+
+Download the latest APK from the [GitHub Releases page](https://github.com/Jandro22/SibirskySpeak/releases).
