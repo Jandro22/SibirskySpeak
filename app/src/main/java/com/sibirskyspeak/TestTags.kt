@@ -7,6 +7,8 @@ package com.sibirskyspeak
  * QA script rather than only tapping it by hand.
  */
 internal object TestTags {
+    const val ONBOARDING_BEGINNER = "onboarding_beginner"
+    const val ONBOARDING_PLACEMENT = "onboarding_placement"
     // Bottom navigation
     const val NAV_PRACTICE = "nav_practice"
     const val NAV_PROGRESS = "nav_progress"
@@ -16,6 +18,7 @@ internal object TestTags {
     // Dashboard / Practice landing
     const val DASHBOARD_STUDY_BUTTON = "dashboard_study_button"
     const val DASHBOARD_NEXT_ACTION_BUTTON = "dashboard_next_action_button"
+    const val DASHBOARD_ADJUST_TODAY = "dashboard_adjust_today"
 
     // Study session header
     const val SESSION_MORE_MENU = "session_more_menu"

@@ -13,6 +13,7 @@ import com.sibirskyspeak.review.AnswerMode
 import com.sibirskyspeak.review.ReviewPrompt
 import com.sibirskyspeak.review.ReviewUiState
 import kotlinx.coroutines.flow.MutableStateFlow
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
@@ -83,10 +84,10 @@ class StudySessionScreenTest {
         }
 
         compose.onNodeWithTag(TestTags.RATE_AGAIN).performClick()
-        assert(lastRating == Rating.AGAIN) { "expected AGAIN, got $lastRating" }
+        assertEquals("expected AGAIN", Rating.AGAIN, lastRating)
 
         compose.onNodeWithTag(TestTags.RATE_EASY).performClick()
-        assert(lastRating == Rating.EASY) { "expected EASY, got $lastRating" }
+        assertEquals("expected EASY", Rating.EASY, lastRating)
     }
 
     @Test
@@ -120,7 +121,7 @@ class StudySessionScreenTest {
         compose.onNodeWithTag(TestTags.LESSON_GOT_IT).performClick()
         // Matches the app's own rule: a LESSON card graduates immediately on any
         // rating, and its single button always rates GOOD (StudyScreens.kt).
-        assert(lastRating == Rating.GOOD) { "expected GOOD, got $lastRating" }
+        assertEquals("expected GOOD", Rating.GOOD, lastRating)
     }
 
     @Test
@@ -152,6 +153,6 @@ class StudySessionScreenTest {
         }
 
         compose.onNodeWithTag(TestTags.ANSWER_INPUT_FIELD).performTextInput("house")
-        assert(typed == "house") { "expected 'house', got '$typed'" }
+        assertEquals("house", typed)
     }
 }

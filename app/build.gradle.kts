@@ -1,8 +1,11 @@
+import org.gradle.testing.jacoco.tasks.JacocoReport
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
+    id("jacoco")
 }
 
 android {
@@ -147,4 +150,40 @@ tasks.register("simCheck") {
     group = "verification"
     description = "Runs the seeded pedagogy learner simulation regression suite."
     dependsOn("testDebugUnitTest")
+}
+
+// Unit-test coverage is intentionally report-only while the project establishes a
+// measured baseline. The report is split from the Android test task so CI can publish
+// it without making instrumentation availability a prerequisite for local development.
+tasks.register<JacocoReport>("jacocoDebugUnitTestReport") {
+    group = "verification"
+    description = "Generates XML and HTML coverage for the debug JVM test suite."
+    dependsOn("testDebugUnitTest")
+    executionData.setFrom(layout.buildDirectory.file("jacoco/testDebugUnitTest.exec"))
+    classDirectories.setFrom(
+        files(
+            layout.buildDirectory.dir("tmp/kotlin-classes/debug"),
+            layout.buildDirectory.dir("intermediates/javac/debug/compileDebugJavaWithJavac/classes")
+        ).asFileTree.matching {
+            exclude(
+                "**/R.class", "**/R$*.class", "**/BuildConfig.class", "**/Manifest*.*",
+                "**/*_Factory.class", "**/*_MembersInjector.class", "**/*_HiltModules*.class",
+                "**/Hilt_*.*", "**/*_Impl.class"
+            )
+        }
+    )
+    sourceDirectories.setFrom(files("src/main/java", "src/main/kotlin"))
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+        csv.required.set(false)
+        xml.outputLocation.set(layout.buildDirectory.file("reports/jacoco/debugUnitTest/jacocoDebugUnitTestReport.xml"))
+        html.outputLocation.set(layout.buildDirectory.dir("reports/jacoco/debugUnitTest/html"))
+    }
+}
+
+tasks.register("coverageBaseline") {
+    group = "verification"
+    description = "Generates the measured debug coverage baseline used by CI trend tracking."
+    dependsOn("jacocoDebugUnitTestReport")
 }

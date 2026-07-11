@@ -109,7 +109,6 @@ class MainActivity : ComponentActivity() {
         Reminders.ensureChannel(this)
         Reminders.schedule(this)
         Reminders.scheduleWeekly(this)
-        maybeRequestNotificationPermission()
         setContent {
             SibirskySpeakTheme {
                 // Exposes every Modifier.testTag below as the platform view's resource-id,
@@ -119,14 +118,15 @@ class MainActivity : ComponentActivity() {
                     ReviewScreen(
                         hiltViewModel<ReviewViewModel>(),
                         intent?.getBooleanExtra(EXTRA_MICRO, false) == true,
-                        debugFreezeAdaptive = BuildConfig.DEBUG && intent?.getBooleanExtra(EXTRA_DEBUG_FREEZE_ADAPTIVE, false) == true
+                        debugFreezeAdaptive = BuildConfig.DEBUG && intent?.getBooleanExtra(EXTRA_DEBUG_FREEZE_ADAPTIVE, false) == true,
+                        onReminderOptIn = ::requestNotificationPermission
                     )
                 }
             }
         }
     }
 
-    private fun maybeRequestNotificationPermission() {
+    private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -138,7 +138,12 @@ internal val MainTabs = listOf(SessionStep.REVIEWS, SessionStep.DASHBOARD, Sessi
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = false, debugFreezeAdaptive: Boolean = false) {
+internal fun ReviewScreen(
+    viewModel: ReviewViewModel,
+    launchMicro: Boolean = false,
+    debugFreezeAdaptive: Boolean = false,
+    onReminderOptIn: () -> Unit = {}
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val tts = rememberRussianTts()
     val context = LocalContext.current
@@ -167,6 +172,22 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
     // booleans already gave studyActive/showReference individually.
     val nav = rememberSaveable(saver = NavStateSaver) { NavState(Dest.Dashboard) }
     val currentDest by nav.current.collectAsState()
+    if (state.showOnboarding) {
+        Scaffold { innerPadding ->
+            Box(Modifier.padding(innerPadding)) {
+                OnboardingPanel(
+                    onStartAtBeginning = viewModel::completeOnboarding,
+                    onTakePlacement = {
+                        viewModel.completeOnboarding()
+                        nav.replace(Dest.Import)
+                        viewModel.setSessionStep(SessionStep.IMPORT)
+                        viewModel.startPlacementTest()
+                    }
+                )
+            }
+        }
+        return
+    }
     val studyActive = currentDest is Dest.Study
     val showReference = currentDest is Dest.Reference
     var autoStartedDueSession by rememberSaveable { mutableStateOf(false) }
@@ -302,6 +323,11 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                     settingsArea = SettingsArea.DATA
                     nav.replace(Dest.Import)
                     viewModel.setSessionStep(SessionStep.IMPORT)
+                },
+                onCustomizeToday = {
+                    settingsArea = SettingsArea.STUDY
+                    nav.replace(Dest.Import)
+                    viewModel.setSessionStep(SessionStep.IMPORT)
                 }
             )
             SessionStep.LAB -> LabPanel(
@@ -336,7 +362,9 @@ internal fun ReviewScreen(viewModel: ReviewViewModel, launchMicro: Boolean = fal
                 onDismissPlacementTest = viewModel::dismissPlacementTest,
                 onReminderEnabled = { enabled ->
                     viewModel.setReminderEnabled(enabled)
+                    if (enabled) onReminderOptIn()
                     Reminders.schedule(context)
+                    Reminders.scheduleWeekly(context)
                 },
                 onReminderHour = { hour ->
                     viewModel.setReminderHour(hour)

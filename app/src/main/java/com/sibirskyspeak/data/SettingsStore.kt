@@ -43,6 +43,14 @@ interface SettingsStore {
     /** Empty means the general inventory; otherwise a build-time validated domain tag. */
     var preferredDomain: String
     var adaptiveEnabled: Boolean
+    /** Compact durable session checkpoint; empty means there is no resumable session. */
+    var sessionSnapshotJson: String
+        get() = ""
+        set(_) {}
+    /** True after the learner has completed the contextual first-run flow. */
+    var onboardingCompleted: Boolean
+        get() = false
+        set(_) {}
     val learningExperimentVariant: String
     var unlockedAchievementIds: Set<String>
     fun newlyUnlocked(currentUnlocked: Set<String>): Set<String>
@@ -143,7 +151,7 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         set(value) = prefs.edit().putLong(KEY_LAST_WEIGHT_FIT_DAY, value).apply()
 
     override var reminderEnabled: Boolean
-        get() = prefs.getBoolean(KEY_REMINDER_ENABLED, true)
+        get() = prefs.getBoolean(KEY_REMINDER_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_REMINDER_ENABLED, value).apply()
 
     /** Hour of day (0-23, local) for the daily nudge. */
@@ -197,6 +205,14 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
     override var adaptiveEnabled: Boolean
         get() = prefs.getBoolean(KEY_ADAPTIVE_ENABLED, true)
         set(value) = prefs.edit().putBoolean(KEY_ADAPTIVE_ENABLED, value).apply()
+
+    override var sessionSnapshotJson: String
+        get() = prefs.getString(KEY_SESSION_SNAPSHOT, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_SESSION_SNAPSHOT, value.take(MAX_SESSION_SNAPSHOT_CHARS)).apply()
+
+    override var onboardingCompleted: Boolean
+        get() = prefs.getBoolean(KEY_ONBOARDING_COMPLETED, false)
+        set(value) = prefs.edit().putBoolean(KEY_ONBOARDING_COMPLETED, value).apply()
 
     /** Stable, installation-local learning experiment. Never changes mid-course. */
     override val learningExperimentVariant: String
@@ -261,5 +277,8 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         private const val KEY_LEARNING_EXPERIMENT = "learning_experiment_v1"
         private const val KEY_PREFERRED_DOMAIN = "preferred_domain"
         private const val KEY_ADAPTIVE_ENABLED = "adaptive_enabled"
+        private const val KEY_SESSION_SNAPSHOT = "session_snapshot_v1"
+        private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
+        private const val MAX_SESSION_SNAPSHOT_CHARS = 32_000
     }
 }

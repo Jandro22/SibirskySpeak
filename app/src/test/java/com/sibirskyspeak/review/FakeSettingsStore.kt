@@ -12,7 +12,7 @@ internal class FakeSettingsStore : SettingsStore {
     override var intervalModifier: Double = 1.0
     override var fsrsWeights: DoubleArray = FsrsScheduler.DEFAULT_WEIGHTS.copyOf()
     override var lastWeightFitDay: Long = Long.MIN_VALUE
-    override var reminderEnabled: Boolean = true
+    override var reminderEnabled: Boolean = false
     override var reminderHour: Int = SettingsStore.DEFAULT_REMINDER_HOUR
     override var readerFontScale: Float = 1.0f
     override var lastBackupAt: Long = 0L
@@ -28,6 +28,8 @@ internal class FakeSettingsStore : SettingsStore {
     override var lastFluencyForecastDay: Long = Long.MIN_VALUE
     override var preferredDomain: String = ""
     override var adaptiveEnabled: Boolean = true
+    override var sessionSnapshotJson: String = ""
+    override var onboardingCompleted: Boolean = false
     override val learningExperimentVariant: String = "A"
     override var unlockedAchievementIds: Set<String> = emptySet()
 

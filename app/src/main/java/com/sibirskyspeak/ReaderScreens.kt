@@ -70,6 +70,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sibirskyspeak.data.ReaderRecommendation
@@ -781,6 +786,16 @@ internal fun ReaderWord(
             .clip(RoundedCornerShape(5.dp))
             .background(background)
             .then(borderMod)
+            .semantics {
+                contentDescription = token.leading + token.surface + token.trailing
+                stateDescription = when (token.status) {
+                    WordStatus.NEW -> "new word"
+                    WordStatus.LEARNING -> "learning word"
+                    WordStatus.KNOWN -> "known word"
+                    WordStatus.IGNORED -> "ignored word"
+                }
+                role = Role.Button
+            }
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 3.dp, vertical = 2.dp),
         style = MaterialTheme.typography.bodyLarge.copy(fontSize = (20 * fontScale).sp, lineHeight = (32 * fontScale).sp),

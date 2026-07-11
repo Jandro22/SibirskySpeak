@@ -2,6 +2,18 @@
 <resources>
     <string name="app_name">SibirskySpeak</string>
 
+    <string name="onboarding_title">Start with a useful first session</string>
+    <string name="onboarding_subtitle">Sibirsky Speak will begin with a five-minute lesson, then adapt as it learns what is easy or difficult for you.</string>
+    <string name="onboarding_beginner">I’m new to Russian</string>
+    <string name="onboarding_beginner_support">Start at the beginning with a guided lesson.</string>
+    <string name="onboarding_know_some">I know some Russian</string>
+    <string name="onboarding_know_some_support">Take a short placement quiz before your first session.</string>
+    <string name="onboarding_privacy">You can change your pace, level, and reminders later in Settings.</string>
+    <string name="dashboard_start_today">Start today’s session</string>
+    <string name="dashboard_session_estimate">%1$d cards · about %2$d minutes</string>
+    <string name="dashboard_adaptive_reason">Today’s plan: %1$s</string>
+    <string name="dashboard_adjust_today">Adjust today</string>
+
     <!-- Reused dialog/action labels (Compose still reads these via stringResource). -->
     <string name="action_cancel">Cancel</string>
     <string name="action_save">Save</string>

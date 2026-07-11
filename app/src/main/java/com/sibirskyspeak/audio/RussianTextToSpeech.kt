@@ -31,7 +31,7 @@ class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
     }
 
     fun speak(text: String, rate: Float = 1.0f, pitch: Float = 1.0f, voiceVariant: Int = 0) {
-        val cleaned = text.cleanForSpeech()
+        val cleaned = normalizeRussianSpeech(text)
         if (cleaned.isBlank()) return
         // A normal utterance interrupts reader sequence mode. Resolve its callbacks
         // immediately so UI highlighting cannot remain stuck on an old sentence.
@@ -45,7 +45,7 @@ class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
         engine?.voices?.filter { it.locale.language == "ru" }?.sortedBy { it.name }
             ?.takeIf { it.isNotEmpty() }
             ?.let { voices -> engine?.voice = voices[Math.floorMod(voiceVariant, voices.size)] }
-        val chunks = cleaned.chunkForSpeech()
+        val chunks = chunkRussianSpeech(cleaned)
         if (chunks.isEmpty()) return
         chunks.forEachIndexed { index, chunk ->
             engine?.speak(
@@ -63,7 +63,7 @@ class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
      * after the last one. Used by the reader's sentence-by-sentence "Listen" mode.
      */
     fun speakSentences(sentences: List<String>, onSentenceStart: (Int) -> Unit, onDone: () -> Unit) {
-        val cleaned = sentences.map { it.cleanForSpeech() }
+        val cleaned = sentences.map(::normalizeRussianSpeech)
         if (cleaned.all { it.isBlank() }) {
             onDone()
             return
@@ -163,4 +163,30 @@ class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
         if (remaining.isNotBlank()) chunks += remaining
         return chunks
     }
+}
+
+/** Removes stress marks and Latin glosses before text reaches a Russian TTS engine. */
+internal fun normalizeRussianSpeech(input: String): String =
+    input.replace("\u0301", "")
+        .replace(Regex("_{3,}"), " ")
+        .split(Regex("\\s+"))
+        .filterNot { token -> token.any { it in 'a'..'z' || it in 'A'..'Z' } }
+        .joinToString(" ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+
+internal fun chunkRussianSpeech(input: String, maxLength: Int = 3500): List<String> {
+    if (input.isBlank()) return emptyList()
+    if (input.length <= maxLength) return listOf(input)
+    val chunks = mutableListOf<String>()
+    var remaining = input
+    while (remaining.length > maxLength) {
+        val splitAt = remaining.lastIndexOfAny(charArrayOf('.', '!', '?', '\n', ' '), startIndex = maxLength)
+            .takeIf { it > maxLength / 2 }
+            ?: maxLength
+        chunks += remaining.substring(0, splitAt).trim()
+        remaining = remaining.substring(splitAt).trim()
+    }
+    if (remaining.isNotBlank()) chunks += remaining
+    return chunks
 }

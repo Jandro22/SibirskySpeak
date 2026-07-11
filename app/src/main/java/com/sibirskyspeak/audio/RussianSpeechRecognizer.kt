@@ -36,7 +36,7 @@ class RussianSpeechRecognizer(context: Context) {
         onEndOfSpeech: () -> Unit = {}
     ) {
         if (!isAvailable(appContext)) {
-            onError("Speech recognition isn't available on this device.")
+            onError(SpeechRecognitionPolicy.unavailableMessage())
             return
         }
         // One recognizer per attempt keeps state clean across rapid retries.
@@ -54,7 +54,7 @@ class RussianSpeechRecognizer(context: Context) {
 
             override fun onError(error: Int) {
                 listening = false
-                onError(errorMessage(error))
+                onError(SpeechRecognitionPolicy.errorMessage(error))
             }
 
             override fun onResults(results: Bundle?) {
@@ -113,19 +113,6 @@ class RussianSpeechRecognizer(context: Context) {
             ?.getOrNull(index)
             ?.takeIf { it >= 0f }
         return hypotheses[index].trim() to confidence
-    }
-
-    private fun errorMessage(error: Int): String = when (error) {
-        SpeechRecognizer.ERROR_AUDIO -> "Audio recording error."
-        SpeechRecognizer.ERROR_CLIENT -> "Recognition cancelled."
-        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission is needed."
-        SpeechRecognizer.ERROR_NETWORK -> "Network error (no offline model?)."
-        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timed out."
-        SpeechRecognizer.ERROR_NO_MATCH -> "Didn't catch that. Try again."
-        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognizer busy. Try again."
-        SpeechRecognizer.ERROR_SERVER -> "Recognition server error."
-        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech heard. Try again."
-        else -> "Couldn't recognize speech. Try again."
     }
 
     companion object {

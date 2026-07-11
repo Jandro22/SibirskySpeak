@@ -1,0 +1,22 @@
+{
+  "contractVersion": 1,
+  "conceptRegistry": "concepts.json",
+  "noteRequiredFields": [
+    "russian",
+    "lemma",
+    "translation",
+    "pos"
+  ],
+  "conceptRequiredFields": [
+    "id",
+    "title",
+    "lesson",
+    "exampleRu",
+    "exampleEn",
+    "hint",
+    "order",
+    "cefrLevel",
+    "prerequisites",
+    "interferesWith"
+  ]
+}

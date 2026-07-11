@@ -3586,6 +3586,15 @@ class LearningRepository(
     suspend fun promptsForCardIds(cardIds: List<Long>, now: Long = System.currentTimeMillis()): List<ReviewPrompt> =
         promptsForCards(cardDao.getByIds(cardIds), now)
 
+    /**
+     * Reconstruct a process-restored queue without replaying cards whose durable
+     * review already moved them into the future before the process died.
+     */
+    suspend fun recoverablePromptsForCardIds(cardIds: List<Long>, now: Long = System.currentTimeMillis()): List<ReviewPrompt> =
+        promptsForCards(cardDao.getByIds(cardIds), now).filter { prompt ->
+            prompt.card.state == CardState.NEW || prompt.card.due <= now
+        }
+
     /** Build a non-scheduling acquisition recall while rotating through examples. */
     suspend fun practicePromptFor(card: Card, round: Int, now: Long = System.currentTimeMillis()): ReviewPrompt? {
         val live = cardDao.getCardsForNote(card.noteId).firstOrNull { it.id == card.id } ?: card

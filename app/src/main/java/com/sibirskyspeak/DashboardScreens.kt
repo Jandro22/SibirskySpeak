@@ -75,6 +75,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -105,7 +106,8 @@ internal fun DashboardPanel(
     onSubmitExitTicketAnswer: (String) -> Unit = {},
     onCloseExitTicket: () -> Unit = {},
     onSpeakRussian: (String) -> Unit = {},
-    onGoToBackupSettings: () -> Unit = {}
+    onGoToBackupSettings: () -> Unit = {},
+    onCustomizeToday: () -> Unit = {}
 ) {
     val stats = state.dashboardStats
     if (stats == null) {
@@ -146,7 +148,7 @@ internal fun DashboardPanel(
         } else if (state.exitTicketOfferUnit != null) {
             ExitTicketOfferCard(state.exitTicketOfferUnit, state.exitTicketOfferCanDo, onStartExitTicket, onDismissExitTicketOffer)
         }
-        DashboardNextActionCard(state, onStart)
+        DashboardNextActionCard(state, onStart, onCustomizeToday)
         stats.goalProgress?.let { goal ->
             SectionCard {
                 Text("${goal.unknownLemmaCount} words to «${goal.textTitle}»", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -404,7 +406,8 @@ internal fun LeechCard(
 @Composable
 internal fun DashboardNextActionCard(
     state: ReviewUiState,
-    onStart: () -> Unit
+    onStart: () -> Unit,
+    onCustomize: () -> Unit = {}
 ) {
     val prompts = state.sessionPlan?.reviewQueue.orEmpty()
     val reader = state.sessionPlan?.readingAssignment?.recommendation
@@ -418,7 +421,7 @@ internal fun DashboardNextActionCard(
                 Text("Next Best Step", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(
                     when {
-                        prompts.isNotEmpty() -> "A sustainable session is ready, generated from memory risk and recent effort."
+                        prompts.isNotEmpty() -> stringResource(R.string.dashboard_session_estimate, prompts.size, (prompts.size * 0.3f).roundToInt().coerceAtLeast(1))
                         leechCount > 0 -> "Reviews are clear. Repair parked leeches, then read for fresh input."
                         reader != null -> "Reviews are clear. Reading keeps Russian input flowing."
                         else -> "Reviews are clear for now. Manage imported material from Settings."
@@ -426,6 +429,13 @@ internal fun DashboardNextActionCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (prompts.isNotEmpty()) {
+                    Text(
+                        stringResource(R.string.dashboard_adaptive_reason, state.sessionPlan?.adaptiveReason ?: "your recent accuracy and memory risk"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -457,6 +467,9 @@ internal fun DashboardNextActionCard(
                 Spacer(Modifier.width(8.dp))
                 Text(if (startSession) "Study" else "Read")
             }
+        }
+        OutlinedButton(onClick = onCustomize, modifier = Modifier.fillMaxWidth().testTag(TestTags.DASHBOARD_ADJUST_TODAY)) {
+            Text(stringResource(R.string.dashboard_adjust_today))
         }
     }
 }

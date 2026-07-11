@@ -104,6 +104,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -516,7 +518,11 @@ internal fun SessionProgressStrip(
     // the card header just below, so repeating them as chips was pure duplication.
     val concept = prompt.teachingHint?.takeIf { prompt.card.queue.name == "GRAMMAR" }
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                contentDescription = "Session queue: $newCount new, $learningCount learning, $reviewCount review. $reviewedToday of $dailyGoal reviewed today."
+            },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {

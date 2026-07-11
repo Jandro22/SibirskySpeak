@@ -72,6 +72,10 @@ object Reminders {
     }
 
     fun scheduleWeekly(context: Context) {
+        if (!PrefsSettingsStore(context).reminderEnabled) {
+            WorkManager.getInstance(context).cancelUniqueWork("weekly_letter")
+            return
+        }
         val request = PeriodicWorkRequestBuilder<WeeklyReportWorker>(7, TimeUnit.DAYS).build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork("weekly_letter", ExistingPeriodicWorkPolicy.UPDATE, request)
     }

@@ -8,7 +8,11 @@ name: Build APK
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: "27 3 * * 1"
 
 permissions:
   contents: write
@@ -50,11 +54,30 @@ jobs:
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest
 
+      - name: Generate JVM coverage report
+        run: ./gradlew jacocoDebugUnitTestReport
+
+      - name: Upload JVM coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: sibirsky-speak-jacoco-report
+          path: app/build/reports/jacoco/debugUnitTest
+
       - name: Run pedagogy simulation
         run: ./gradlew simCheck
 
       - name: Run Android Lint
         run: ./gradlew lint
+
+      - name: Build minified release artifact
+        run: ./gradlew assembleRelease
+
+      - name: Verify release artifact exists
+        shell: bash
+        run: |
+          test -s app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging app/build/outputs/apk/release/app-release.apk | grep -q "package: name='com.sibirskyspeak'"
+          unzip -l app/build/outputs/apk/release/app-release.apk | grep -q 'assets/curriculum_contract.json'
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -86,6 +109,7 @@ jobs:
           path: SibirskySpeak.apk
 
       - name: Publish to "latest" release
+        if: github.event_name == 'push' || github.event_name == 'schedule'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
@@ -95,3 +119,37 @@ jobs:
             Download **SibirskySpeak.apk** below and open it on your phone to install.
           files: SibirskySpeak.apk
           make_latest: true
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+
+  scheduled-instrumentation:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install required SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Run scheduled QA instrumentation
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          script: ./gradlew connectedQaAndroidTest --stacktrace
