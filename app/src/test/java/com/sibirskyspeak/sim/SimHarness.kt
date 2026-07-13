@@ -66,7 +66,7 @@ internal class SimHarness(seed: Int, maxUnit: Int = MAX_UNIT) {
         val reviewsCompleted: Int
     )
 
-    suspend fun run(days: Int, maxReviewsPerDay: Int = 60, maintenanceEveryDays: Int = 5): Outcome {
+    suspend fun run(days: Int, maxReviewsPerDay: Int = 60, maintenanceEveryDays: Int = 5, clockJumps: Boolean = false): Outcome {
         fixture.repository.seedIfEmpty(runMaintenance = true)
         noteByIdCache = fixture.notes.notes.associateBy { it.id }
         var now = START_EPOCH_MS
@@ -91,7 +91,11 @@ internal class SimHarness(seed: Int, maxUnit: Int = MAX_UNIT) {
                 fixture.repository.review(card, rating, now, objectiveCorrect = correct)
                 reviews += 1
             }
-            now += DAY_MS
+            // Exercise timezone/device-clock corrections: a wall clock can move
+            // backwards after NTP or a user changes the timezone. Scheduling must
+            // remain finite and keep the queue progressing rather than producing
+            // negative elapsed intervals or NaN model values.
+            now = if (clockJumps && day > 0 && day % 11 == 0) now - 3L * DAY_MS else now + DAY_MS
         }
         val introduced = fixture.cards.cards
             .filter { it.state != CardState.NEW }

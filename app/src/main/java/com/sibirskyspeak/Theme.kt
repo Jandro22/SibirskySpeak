@@ -82,6 +82,19 @@ internal val AppShapes = Shapes(
     extraLarge = RoundedCornerShape(32.dp)
 )
 
+// Fully-rounded "pill" shape for thin progress bars, tag chips, and small
+// circular tap targets. Percent-based (not a fixed dp radius like
+// RoundedCornerShape(99.dp)) so it stays fully round regardless of the
+// element's height instead of only "close enough" for small elements.
+internal val PillShape = RoundedCornerShape(50)
+
+// Material3's ColorScheme has no built-in "success" slot. This is the app's
+// one semantic success/mastered/won green, used for GOOD ratings, known
+// words, goal-reached states, and match wins — reference this rather than
+// re-declaring the literal so every "this went well" signal stays the same
+// shade in both light and dark theme.
+internal val SuccessGreen = Color(0xFF2E9E5B)
+
 internal val RussianDisplay = TextStyle(fontSize = 30.sp, lineHeight = 40.sp, fontWeight = FontWeight.SemiBold)
 
 @Composable

@@ -1,9 +1,8 @@
 name: Build APK
 
-# Builds a signed debug APK on every push to main and publishes it to a rolling
-# "latest" GitHub Release, so it can be downloaded and installed directly from a
-# phone browser — no USB cable needed. Each build's versionCode is the run
-# number, so newer builds install cleanly over older ones.
+# Builds an isolated rolling QA APK on every push to main and publishes it to a
+# rolling "latest" GitHub Release. Formal releases use the production package,
+# certificate, and release workflow.
 
 on:
   push:
@@ -14,15 +13,19 @@ on:
   schedule:
     - cron: "27 3 * * 1"
 
+# The default is read-only; only the rolling-release job below needs write
+# access to publish the APK. This keeps pull-request builds least-privilege.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           lfs: true
 
@@ -36,14 +39,14 @@ jobs:
           fi
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           distribution: temurin
           java-version: "17"
           cache: gradle
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
 
       - name: Install required SDK packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
@@ -58,7 +61,7 @@ jobs:
         run: ./gradlew jacocoDebugUnitTestReport
 
       - name: Upload JVM coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: sibirsky-speak-jacoco-report
           path: app/build/reports/jacoco/debugUnitTest
@@ -69,18 +72,8 @@ jobs:
       - name: Run Android Lint
         run: ./gradlew lint
 
-      - name: Build minified release artifact
-        run: ./gradlew assembleRelease
-
-      - name: Verify release artifact exists
-        shell: bash
-        run: |
-          test -s app/build/outputs/apk/release/app-release.apk
-          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging app/build/outputs/apk/release/app-release.apk | grep -q "package: name='com.sibirskyspeak'"
-          unzip -l app/build/outputs/apk/release/app-release.apk | grep -q 'assets/curriculum_contract.json'
-
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.11"
 
@@ -90,34 +83,51 @@ jobs:
       - name: Run content-pipeline tests
         run: python -m pytest -q tools/preprocess
 
+      - name: Audit shipped curriculum quality
+        run: python tools/preprocess/audit_curriculum.py
+
       - name: Build debug APK
         env:
+          BUILD_CHANNEL: rolling
           VERSION_CODE: ${{ github.run_number }}
           VERSION_NAME: "0.1.${{ github.run_number }}"
         run: ./gradlew assembleDebug
 
       - name: Enforce asset and APK budgets
-        run: python tools/verify_budgets.py
+        env:
+          APK_MAX_MB: "60"
+        run: python tools/verify_budgets.py --apk app/build/outputs/apk/debug/app-debug.apk
 
       - name: Stage APK with a stable name
         run: cp app/build/outputs/apk/debug/app-debug.apk SibirskySpeak.apk
 
       - name: Upload APK as build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: SibirskySpeak-apk
           path: SibirskySpeak.apk
 
+  publish-rolling:
+    needs: build
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download APK artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: SibirskySpeak-apk
+          path: dist
       - name: Publish to "latest" release
-        if: github.event_name == 'push' || github.event_name == 'schedule'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           tag_name: latest
           name: Latest build
           body: |
             Automatic build from commit ${{ github.sha }}.
             Download **SibirskySpeak.apk** below and open it on your phone to install.
-          files: SibirskySpeak.apk
+          files: dist/SibirskySpeak.apk
           make_latest: true
 
   dependency-review:
@@ -125,28 +135,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Review dependency changes
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48
 
   scheduled-instrumentation:
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           lfs: true
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           distribution: temurin
           java-version: "17"
           cache: gradle
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
       - name: Install required SDK packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
       - name: Run scheduled QA instrumentation
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808
         with:
           api-level: 35
           target: google_apis

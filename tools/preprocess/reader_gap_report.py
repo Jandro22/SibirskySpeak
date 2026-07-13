@@ -52,7 +52,10 @@ DEFAULT_BANDS = [
 def normalize(s: str) -> str:
     s = s.strip().lower().replace("ё", "е")
     s = unicodedata.normalize("NFD", s)
-    return s.replace("́", "").replace("̈", "")
+    s = s.replace("́", "").replace("̈", "")
+    # NFD also splits й into и + a combining breve; recompose back to NFC
+    # so comparisons/lookups match precomposed text elsewhere in the pipeline.
+    return unicodedata.normalize("NFC", s)
 
 
 def load_ranked_tier0_notes() -> list[dict]:

@@ -251,7 +251,18 @@ private fun englishAnswerAlternatives(expected: String): List<String> =
 private fun russianAnswerAlternatives(expected: String): List<String> =
     expected
         .replace(" или ", "/")
-        .split("/", ";", ",")
+        // Commas inside a multi-word answer are sentence punctuation, not
+        // alternative separators. Keep comma alternatives for compact forms
+        // such as "ответ,ответ", while preserving sentences like
+        // "Да, конечно." as one answer.
+        .let { value ->
+            val separators = if (value.trim().split(Regex("\\s+")).size == 1) {
+                arrayOf("/", ";", ",")
+            } else {
+                arrayOf("/", ";")
+            }
+            value.split(*separators)
+        }
         .flatMap { part ->
             val trimmed = part.trim()
             // Accept both the full form and a parenthetical-stripped form.

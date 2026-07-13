@@ -256,7 +256,11 @@ def decline_adjective(citation: str, gender: str = "M") -> dict[str, str]:
         if i_for_y:
             s = s.replace("ы", "и")
         if e_for_o:
-            s = s.replace("о", "е")
+            # Only the FIRST о (the one adjacent to the stem, e.g. "-ого" ->
+            # "-его") undergoes the 5-letter spelling rule. A plain
+            # replace("о","е") also hits the second о in "-ого", producing
+            # the non-word "-еге" (e.g. "хорошего" -> "хорошеге").
+            s = s.replace("о", "е", 1)
         return stem + s
 
     return {

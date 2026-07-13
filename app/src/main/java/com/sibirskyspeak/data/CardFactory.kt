@@ -38,6 +38,16 @@ object CardFactory {
             }
             return@buildList
         }
+        // A "chunk" note (minted by syncMissingChunkCards from a raw collocation, e.g.
+        // "на диване") is deliberately translation="" with no example/declension data —
+        // it exists only to drive its own CardType.CHUNK production card, which is
+        // inserted directly by that sync, not through here. Every other branch below
+        // assumes a real vocabulary note (RU_TO_MEANING needs an actual English
+        // translation to expect, etc.), so falling through for a chunk note used to
+        // mint unanswerable RU_TO_MEANING/MEANING_TO_RU/AUDIO_TO_RU/SPEAK cards with no
+        // valid expected answer — softlocking the wrong-answer correction UI, which has
+        // nothing real to rebuild.
+        if (note.partOfSpeech.equals("chunk", ignoreCase = true)) return@buildList
         // The frequency "reading-matrix" layer (tag contains "matrix") gets rich vocab
         // and comprehension study cards AND keeps its declension tables — but ONLY to
         // feed the reader coverage index, never to generate morphology drills. Its
@@ -84,11 +94,8 @@ object CardFactory {
         if (note.tier == 0 && !recognitionOnly) {
             add(Card(noteId = note.id, cardType = CardType.SPEAK, queue = Queue.VOCAB))
         }
-        // Stress choice is reserved for genuinely contrastive, explicitly accented
-        // active-course words. Single-vowel and unmarked words teach nothing here.
-        if (note.tier == 0 && !recognitionOnly && needsStressPractice(note.russian)) {
-            add(Card(noteId = note.id, cardType = CardType.STRESS_MARK, queue = Queue.VOCAB))
-        }
+        // STRESS_MARK was retired in the database migration. Keep the old enum and
+        // prompt builder importable for backups, but never mint new stress cards.
         if (!isReadingMatrix) caseCards(note).forEach(::add)
         if (!isReadingMatrix) verbFormCards(note).forEach(::add)
         if (!isReadingMatrix) adjectiveAgreementCards(note).forEach(::add)
@@ -160,11 +167,6 @@ object CardFactory {
         val gender = note.gender?.uppercase(Locale.ROOT) ?: return null
         if (gender !in NOUN_GENDERS) return null
         return Card(noteId = note.id, cardType = CardType.GENDER_ID, queue = Queue.GRAMMAR, gramGender = gender, gramConcept = GrammarConcepts.GENDER.id)
-    }
-
-    private fun needsStressPractice(word: String): Boolean {
-        val vowels = word.count { it.lowercaseChar() in "аеёиоуыэюя" }
-        return vowels >= 2 && '\u0301' in word
     }
 
     // Russian case pedagogy pacing, keyed to the note's own cefrLevel (not tier):

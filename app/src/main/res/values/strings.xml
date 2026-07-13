@@ -9,14 +9,73 @@
     <string name="onboarding_know_some">I know some Russian</string>
     <string name="onboarding_know_some_support">Take a short placement quiz before your first session.</string>
     <string name="onboarding_privacy">You can change your pace, level, and reminders later in Settings.</string>
-    <string name="dashboard_start_today">Start today’s session</string>
-    <string name="dashboard_session_estimate">%1$d cards · about %2$d minutes</string>
+    <string name="onboarding_first_session_title">Your first session</string>
+    <string name="onboarding_first_session_body">A few new words, one clear grammar idea, and a quick recall check.</string>
     <string name="dashboard_adaptive_reason">Today’s plan: %1$s</string>
     <string name="dashboard_adjust_today">Adjust today</string>
+    <string name="dashboard_next_best_step">Next best step</string>
+    <string name="dashboard_reviews_clear">Reviews are clear. Keep Russian input flowing with a short reading.</string>
+    <string name="dashboard_reviews_clear_manage">Reviews are clear for now. Manage imported material from Settings.</string>
+    <string name="dashboard_repair_leeches">Reviews are clear. Repair parked difficult words, then read for fresh input.</string>
+    <string name="dashboard_backup_waiting_title">Your first backup will be created after a completed session</string>
+    <string name="dashboard_backup_waiting_body">Your review history is stored on this phone. After your next completed session, a durable copy will be saved in Downloads/SibirskySpeak.</string>
+    <string name="dashboard_backup_folder_title">Choose a backup folder</string>
+    <string name="dashboard_backup_folder_body">Your review history is stored on this phone. Choose a synced folder once to keep a durable copy after every session.</string>
+    <string name="dashboard_backup_choose_folder">Choose backup folder</string>
+    <string name="study_why_card">Why this card — %1$s</string>
+    <string name="practice_short_session">Short session · 3 cards</string>
+    <string name="reader_difficulty">Difficulty: %1$s</string>
+    <string name="reader_difficulty_detail">Syntax %1$d%% · morphology %2$d%% · idioms %3$d%%</string>
+    <string name="reader_focus">Focus</string>
+    <string name="reader_exit_focus">Exit focus</string>
+    <string name="reader_source_license_label">Source / license</string>
+    <string name="reader_source_license_help">Example: local, CC BY 4.0, or author + URL</string>
+    <string name="reader_source_edit_title">Edit source / license</string>
+    <string name="reader_source_attribution_label">Attribution</string>
+    <string name="reader_source_attribution_help">Keep the author, URL, and license if known.</string>
+    <string name="backup_encryption_title">External backup encryption</string>
+    <string name="backup_encryption_enabled_body">Downloads and custom-folder snapshots are encrypted with AES-GCM. The app-private recovery copy remains available for local repair.</string>
+    <string name="backup_encryption_disabled_body">Protect mirrors outside the app with a password. You will receive a recovery key; save it somewhere safe because a lost password and key cannot be recovered.</string>
+    <string name="backup_encryption_disable">Turn off external encryption</string>
+    <string name="backup_encryption_password_label">Backup password (8+ characters)</string>
+    <string name="backup_encryption_enable">Enable encrypted mirrors</string>
+    <string name="backup_encryption_recovery_title">Save your recovery key</string>
+    <string name="backup_encryption_recovery_body">Use this key if you forget the password. It is shown only after setup; losing both credentials makes encrypted mirrors unreadable.</string>
+    <string name="backup_encryption_copy_close">Copy and close</string>
+    <string name="backup_encryption_close">Close</string>
 
     <!-- Reused dialog/action labels (Compose still reads these via stringResource). -->
     <string name="action_cancel">Cancel</string>
     <string name="action_save">Save</string>
     <string name="action_done">Done</string>
     <string name="label_settings">Settings</string>
+    <string name="notification_channel_name">Daily study reminders</string>
+    <string name="notification_channel_description">Nudges to keep your streak alive and clear due reviews.</string>
+    <string name="notification_action_answer">Answer</string>
+    <string name="notification_remote_input_label">English meaning</string>
+    <string name="notification_weekly_title">Your weekly Russian letter</string>
+    <string name="notification_weekly_body">Retention, time, and the next useful adjustment are ready in Lab.</string>
+    <string name="notification_studied_title">Today\'s contract is kept</string>
+    <string name="notification_ready_title">Russian is ready</string>
+    <string name="notification_correct_title">Correct</string>
+    <string name="notification_saved_title">Review saved</string>
+    <string name="notification_correct_body">That retrieval counts.</string>
+    <string name="notification_saved_body">The card will return sooner.</string>
+    <string name="widget_russian_ready">Russian is ready</string>
+    <plurals name="notification_due_reviews">
+        <item quantity="one">%1$d review, ~%2$d min — streak day %3$d</item>
+        <item quantity="other">%1$d reviews, ~%2$d min — streak day %3$d</item>
+    </plurals>
+    <plurals name="dashboard_cards">
+        <item quantity="one">%d card</item>
+        <item quantity="other">%d cards</item>
+    </plurals>
+    <plurals name="dashboard_minutes">
+        <item quantity="one">%d minute</item>
+        <item quantity="other">%d minutes</item>
+    </plurals>
+    <plurals name="widget_due">
+        <item quantity="one">%d card due</item>
+        <item quantity="other">%d cards due</item>
+    </plurals>
 </resources>

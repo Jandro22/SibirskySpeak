@@ -19,6 +19,8 @@ internal object TestTags {
     const val DASHBOARD_STUDY_BUTTON = "dashboard_study_button"
     const val DASHBOARD_NEXT_ACTION_BUTTON = "dashboard_next_action_button"
     const val DASHBOARD_ADJUST_TODAY = "dashboard_adjust_today"
+    const val PRACTICE_SHORT_SESSION = "practice_short_session"
+    const val SETTINGS_AUTOMATIC_PUBLIC_BACKUP = "settings_automatic_public_backup"
 
     // Study session header
     const val SESSION_MORE_MENU = "session_more_menu"

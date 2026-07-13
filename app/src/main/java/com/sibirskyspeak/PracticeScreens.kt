@@ -1,5 +1,6 @@
 package com.sibirskyspeak
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.items
@@ -14,7 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Bolt
@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sibirskyspeak.data.DailyPlan
@@ -55,7 +56,7 @@ import androidx.compose.runtime.key
 internal fun PracticeScreen(
     state: ReviewUiState,
     onStart: () -> Unit,
-    onOpenReader: (Long) -> Unit
+    onStartMicro: () -> Unit = {}
 ) {
     // Narrowed to the two fields these panels actually use, instead of passing the
     // whole ReviewUiState down five times: state also carries the active review
@@ -65,11 +66,11 @@ internal fun PracticeScreen(
     val dailyPlan = state.dailyPlan
     val sessionPlan = state.sessionPlan
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        DailyPlanPanel(dailyPlan, sessionPlan, onStart)
+        DailyPlanPanel(dailyPlan, sessionPlan, onStart, onStartMicro)
         PracticeFocusPanel(dailyPlan, sessionPlan)
         UnitMasteryPanel(sessionPlan)
         ProblemCardAuditPanel(sessionPlan)
-        ReadingSuggestion(sessionPlan, onOpenReader)
+        ReadingSuggestion(sessionPlan, onStart)
     }
 }
 
@@ -102,8 +103,9 @@ internal fun UnitMasteryPanel(sessionPlan: SessionPlan?) {
     val units = sessionPlan?.unitMastery.orEmpty()
     if (units.isEmpty()) return
     val activeIndex = units.indexOfFirst { it.unlocked && it.progress < 0.80 }.let { if (it < 0) units.lastIndex else it }
-    val visible = units.drop((activeIndex - 1).coerceAtLeast(0)).take(3)
-    // The focused 3-unit window (above) intentionally hides the other ~100+
+    val active = units.getOrNull(activeIndex) ?: return
+    val visible = listOf(active)
+    // The focused milestone (above) intentionally hides the other ~100+
     // units so the card stays scannable, but that left no way to see the rest
     // at all — "no roadmap." Toggle into a compact, scrollable full list instead
     // of trying to cram every unit into the always-visible view.
@@ -112,71 +114,88 @@ internal fun UnitMasteryPanel(sessionPlan: SessionPlan?) {
         // This is the master curriculum progression (hand-authored spine + the
         // frequency-promoted band) that drives FSRS sequencing, not the literal
         // textbook-PDF content (that's a small supplementary vocab/reading layer).
-        Text("Curriculum mastery", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("Next milestone", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Text(
-            "A unit unlocks after 80% mastery; grammar requires repeated correct recall.",
+            "The tutor is guiding you toward this next useful ability.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(12.dp))
         visible.forEach { unit ->
-          // The visible window slides as mastery advances (drop/take on activeIndex),
-          // so without a key Compose matches rows by position instead of identity and
-          // recomposes/re-animates all three progress bars on every shift, not just
-          // the one that's actually new.
+          // The visible milestone changes as mastery advances, so the stable key
+          // keeps Compose tied to the curriculum identity rather than row position.
           key(unit.unit) {
             Column {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Unit ${unit.unit}${if (!unit.unlocked) " · locked" else ""}", fontWeight = FontWeight.SemiBold)
+                    Text("${unit.band} · Unit ${curriculumUnitNumber(unit, units)}${if (!unit.unlocked) " · locked" else ""}", fontWeight = FontWeight.SemiBold)
                     Text("${(unit.progress * 100).toInt()}%", color = MaterialTheme.colorScheme.primary)
                 }
                 AppLinearProgressIndicator(
                     progress = { unit.progress.toFloat().coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).height(7.dp).clip(RoundedCornerShape(99.dp))
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).height(7.dp).clip(PillShape)
                 )
                 Text(
                     "Vocabulary ${unit.vocabularyMastered}/${unit.vocabularyTotal} · Grammar ${unit.grammarMastered}/${unit.grammarTotal}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                unit.canDoLabel?.let {
+                    Text(
+                        it.replaceFirstChar { first -> first.titlecase() },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 Spacer(Modifier.height(10.dp))
             }
           }
         }
         OutlinedButton(onClick = { showRoadmap = !showRoadmap }, modifier = Modifier.fillMaxWidth()) {
-            Text(if (showRoadmap) "Hide full roadmap" else "View full roadmap (${units.size} units)")
+            Text(if (showRoadmap) "Hide roadmap" else "View roadmap · ${units.size} milestones")
         }
-        if (showRoadmap) {
-            Spacer(Modifier.height(10.dp))
-            androidx.compose.foundation.lazy.LazyColumn(
-                modifier = Modifier.fillMaxWidth().height(320.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                items(units, key = { it.stableKey }) { unit ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Unit numbers restart at 1 within every CEFR band (that's
-                        // exactly why UnitMastery.stableKey exists), so "Unit 1"
-                        // alone is ambiguous once every band is on screen at once.
-                        Text(
-                            "${unit.band} · Unit ${unit.unit}${if (!unit.unlocked) " · locked" else ""}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (unit.unlocked) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AppLinearProgressIndicator(
-                                progress = { unit.progress.toFloat().coerceIn(0f, 1f) },
-                                modifier = Modifier.width(70.dp).height(5.dp).clip(RoundedCornerShape(99.dp))
-                            )
-                            Text(
-                                "${(unit.progress * 100).toInt()}%",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.width(34.dp)
-                            )
+        AnimatedVisibility(visible = showRoadmap) {
+            Column {
+                Spacer(Modifier.height(10.dp))
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.fillMaxWidth().height(320.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    items(units, key = { it.stableKey }) { unit ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Unit numbers restart at 1 within every CEFR band (that's
+                            // exactly why UnitMastery.stableKey exists), so "Unit 1"
+                            // alone is ambiguous once every band is on screen at once.
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    "${unit.band} · Unit ${curriculumUnitNumber(unit, units)}${if (!unit.unlocked) " · locked" else ""}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (unit.unlocked) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                                unit.canDoLabel?.let {
+                                    Text(
+                                        it,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        maxLines = 1,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (unit.unlocked) 0.9f else 0.55f)
+                                    )
+                                }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                AppLinearProgressIndicator(
+                                    progress = { unit.progress.toFloat().coerceIn(0f, 1f) },
+                                    modifier = Modifier.width(70.dp).height(5.dp).clip(PillShape)
+                                )
+                                Text(
+                                    "${(unit.progress * 100).toInt()}%",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.width(34.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -185,9 +204,33 @@ internal fun UnitMasteryPanel(sessionPlan: SessionPlan?) {
     }
 }
 
+/** Converts sparse storage ids into stable, learner-facing sequence numbers
+ * without changing the underlying curriculum ids used by the scheduler. */
+internal fun curriculumUnitNumber(
+    unit: com.sibirskyspeak.data.UnitMastery,
+    units: List<com.sibirskyspeak.data.UnitMastery>
+): Int = units
+    .asSequence()
+    .filter { it.band == unit.band }
+    .sortedBy { it.unit }
+    .indexOfFirst { it.stableKey == unit.stableKey }
+    .takeIf { it >= 0 }
+    ?.plus(1)
+    ?: unit.unit + 1
+
+private fun curriculumUnitLabel(
+    unit: com.sibirskyspeak.data.UnitMastery,
+    units: List<com.sibirskyspeak.data.UnitMastery>
+): String = "${unit.band} · Unit ${curriculumUnitNumber(unit, units)}"
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun DailyPlanPanel(dailyPlan: DailyPlan?, sessionPlan: SessionPlan?, onStart: () -> Unit) {
+internal fun DailyPlanPanel(
+    dailyPlan: DailyPlan?,
+    sessionPlan: SessionPlan?,
+    onStart: () -> Unit,
+    onStartMicro: () -> Unit = {}
+) {
     val plan = dailyPlan ?: return
     val prompts = sessionPlan?.reviewQueue.orEmpty()
     val sessionSize = prompts.size
@@ -215,7 +258,7 @@ internal fun DailyPlanPanel(dailyPlan: DailyPlan?, sessionPlan: SessionPlan?, on
         sessionPlan?.unitMastery?.firstOrNull { it.unlocked && it.progress < 0.80 }?.let { unit ->
             Spacer(Modifier.height(12.dp))
             Text(
-                "Curriculum Unit ${unit.unit}: ${(unit.progress * 100).toInt()}% mastered · " +
+                "${curriculumUnitLabel(unit, sessionPlan.unitMastery)}: ${(unit.progress * 100).toInt()}% mastered · " +
                     "vocabulary ${unit.vocabularyMastered}/${unit.vocabularyTotal} · " +
                     "grammar ${unit.grammarMastered}/${unit.grammarTotal}",
                 style = MaterialTheme.typography.bodySmall,
@@ -233,7 +276,8 @@ internal fun DailyPlanPanel(dailyPlan: DailyPlan?, sessionPlan: SessionPlan?, on
                 color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f)
             )
         }
-        // ONE route, ONE button (see docs/DESIGN_VISION.md). The learner never chooses a
+        // ONE adaptive route plus an explicitly bounded three-card fallback for
+        // low-energy days (see docs/DESIGN_VISION.md). The learner never chooses a
         // pace/mode — the system generates the optimal session. Quick/Full/Stretch are an
         // INTERNAL decision of the pace engine, never user-facing buttons: onStart routes
         // to ReviewViewModel.startRecommendedSession(), which reads sessionPlan.blueprint.mode
@@ -257,6 +301,17 @@ internal fun DailyPlanPanel(dailyPlan: DailyPlan?, sessionPlan: SessionPlan?, on
                 Icon(if (sessionSize > 0) Icons.Filled.School else Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(if (sessionSize > 0) "Study" else "Read", fontWeight = FontWeight.SemiBold)
+            }
+            if (sessionSize > 0) {
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = onStartMicro,
+                    modifier = Modifier.fillMaxWidth().testTag(TestTags.PRACTICE_SHORT_SESSION)
+                ) {
+                    Icon(Icons.Filled.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.practice_short_session))
+                }
             }
         }
         if (backlog > sessionSize && sessionSize > 0) {
@@ -363,7 +418,7 @@ internal fun PracticeFocusChip(label: String, accuracy: Double?) {
 }
 
 @Composable
-internal fun ReadingSuggestion(sessionPlan: SessionPlan?, onOpenReader: (Long) -> Unit) {
+internal fun ReadingSuggestion(sessionPlan: SessionPlan?, onStart: () -> Unit) {
     val reader = sessionPlan?.readingAssignment?.recommendation ?: return
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -379,6 +434,17 @@ internal fun ReadingSuggestion(sessionPlan: SessionPlan?, onOpenReader: (Long) -
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Text(
+                    stringResource(R.string.reader_difficulty, reader.difficultyLabel.replaceFirstChar(Char::uppercase)) +
+                        " · " + stringResource(
+                            R.string.reader_difficulty_detail,
+                            (reader.syntaxComplexity * 100).toInt(),
+                            (reader.morphologyNovelty * 100).toInt(),
+                            (reader.idiomDensity * 100).toInt()
+                        ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
                 sessionPlan.readingReason?.let { reason ->
                     Text(reason, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 }
@@ -390,15 +456,15 @@ internal fun ReadingSuggestion(sessionPlan: SessionPlan?, onOpenReader: (Long) -
             modifier = Modifier
                 .fillMaxWidth()
                 .height(8.dp)
-                .clip(RoundedCornerShape(99.dp)),
+                .clip(PillShape),
             color = MaterialTheme.colorScheme.secondary,
             trackColor = MaterialTheme.colorScheme.surfaceVariant
         )
         Spacer(Modifier.height(14.dp))
-        Button(onClick = { onOpenReader(reader.text.id) }, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Open Reader")
+            Text("Start guided reading")
         }
     }
 }

@@ -3,6 +3,7 @@ package com.sibirskyspeak
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -39,20 +40,32 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.sibirskyspeak.data.SettingsStore
+import com.sibirskyspeak.learning.GoalVerdict
 import com.sibirskyspeak.learning.PlacementTest
 import com.sibirskyspeak.review.ReviewUiState
+import com.sibirskyspeak.review.TemporarySessionMode
+import kotlin.math.roundToInt
 
 // ---------------------------------------------------------------------------
 // Settings / import-export
@@ -76,18 +89,29 @@ internal fun ImportExportPanel(
     onExport: () -> Unit,
     onFullBackup: () -> Unit,
     onBackupTree: (String) -> Unit,
+    onAutomaticPublicBackup: (Boolean) -> Unit,
+    onConfigureBackupEncryption: (String) -> Unit,
+    onClearBackupEncryption: () -> Unit,
+    onDismissBackupRecoveryKey: () -> Unit,
     onTitle: (String) -> Unit,
     onBody: (String) -> Unit,
+    onSource: (String) -> Unit,
     onAdd: () -> Unit,
     onDailyGoal: (Int) -> Unit,
     onSessionSize: (Int) -> Unit,
     onNewCardsPerDay: (Int) -> Unit,
     onRetention: (Double) -> Unit,
+    onPreviewGoalFeasibility: (String, Long) -> Unit,
+    onCommitLearningGoal: (String, Long) -> Unit,
+    onAbandonLearningGoal: () -> Unit,
     onAdaptiveEnabled: (Boolean) -> Unit,
+    onResetAdaptivePacing: () -> Unit,
+    onTemporarySessionMode: (TemporarySessionMode) -> Unit,
     onPlaceAfterLevel: (String) -> Unit,
     onStartPlacementTest: () -> Unit,
     onAnswerPlacementQuestion: (Int) -> Unit,
     onApplyPlacementResult: () -> Unit,
+    onApplyPlacementAtLevel: (String?) -> Unit,
     onDismissPlacementTest: () -> Unit,
     onReminderEnabled: (Boolean) -> Unit,
     onReminderHour: (Int) -> Unit,
@@ -139,6 +163,132 @@ internal fun ImportExportPanel(
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 when (area) {
                     SettingsArea.STUDY -> {
+                        var dailyGoal by remember(state.dailyGoalSetting) { mutableFloatStateOf(state.dailyGoalSetting.toFloat()) }
+                        var sessionSize by remember(state.sessionSizeSetting) { mutableFloatStateOf(state.sessionSizeSetting.toFloat()) }
+                        var newCardsPerDay by remember(state.newCardsPerDaySetting) { mutableFloatStateOf(state.newCardsPerDaySetting.toFloat()) }
+                        var retention by remember(state.retentionSetting) { mutableFloatStateOf(state.retentionSetting.toFloat()) }
+                        var reminderHour by remember(state.reminderHour) { mutableFloatStateOf(state.reminderHour.toFloat()) }
+                        SectionCard {
+                            Text("Daily workload", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Tune how much appears in a normal session. Changes apply after you finish moving a slider.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            SettingSlider(
+                                label = "Daily goal",
+                                valueLabel = "${dailyGoal.roundToInt()} cards",
+                                value = dailyGoal,
+                                range = SettingsStore.MIN_DAILY_GOAL.toFloat()..SettingsStore.MAX_DAILY_GOAL.toFloat(),
+                                steps = SettingsStore.MAX_DAILY_GOAL - SettingsStore.MIN_DAILY_GOAL - 1,
+                                onChange = { dailyGoal = it },
+                                onChangeFinished = { onDailyGoal(dailyGoal.roundToInt()) }
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            SettingSlider(
+                                label = "Session size",
+                                valueLabel = "${sessionSize.roundToInt()} cards",
+                                value = sessionSize,
+                                range = SettingsStore.MIN_SESSION_SIZE.toFloat()..SettingsStore.MAX_SESSION_SIZE.toFloat(),
+                                steps = SettingsStore.MAX_SESSION_SIZE - SettingsStore.MIN_SESSION_SIZE - 1,
+                                onChange = { sessionSize = it },
+                                onChangeFinished = { onSessionSize(sessionSize.roundToInt()) }
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            SettingSlider(
+                                label = "New cards per day",
+                                valueLabel = "${newCardsPerDay.roundToInt()} cards",
+                                value = newCardsPerDay,
+                                range = SettingsStore.MIN_NEW_CARDS_PER_DAY.toFloat()..SettingsStore.MAX_NEW_CARDS_PER_DAY.toFloat(),
+                                steps = SettingsStore.MAX_NEW_CARDS_PER_DAY - SettingsStore.MIN_NEW_CARDS_PER_DAY - 1,
+                                onChange = { newCardsPerDay = it },
+                                onChangeFinished = { onNewCardsPerDay(newCardsPerDay.roundToInt()) }
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            SettingSlider(
+                                label = "Desired retention",
+                                valueLabel = "${(retention * 100).roundToInt()}%",
+                                value = retention,
+                                range = SettingsStore.MIN_RETENTION.toFloat()..SettingsStore.MAX_RETENTION.toFloat(),
+                                steps = 16,
+                                rangeLabel = { "${(it * 100).roundToInt()}%" },
+                                onChange = { retention = it },
+                                onChangeFinished = { onRetention(retention.toDouble()) }
+                            )
+                        }
+                        SectionCard {
+                            Text("Learning goal", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Commit to a CEFR level and a date. Once set, the tutor nudges your pace toward it without ever overriding a real fatigue or accuracy stop.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(12.dp))
+
+                            val cefrLevels = listOf("A1", "A2", "B1", "B2", "C1", "C2")
+                            val hasGoal = state.goalTargetLevelSetting.isNotEmpty()
+                            var selectedLevel by remember(state.goalTargetLevelSetting) {
+                                mutableStateOf(state.goalTargetLevelSetting.ifEmpty { "B2" })
+                            }
+                            val nowDay = remember { System.currentTimeMillis() / 86_400_000L }
+                            val initialMonths = if (hasGoal) {
+                                (((state.goalTargetDateEpochDaySetting - nowDay).coerceAtLeast(0)) / 30f).roundToInt().coerceIn(3, 60)
+                            } else 18
+                            var months by remember(state.goalTargetDateEpochDaySetting) { mutableFloatStateOf(initialMonths.toFloat()) }
+
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                cefrLevels.forEach { level ->
+                                    FilterChip(
+                                        selected = selectedLevel == level,
+                                        onClick = { selectedLevel = level },
+                                        label = { Text(level) }
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            SettingSlider(
+                                label = "Target date",
+                                valueLabel = "${months.roundToInt()} months from now",
+                                value = months,
+                                range = 3f..60f,
+                                steps = 56,
+                                onChange = { months = it },
+                                onChangeFinished = {}
+                            )
+                            // Live, arithmetic-only preview — recomputed whenever the
+                            // chip or slider changes, never on every recomposition.
+                            LaunchedEffect(selectedLevel, months.roundToInt()) {
+                                onPreviewGoalFeasibility(selectedLevel, nowDay + months.roundToInt() * 30L)
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            state.goalFeasibilityPreview?.let { feasibility ->
+                                val (verdictLabel, verdictColor) = when (feasibility.verdict) {
+                                    GoalVerdict.COMFORTABLE -> "Comfortable at your current pace." to MaterialTheme.colorScheme.secondary
+                                    GoalVerdict.STRETCH -> "A stretch — the tutor will nudge your pace up toward it." to MaterialTheme.colorScheme.tertiary
+                                    GoalVerdict.UNSUSTAINABLE -> "Not realistic without risking burnout — consider a later date." to MaterialTheme.colorScheme.error
+                                }
+                                Text(
+                                    "Needs ~${feasibility.requiredPace.roundToInt()} new words/day " +
+                                        "(your sustainable pace: ~${feasibility.currentPace.roundToInt()}/day). $verdictLabel",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = verdictColor
+                                )
+                                Spacer(Modifier.height(10.dp))
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = {
+                                    onCommitLearningGoal(selectedLevel, nowDay + months.roundToInt() * 30L)
+                                }) {
+                                    Text(if (hasGoal) "Update goal" else "Set goal")
+                                }
+                                if (hasGoal) {
+                                    OutlinedButton(onClick = onAbandonLearningGoal) { Text("Drop goal") }
+                                }
+                            }
+                        }
                         SectionCard {
                             Text("Study Pace", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(12.dp))
@@ -155,6 +305,43 @@ internal fun ImportExportPanel(
                                     }
                                 }
                                 Switch(checked = state.adaptiveEnabled, onCheckedChange = onAdaptiveEnabled)
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            OutlinedButton(onClick = onResetAdaptivePacing, modifier = Modifier.fillMaxWidth()) {
+                                Text("Reset pacing + open a fuller day")
+                            }
+                            Text(
+                                "Keeps your cards and review history, ignores old test-session evidence, and uses your configured limits today.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        SectionCard {
+                            Text("This session", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Choose a safe temporary emphasis. It resets after you start a session and does not retrain the adaptive tutor.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(
+                                    TemporarySessionMode.BALANCED to "Balanced",
+                                    TemporarySessionMode.REVIEWS_ONLY to "Reviews only",
+                                    TemporarySessionMode.RECOVERY to "Recovery",
+                                    TemporarySessionMode.READER_ONLY to "Reader only",
+                                    TemporarySessionMode.FOCUS to "Focus · 8 cards"
+                                ).forEach { (mode, label) ->
+                                    FilterChip(
+                                        selected = state.temporarySessionMode == mode,
+                                        onClick = { onTemporarySessionMode(mode) },
+                                        label = { Text(label) }
+                                    )
+                                }
                             }
                         }
                         SectionCard {
@@ -187,16 +374,19 @@ internal fun ImportExportPanel(
                                 Text("Daily reminder", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                                 Switch(checked = state.reminderEnabled, onCheckedChange = onReminderEnabled)
                             }
-                            if (state.reminderEnabled) {
-                                Spacer(Modifier.height(10.dp))
-                                SettingSlider(
-                                label = "Reminder time",
-                                valueLabel = "%02d:00".format(state.reminderHour),
-                                value = state.reminderHour.toFloat(),
-                                range = 0f..23f,
-                                rangeLabel = { "%02d:00".format(it.toInt()) },
-                                onChange = { onReminderHour(it.toInt()) }
-                            )
+                            AnimatedVisibility(visible = state.reminderEnabled) {
+                                Column {
+                                    Spacer(Modifier.height(10.dp))
+                                    SettingSlider(
+                                        label = "Reminder time",
+                                        valueLabel = "%02d:00".format(reminderHour.roundToInt()),
+                                        value = reminderHour,
+                                        range = 0f..23f,
+                                        rangeLabel = { "%02d:00".format(it.toInt()) },
+                                        onChange = { reminderHour = it },
+                                        onChangeFinished = { onReminderHour(reminderHour.roundToInt()) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -222,6 +412,8 @@ internal fun ImportExportPanel(
                             }
                             OutlinedTextField(value = state.readerTitle, onValueChange = onTitle, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small, label = { Text("Text title") })
                             Spacer(Modifier.height(10.dp))
+                            OutlinedTextField(value = state.readerSource, onValueChange = onSource, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small, singleLine = true, label = { Text(stringResource(R.string.reader_source_license_label)) }, supportingText = { Text(stringResource(R.string.reader_source_license_help)) })
+                            Spacer(Modifier.height(10.dp))
                             OutlinedTextField(value = state.readerBody, onValueChange = onBody, modifier = Modifier.fillMaxWidth(), minLines = 4, shape = MaterialTheme.shapes.small, label = { Text("Russian text") })
                             Spacer(Modifier.height(6.dp))
                             Text(
@@ -230,7 +422,13 @@ internal fun ImportExportPanel(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(Modifier.height(12.dp))
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                            // Keep both actions reachable at 200% text size and on
+                            // narrow phones; a fixed Row could push Add Text off-screen.
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
                                 OutlinedButton(onClick = { onSpeakRussian(state.readerBody) }, enabled = readerBodyReady) {
                                     Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(Modifier.width(8.dp))
@@ -279,6 +477,7 @@ internal fun ImportExportPanel(
                         }
                     }
                     SettingsArea.DATA -> {
+                        var encryptionPassword by remember { mutableStateOf("") }
                         SectionCard {
                             Text("Import / Export", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(8.dp))
@@ -323,18 +522,83 @@ internal fun ImportExportPanel(
                             }
                             Spacer(Modifier.height(8.dp))
                             Text(
-                                "Last local backup: ${if (state.backupLastValidatedAt > 0) "validated · ${state.backupLastSizeBytes / 1024 / 1024} MB" else "not yet validated"}. " +
-                                    "Durable copy (Downloads/SibirskySpeak" + (if (state.backupTreeUri.isNotBlank()) " + your custom folder" else "") + "): " +
-                                    (if (state.backupLastDurableAt > 0) "current" else "waiting for next completed session") + ".",
+                                if (!state.automaticPublicBackupEnabled) {
+                                    "Last local backup: ${if (state.backupLastValidatedAt > 0) "validated · ${state.backupLastSizeBytes / 1024 / 1024} MB" else "not yet validated"}. Automatic Downloads backup is off" +
+                                        (if (state.backupTreeUri.isNotBlank()) "; custom folder is available" else "; manual export is available") + "."
+                                } else {
+                                    "Last local backup: ${if (state.backupLastValidatedAt > 0) "validated · ${state.backupLastSizeBytes / 1024 / 1024} MB" else "not yet validated"}. " +
+                                        "Durable copy (Downloads/SibirskySpeak" + (if (state.backupTreeUri.isNotBlank()) " + your custom folder" else "") + "): " +
+                                        (if (state.backupLastDurableAt > 0) "current" else "waiting for next completed session") + "."
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                "Export saves note content. Full Backup includes SRS, and mirrors rolling snapshots to Downloads/SibirskySpeak automatically " +
-                                    "(Android 10+, no setup needed) plus your custom folder if you've chosen one.",
+                                if (state.automaticPublicBackupEnabled) {
+                                    "Export saves note content. Full Backup includes SRS, and mirrors rolling snapshots to Downloads/SibirskySpeak automatically (Android 10+, no setup needed) plus your custom folder if you've chosen one."
+                                } else {
+                                    "Export saves note content. Full Backup includes SRS locally; automatic public mirroring is off until you turn it back on."
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Automatic Downloads backup", fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        "When enabled, a rolling copy is saved to the public Downloads/SibirskySpeak folder. Turn this off if you prefer only a custom folder or manual exports.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Switch(
+                                    modifier = Modifier
+                                        .testTag(TestTags.SETTINGS_AUTOMATIC_PUBLIC_BACKUP)
+                                        .semantics { contentDescription = "Automatic Downloads backup" },
+                                    checked = state.automaticPublicBackupEnabled,
+                                    onCheckedChange = onAutomaticPublicBackup
+                                )
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            Text(stringResource(R.string.backup_encryption_title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                if (state.externalBackupEncryptionConfigured) {
+                                    stringResource(R.string.backup_encryption_enabled_body)
+                                } else {
+                                    stringResource(R.string.backup_encryption_disabled_body)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (state.externalBackupEncryptionConfigured) {
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedButton(onClick = onClearBackupEncryption) {
+                                    Text(stringResource(R.string.backup_encryption_disable))
+                                }
+                            } else {
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = encryptionPassword,
+                                    onValueChange = { encryptionPassword = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    label = { Text(stringResource(R.string.backup_encryption_password_label)) }
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Button(
+                                    onClick = {
+                                        onConfigureBackupEncryption(encryptionPassword)
+                                        encryptionPassword = ""
+                                    },
+                                    enabled = encryptionPassword.length >= 8,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text(stringResource(R.string.backup_encryption_enable)) }
+                            }
                             if (state.exportText.isNotBlank()) {
                                 Spacer(Modifier.height(12.dp))
                                 OutlinedTextField(value = state.exportText, onValueChange = {}, modifier = Modifier.fillMaxWidth(), minLines = 6, shape = MaterialTheme.shapes.small, label = { Text("Exported JSON Lines") })
@@ -343,11 +607,27 @@ internal fun ImportExportPanel(
                         SectionCard {
                             Text("Content credits", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(8.dp))
-                            Text(
-                                "Example sentences from Tatoeba (tatoeba.org), licensed under CC BY 2.0 FR. Corpus packaging may use the OPUS Tatoeba mirror. Russian audio is generated on-device by your system TTS.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            if (state.contentProvenance.isEmpty()) {
+                                Text(
+                                    "Content provenance is unavailable until the bundled manifest is read.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    state.contentProvenance.forEach { source ->
+                                        Column {
+                                            Text(source.attribution, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                                            Text("License: ${source.license}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                    Text(
+                                        "Russian audio is generated on-device by your system TTS.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                         }
                         if (com.sibirskyspeak.BuildConfig.DEBUG) {
                             SectionCard {
@@ -361,7 +641,9 @@ internal fun ImportExportPanel(
                                 )
                                 Spacer(Modifier.height(12.dp))
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    com.sibirskyspeak.data.CardType.entries.forEach { cardType ->
+                                    com.sibirskyspeak.data.CardType.entries
+                                        .filterNot { it == com.sibirskyspeak.data.CardType.STRESS_MARK }
+                                        .forEach { cardType ->
                                         OutlinedButton(onClick = { onDebugStartCardType(cardType) }) {
                                             Text(cardType.name)
                                         }
@@ -374,11 +656,32 @@ internal fun ImportExportPanel(
             }
         }
     }
+    state.backupRecoveryKey?.let { recoveryKey ->
+        val clipboard = LocalClipboardManager.current
+        AlertDialog(
+            onDismissRequest = onDismissBackupRecoveryKey,
+            title = { Text(stringResource(R.string.backup_encryption_recovery_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(stringResource(R.string.backup_encryption_recovery_body))
+                    Text(recoveryKey, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    clipboard.setText(AnnotatedString(recoveryKey))
+                    onDismissBackupRecoveryKey()
+                }) { Text(stringResource(R.string.backup_encryption_copy_close)) }
+            },
+            dismissButton = { TextButton(onClick = onDismissBackupRecoveryKey) { Text(stringResource(R.string.backup_encryption_close)) } }
+        )
+    }
     if (state.placementActive) {
         PlacementQuizDialog(
             state = state,
             onAnswer = onAnswerPlacementQuestion,
             onApply = onApplyPlacementResult,
+            onApplyAtLevel = onApplyPlacementAtLevel,
             onDismiss = onDismissPlacementTest
         )
     }
@@ -389,6 +692,7 @@ internal fun PlacementQuizDialog(
     state: ReviewUiState,
     onAnswer: (Int) -> Unit,
     onApply: () -> Unit,
+    onApplyAtLevel: (String?) -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -401,10 +705,25 @@ internal fun PlacementQuizDialog(
         },
         text = {
             if (state.placementCompleted) {
-                Text(
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
                     state.placementResult?.let { "You already know material through $it. Place after $it and mark those notes known?" }
                         ?: "This looks like a good place to start from the beginning — no placement needed."
-                )
+                    )
+                    Text(
+                        "${state.placementAnswers.count { it }} / ${state.placementAnswers.size} correct. This quiz measures recognition only; short production reviews will verify transfer before the app treats the words as mastered.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    state.placementResult?.let { suggested ->
+                        val lower = PlacementTest.LEVELS.getOrNull(PlacementTest.LEVELS.indexOf(suggested) - 1)
+                        if (lower != null) {
+                            OutlinedButton(onClick = { onApplyAtLevel(lower) }, modifier = Modifier.fillMaxWidth()) {
+                                Text("Start conservatively after $lower")
+                            }
+                        }
+                    }
+                }
             } else {
                 val question = PlacementTest.QUESTIONS.getOrNull(state.placementQuestionIndex)
                 if (question == null) {
@@ -453,8 +772,10 @@ internal fun SettingSlider(
     valueLabel: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,
+    steps: Int = 0,
     rangeLabel: (Float) -> String = { it.settingRangeLabel() },
-    onChange: (Float) -> Unit
+    onChange: (Float) -> Unit,
+    onChangeFinished: (() -> Unit)? = null
 ) {
     Column {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -462,9 +783,12 @@ internal fun SettingSlider(
             Text(valueLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
         }
         Slider(
+            modifier = Modifier.fillMaxWidth().semantics { contentDescription = label },
             value = value.coerceIn(range.start, range.endInclusive),
             onValueChange = onChange,
+            onValueChangeFinished = onChangeFinished,
             valueRange = range,
+            steps = steps,
             // Matches the LinearProgressIndicator fix elsewhere: the default M3 stop
             // indicator dot at the track's end reads as a rendering glitch, not a range hint.
             track = { sliderState -> SliderDefaults.Track(sliderState = sliderState, drawStopIndicator = {}) }

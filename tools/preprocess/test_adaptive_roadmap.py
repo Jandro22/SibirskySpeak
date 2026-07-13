@@ -18,6 +18,15 @@ def test_manifest_matches_bundled_notes_exactly():
     assert sum(manifest["noteCountsByTier"].values()) == len(notes)
 
 
+def test_manifest_exposes_content_provenance():
+    manifest = json.loads((ASSETS / "curriculum_manifest.json").read_text(encoding="utf-8"))
+    provenance = manifest["provenance"]
+    assert provenance["generatedBy"]
+    sources = {source["id"]: source for source in provenance["sources"]}
+    assert {"tatoeba", "wiktionary", "graded-curriculum"} <= sources.keys()
+    assert all(source["attribution"] and source["license"] for source in sources.values())
+
+
 def test_every_band_unit_has_a_functional_exit_ticket():
     from build_curriculum_metadata import all_rows
     document = json.loads((HERE / "units.yaml").read_text(encoding="utf-8"))

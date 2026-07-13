@@ -3,6 +3,7 @@ package com.sibirskyspeak.audio
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Build
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -13,11 +14,9 @@ import java.util.Locale
  * practice (the SPEAK card type). Mirrors [RussianTextToSpeech]: created with an
  * application context, used from the UI, and shut down when the screen is gone.
  *
- * Recognition is best-effort: it prefers an on-device model (no network) and falls
- * back to whatever the platform recognizer provides. Callers must hold RECORD_AUDIO
- * and should check [isAvailable] first; everything degrades gracefully (an error
- * callback, never a crash) so the rest of the review flow is unaffected when speech
- * isn't available on a given device.
+ * Recognition is intentionally on-device only. EXTRA_PREFER_OFFLINE is merely a
+ * preference and does not prevent some platform engines from sending audio to a
+ * provider, so devices without an on-device implementation are disabled gracefully.
  */
 class RussianSpeechRecognizer(context: Context) {
     private val appContext = context.applicationContext
@@ -41,7 +40,12 @@ class RussianSpeechRecognizer(context: Context) {
         }
         // One recognizer per attempt keeps state clean across rapid retries.
         stop()
-        val engine = SpeechRecognizer.createSpeechRecognizer(appContext).also { recognizer = it }
+        val engine = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            SpeechRecognizer.createOnDeviceSpeechRecognizer(appContext)
+        } else {
+            onError(SpeechRecognitionPolicy.unavailableMessage())
+            return
+        }.also { recognizer = it }
         engine.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) = onReadyForSpeech()
             override fun onBeginningOfSpeech() {}
@@ -76,14 +80,14 @@ class RussianSpeechRecognizer(context: Context) {
             putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, RU)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            // Prefer an offline model so practice works without a network connection.
+            // Keep this hint for engines that expose an on-device model.
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
         }
         listening = true
         runCatching { engine.startListening(intent) }
             .onFailure {
                 listening = false
-                onError("Couldn't start listening: ${it.message ?: "unknown error"}")
+                onError("Couldn't start listening. Try again.")
             }
     }
 
@@ -109,7 +113,7 @@ class RussianSpeechRecognizer(context: Context) {
         val hypotheses = bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
         val index = hypotheses?.indexOfFirst { it.isNotBlank() } ?: -1
         if (hypotheses == null || index < 0) return null to null
-        val confidence = bundle?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
+        val confidence = bundle.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
             ?.getOrNull(index)
             ?.takeIf { it >= 0f }
         return hypotheses[index].trim() to confidence
@@ -119,7 +123,9 @@ class RussianSpeechRecognizer(context: Context) {
         private val RU = Locale("ru", "RU").toString()
 
         fun isAvailable(context: Context): Boolean =
-            runCatching { SpeechRecognizer.isRecognitionAvailable(context.applicationContext) }
-                .getOrDefault(false)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) false
+            else runCatching {
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(context.applicationContext)
+            }.getOrDefault(false)
     }
 }

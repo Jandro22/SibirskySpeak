@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "SibirskySpeak"
 include(":app")
+include(":benchmark")

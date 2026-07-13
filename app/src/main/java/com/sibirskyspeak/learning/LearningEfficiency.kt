@@ -391,7 +391,7 @@ object NextCardSelector {
             val success = successProbability(prompt)
             score(prompt, phase, blueprint, live, confusableNoteIds, targetDifficulty, productionRatio, success) +
                 UncertaintyAwareSelection.utility(success, itemUncertainty(prompt), targetDifficulty, uncertaintyWeight) + policyBias(prompt)
-        }
+        } ?: prerequisiteSafe.firstOrNull() ?: pool.firstOrNull()
     }
 
     private fun score(
@@ -451,6 +451,8 @@ data class MpcInputs(
     val pReturn: Double = 0.8,
     val stretchAlreadyOffered: Boolean = false,
     val minimumEvidenceCards: Int = 6,
+    /** Do not turn a refillable study target into a protected stop early. */
+    val minimumSessionCards: Int = 0,
     // The id of the card whose rating just triggered this decision, IF it failed this
     // sitting and hasn't yet been granted its one extra "GRACE" attempt — null when the
     // just-rated card succeeded, or already had its grace rep. Abandoning a card right
@@ -481,6 +483,12 @@ object SessionMpcController {
             (inputs.fatigue >= 0.45 || !speedHolding)
         val struggling = severeFatigue || sustainedStruggle
         val stretchUtility = if (canStretch) 1.25 + 0.8 * (accuracy - inputs.targetAccuracy) - 0.4 * inputs.fatigue else Double.NEGATIVE_INFINITY
+        // `live.shown` includes the card that just finished. Keep the target
+        // card itself eligible: a 40-card session must not stop after card 39
+        // and then rely on the refill path to silently undo that decision.
+        if (live.shown <= inputs.minimumSessionCards.coerceAtLeast(0)) {
+            return if (struggling && inputs.justFailedUngracedCardId != null) MpcAction.GRACE else MpcAction.CARD
+        }
         return when {
             struggling && inputs.justFailedUngracedCardId != null -> MpcAction.GRACE
             // Already inside a confidence-rebuild window: let it play out on easy

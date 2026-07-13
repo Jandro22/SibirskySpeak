@@ -36,12 +36,17 @@ class SimHarnessTest {
     // PHONOLOGY_MINIMAL_PAIR (Phase G10) is minted only from tools/preprocess/
     // phonology.json content, which RepoFixture doesn't wire (same rationale as
     // TRANSFORM's register-ladder path, which the fixture also leaves unwired —
-    // that type still surfaces here via its content-independent negation-only
-    // fallback, but PHONOLOGY_MINIMAL_PAIR has no such fallback). Covered
-    // deterministically instead by LearningRepositoryTest's phonology tests.
+    // Content-backed transfer cards are also excluded here because this fake
+    // DAO has no sentence bank or morphology engine; the runtime suppresses
+    // them when no valid realization exists. Deterministic tests cover each
+    // valid prompt path with its required content supplied.
     private val organicGrowthTypes = CardType.entries - setOf(
         CardType.VERB_FORM, CardType.ASPECT_SELECT, CardType.CONCEPT_DRILL, CardType.TRANSFORM,
-        CardType.CASE_FILL, CardType.PHONOLOGY_MINIMAL_PAIR
+        CardType.CASE_FILL, CardType.PHONOLOGY_MINIMAL_PAIR, CardType.STRESS_MARK,
+        // These require sentence-bank/morphology realizations that this fake
+        // content DAO intentionally does not provide. Their valid prompt paths
+        // are covered by deterministic repository/prompt tests.
+        CardType.CONCEPT_APPLY, CardType.CHUNK, CardType.NOVEL_PRODUCE, CardType.SPEAK_SENTENCE
     )
 
     @Test fun noDeadlockAcrossSeededLearners() = runTest {
@@ -53,6 +58,14 @@ class SimHarnessTest {
     @Test fun reviewDebtStaysBounded() = runTest {
         val outcomes = (0 until 5).map { seed -> SimHarness(seed).run(days = 60) }
         assertTrue("debt ratio should never explode past 2x sustainable load", outcomes.all { it.maxDebtRatio < 2.0 })
+    }
+
+    @Test fun clockCorrectionsDoNotPoisonLongHorizonScheduling() = runTest {
+        val outcomes = (0 until 3).map { seed ->
+            SimHarness(seed, maxUnit = 30).run(days = 180, clockJumps = true)
+        }
+        assertTrue(outcomes.all { it.introducedNotes > 0 && it.reviewsCompleted > 0 })
+        assertTrue(outcomes.all { it.maxDebtRatio.isFinite() && it.maxDebtRatio < 2.5 })
     }
 
     @Test fun mostCardTypesSurfaceViaOrganicGrowth() = runTest {

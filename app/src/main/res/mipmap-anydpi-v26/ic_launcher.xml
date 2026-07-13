@@ -1,4 +1,4 @@
-<!-- Adaptive icon XML is only recognized by AAPT from a v26-qualified directory. -->
+<!-- Adaptive icons require an API 26-qualified resource directory. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     tools:ignore="ObsoleteSdkInt">

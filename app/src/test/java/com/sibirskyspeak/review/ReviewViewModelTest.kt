@@ -134,6 +134,11 @@ class ReviewViewModelTest {
         assertEquals(1, viewModel.state.value.sessionPlan?.reviewQueue?.size)
         assertFalse(viewModel.state.value.sessionPlan?.reviewQueue?.single()?.practiceOnly == true)
         assertEquals(AnswerMode.ENGLISH, viewModel.state.value.prompt?.answerMode)
+        val recognition = fixture.cards.cards.first { it.cardType == CardType.RU_TO_MEANING }
+        assertEquals(CardState.LEARNING, recognition.state)
+        assertEquals(0, recognition.scheduledDays)
+        assertEquals(com.sibirskyspeak.learning.EvidenceStrength.INSTRUCTION, fixture.logs.logs.last().evidenceStrength)
+        assertEquals(0, fixture.evidence.rows[recognition.noteId]?.directRetrievals)
     }
 
     @Test

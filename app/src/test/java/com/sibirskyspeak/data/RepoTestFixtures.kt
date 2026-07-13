@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.flowOf
 internal class RepoFixture(
     bootstrapNotes: String? = null,
     bootstrapReaderTexts: String? = null,
+    bootstrapManifest: String? = null,
     restoreBackup: (suspend () -> String?)? = null,
     writeBackup: (suspend (String) -> Unit)? = null,
     writeBackupLines: (suspend (Sequence<String>) -> Unit)? = null,
@@ -22,7 +23,8 @@ internal class RepoFixture(
     bootstrapTransformations: String? = null,
     bootstrapPhonology: String? = null,
     morphologyEngine: com.sibirskyspeak.morph.MorphologyEngine? = null,
-    learningModelDao: LearningModelDao? = null
+    learningModelDao: LearningModelDao? = null,
+    settingsStore: SettingsStore? = null
 ) {
     val notes = FakeNoteDao()
     val evidence = FakeNoteEvidenceDao()
@@ -32,6 +34,7 @@ internal class RepoFixture(
     val logs = FakeReviewLogDao(cards, notes).also { cards.reviewLogs = it }
     val pairs = FakeConfusablePairDao()
     val readers = FakeReaderTextDao()
+    val bookmarks = FakeReaderBookmarkDao()
     val readingSchedules = FakeReadingScheduleDao()
     val readingActivities = FakeReadingActivityDao()
     val telemetry = if (withTelemetry) FakeTelemetryDao() else null
@@ -47,6 +50,7 @@ internal class RepoFixture(
         FsrsScheduler(),
         bootstrapNotes = { bootstrapNotes },
         bootstrapReaderTexts = { bootstrapReaderTexts },
+        bootstrapManifest = { bootstrapManifest },
         config = config,
         restoreBackup = restoreBackup,
         writeBackup = writeBackup,
@@ -54,6 +58,7 @@ internal class RepoFixture(
         telemetryDao = telemetry,
         readingScheduleDao = readingSchedules,
         readerEncounterDao = readerEncounters,
+        readerBookmarkDao = bookmarks,
         readingActivityDao = readingActivities,
         confusionEventDao = confusionEvents,
         checkpointResultDao = checkpointResults,
@@ -65,6 +70,7 @@ internal class RepoFixture(
         bootstrapTransformations = { bootstrapTransformations },
         bootstrapPhonology = { bootstrapPhonology },
         learningModelDao = learningModelDao,
+        settingsStore = settingsStore,
         // Unconfined runs the repository's withContext(compute) blocks inline on the
         // caller, so the deterministic test scheduler still controls all of its work.
         computeDispatcher = Dispatchers.Unconfined
@@ -487,6 +493,12 @@ internal class FakeReviewLogDao(
         .take(limit)
         .map { it.rating }
 
+    override suspend fun recentDirectRatingsSince(since: Long, limit: Int): List<Rating> = recallLogs()
+        .filter { it.reviewDatetime >= since }
+        .sortedWith(compareByDescending<ReviewLog> { it.reviewDatetime }.thenByDescending { it.id })
+        .take(limit)
+        .map { it.rating }
+
     override suspend fun countSince(since: Long): Int = recallLogs().count { it.reviewDatetime >= since }
     override suspend fun countAll(): Int = recallLogs().size
     override suspend fun weightedXp(): Int = recallLogs().sumOf { log ->
@@ -632,6 +644,24 @@ internal class FakeReaderTextDao : ReaderTextDao {
         if (index < 0) return 0
         texts[index] = texts[index].copy(source = source)
         return 1
+    }
+}
+
+internal class FakeReaderBookmarkDao : ReaderBookmarkDao {
+    val bookmarks = mutableListOf<ReaderBookmark>()
+    private var nextId = 1L
+    override suspend fun insert(bookmark: ReaderBookmark): Long {
+        val id = nextId++
+        bookmarks += bookmark.copy(id = id)
+        return id
+    }
+    override suspend fun getForText(readerTextId: Long): List<ReaderBookmark> = bookmarks.filter { it.readerTextId == readerTextId }.sortedBy { it.tokenIndex }
+    override suspend fun getAt(readerTextId: Long, tokenIndex: Int): ReaderBookmark? = bookmarks.firstOrNull { it.readerTextId == readerTextId && it.tokenIndex == tokenIndex }
+    override suspend fun deleteById(id: Long): Int = if (bookmarks.removeIf { it.id == id }) 1 else 0
+    override suspend fun deleteForText(readerTextId: Long): Int {
+        val before = bookmarks.size
+        bookmarks.removeAll { it.readerTextId == readerTextId }
+        return before - bookmarks.size
     }
 }
 

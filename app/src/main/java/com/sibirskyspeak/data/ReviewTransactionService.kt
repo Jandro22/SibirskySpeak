@@ -4,8 +4,17 @@ import javax.inject.Inject
 
 /** Narrow review/undo boundary; transaction semantics stay owned by the repository adapter. */
 class ReviewTransactionService @Inject constructor(private val repository: LearningRepository) {
-    suspend fun review(card: Card, rating: Rating, objectiveCorrect: Boolean? = null): Boolean =
-        repository.review(card, rating, objectiveCorrect = objectiveCorrect)
+    suspend fun review(
+        card: Card,
+        rating: Rating,
+        objectiveCorrect: Boolean? = null,
+        instructionalExposure: Boolean = false
+    ): Boolean = repository.review(
+        card,
+        rating,
+        objectiveCorrect = objectiveCorrect,
+        instructionalExposure = instructionalExposure
+    )
 
     suspend fun undoLastReview(): Card? = repository.undoLastReview()
 

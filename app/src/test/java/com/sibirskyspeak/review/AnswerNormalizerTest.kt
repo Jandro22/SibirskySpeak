@@ -55,6 +55,22 @@ class AnswerNormalizerTest {
     }
 
     @Test
+    fun punctuationFreeTileCorrectionMatchesAStressedSentence() {
+        val expected = "Да, коне\u0301чно."
+        val assembledByTiles = "да конечно"
+
+        assertTrue(evaluateRussianAnswer(expected, assembledByTiles, allowTypos = false).accepted)
+        assertEquals("да конечно", normalizeRussian(expected))
+    }
+
+    @Test
+    fun commasInSentencesAreNotTreatedAsAnswerAlternatives() {
+        val evaluation = evaluateRussianAnswer("Да, конечно.", "да конечно", allowTypos = false)
+
+        assertEquals(AnswerMatch.EXACT, evaluation.match)
+    }
+
+    @Test
     fun acceptsEnglishTranslationAlternatives() {
         assertTrue(isEnglishAnswerCorrect("state, government", "state"))
         assertTrue(isEnglishAnswerCorrect("to write / to complete writing", "to complete writing"))

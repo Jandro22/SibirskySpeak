@@ -7,20 +7,40 @@
     "transformations": "f493258ec052e1d5",
     "units": "d3026b7c0968c312"
   },
-  "contentChecksum": "67c1b06c3f5e13b9dce0bcad4f76cdda437dfc60c821f08591f9915a4f4ca783",
-  "curriculumVersion": "2026-07-g12-67c1b06c",
+  "contentChecksum": "ecb3d88ba2014c6c97982fa52f5594bb67ab4c5546187e3f8556a639a890ab37",
+  "curriculumVersion": "2026-07-g12-ecb3d88b",
   "noteCountsByBand": {
     "A1": 685,
     "A2": 638,
-    "B1": 1113,
-    "B2": 1562,
-    "C1": 1190,
-    "C2": 4264
+    "B1": 1112,
+    "B2": 1558,
+    "C1": 1189,
+    "C2": 4261
   },
   "noteCountsByTier": {
-    "0": 6392,
-    "1": 2347,
+    "0": 6385,
+    "1": 2345,
     "2": 713
+  },
+  "provenance": {
+    "generatedBy": "SibirskySpeak offline curriculum pipeline",
+    "sources": [
+      {
+        "attribution": "Example sentences from Tatoeba via OPUS",
+        "id": "tatoeba",
+        "license": "CC-BY 2.0 FR"
+      },
+      {
+        "attribution": "Lexical verification from Wiktionary via Kaikki",
+        "id": "wiktionary",
+        "license": "CC BY-SA 4.0"
+      },
+      {
+        "attribution": "SibirskySpeak graded curriculum and lesson authoring",
+        "id": "graded-curriculum",
+        "license": "Project content"
+      }
+    ]
   },
   "schemaVersion": 2
 }

@@ -96,10 +96,6 @@ class LearningRepository(
     // formal sentence pairs for B2+ TRANSFORM drills. Shipped by
     // build_curriculum_metadata.py alongside units.json/curriculum_completeness.json.
     private val bootstrapTransformations: (suspend () -> String?)? = null,
-    // curriculum_completeness.json (Phase G11): per-band % of the Tatoeba corpus
-    // fully parseable with the currently-shipped grammar+vocab spine. Read-only
-    // dashboard metric — never affects gating or scheduling.
-    private val bootstrapCompleteness: (suspend () -> String?)? = null,
     // phonology.json (Phase G10): authored minimal-pair/rule/intonation/fast-speech/
     // stress-mobility items. Only kind=MINIMAL_PAIR with requiresAudioPack=false
     // becomes a real card today — see phonologyMinimalPairs().
@@ -124,6 +120,11 @@ class LearningRepository(
     private val restoreBackupLines: (suspend () -> Sequence<String>?)? = null,
     private val writeBackup: (suspend (String) -> Unit)? = null,
     private val writeBackupLines: (suspend (Sequence<String>) -> Unit)? = null,
+    /** Optional credential controls for encrypted external backup mirrors. */
+    private val backupEncryptionConfigured: () -> Boolean = { false },
+    private val configureBackupEncryption: (String) -> String = { error("Encrypted backups are unavailable") },
+    private val clearBackupEncryption: () -> Unit = {},
+    private val backupRecoveryKey: () -> String? = { null },
     /** Adds/removes non-database learner metadata to the portable full-state stream. */
     private val enrichFullState: (String) -> String = { it },
     private val restoreFullStateMetadata: (String) -> Unit = {},
@@ -134,12 +135,14 @@ class LearningRepository(
     private val telemetryDao: TelemetryDao? = null,
     private val readingScheduleDao: ReadingScheduleDao? = null,
     private val readerEncounterDao: ReaderEncounterDao? = null,
+    private val readerBookmarkDao: ReaderBookmarkDao? = null,
     private val readingActivityDao: ReadingActivityDao? = null,
     private val minedExampleDao: MinedExampleDao? = null,
     private val learningModelDao: LearningModelDao? = null,
     private val noteEvidenceDao: NoteEvidenceDao? = null,
     private val noteFormDao: NoteFormDao? = null,
     private val contentDao: ContentDao? = null,
+    private val settingsStore: SettingsStore? = null,
     private val morphologyEngine: MorphologyEngine? = null,
     private val frameRealizer: FrameRealizer? = null,
     // Normalized-surface -> base-lemma map (deck_lemma.json), built offline with the
@@ -155,6 +158,7 @@ class LearningRepository(
     // Holds the most recent review so the user can undo a misclick or typo. Kept
     // in memory only: undo is a within-session affordance, not durable history.
     @Volatile private var lastUndo: UndoSnapshot? = null
+    private val curriculumManifestService = CurriculumManifestService { bootstrapManifest?.invoke() }
 
     // Debug-only (see MainActivity's --ez debug_freeze_adaptive intent extra, BuildConfig.DEBUG
     // gated): when set, manual QA/driving of the app still schedules cards normally but stops
@@ -163,6 +167,16 @@ class LearningRepository(
     @Volatile var debugFreezeAdaptiveModel: Boolean = false
 
     fun observeNotes(): Flow<List<Note>> = noteDao.observeAll()
+
+    suspend fun curriculumProvenance(): List<ContentProvenance> = curriculumManifestService.provenance()
+
+    fun isExternalBackupEncryptionConfigured(): Boolean = backupEncryptionConfigured()
+
+    fun configureExternalBackupEncryption(password: String): String = configureBackupEncryption(password)
+
+    fun clearExternalBackupEncryption() = clearBackupEncryption()
+
+    fun externalBackupRecoveryKey(): String? = backupRecoveryKey()
 
     // --- In-memory caches ---------------------------------------------------
     // Generating surface forms for the full note set (tens of thousands of
@@ -181,6 +195,7 @@ class LearningRepository(
     private val reviewMutex = Mutex()
     private val modelTuningMutex = Mutex()
     @Volatile private var lastGraduationReviewCount: Int? = null
+    private val readerTextService = ReaderTextService(readerTextDao, readingScheduleDao, readerBookmarkDao)
     @Volatile private var accuracyCacheReviewCount: Int? = null
     @Volatile private var accuracyCache: List<CategoryKey>? = null
     private val enrichmentCache = mutableMapOf<Long, Enrichment>()
@@ -428,22 +443,6 @@ class LearningRepository(
         ))
     }
 
-    /** Phase G11: per-band curriculum-completeness readout for the Lab dashboard —
-     * what fraction of the Tatoeba corpus is fully parseable with the shipped
-     * spine, by CEFR band. Read-only; never affects gating or scheduling. */
-    suspend fun curriculumCompleteness(): Map<String, CurriculumCompletenessBand> {
-        val payload = bootstrapCompleteness?.invoke()?.takeIf { it.isNotBlank() } ?: return emptyMap()
-        val json = runCatching { JSONObject(payload) }.getOrNull() ?: return emptyMap()
-        return json.keys().asSequence().mapNotNull { band ->
-            val obj = json.optJSONObject(band) ?: return@mapNotNull null
-            band to CurriculumCompletenessBand(
-                corpusSentences = obj.optInt("corpusSentences"),
-                parseableSentences = obj.optInt("parseableSentences"),
-                percent = obj.optDouble("percent")
-            )
-        }.toMap()
-    }
-
     /** Phase G10: the phonology.json MINIMAL_PAIR items device TTS can render
      * reliably (requiresAudioPack=false) — see docs/ADAPTIVE_TUTOR_FINAL_PLAN.md
      * Phase G10 on why audio-pack-gated contrasts ship disabled rather than as a
@@ -480,10 +479,16 @@ class LearningRepository(
             if (itemKey in existingItemIds) continue
             val anchor = noteByRussian[pair.formA] ?: noteByRussian[pair.formB] ?: continue
             val otherForm = if (anchor.russian == pair.formA) pair.formB else pair.formA
+            val other = noteByRussian[otherForm] ?: continue
             val recognition = cardDao.getCardsForNotes(listOf(anchor.id))
                 .firstOrNull { it.cardType == CardType.RU_TO_MEANING }
-            val mature = recognition != null && recognition.reps >= 3 && recognition.consecutiveCorrect >= 2 &&
-                recognition.state in setOf(CardState.REVIEW, CardState.GRADUATED)
+            val otherRecognition = cardDao.getCardsForNotes(listOf(other.id))
+                .firstOrNull { it.cardType == CardType.RU_TO_MEANING }
+            val mature = listOfNotNull(recognition, otherRecognition).size == 2 &&
+                listOfNotNull(recognition, otherRecognition).all {
+                    it.reps >= 3 && it.consecutiveCorrect >= 2 &&
+                        it.state in setOf(CardState.REVIEW, CardState.GRADUATED)
+                }
             if (!mature) continue
             cardDao.insert(
                 Card(
@@ -607,6 +612,9 @@ class LearningRepository(
                 .filter { it.isNotBlank() }
                 .forEach { line ->
                     val json = JSONObject(line)
+                    // BackupManager appends a checksum/format sentinel after the
+                    // learner rows. It is validation metadata, never a Note.
+                    if (json.optBoolean("_backup_meta", false)) return@forEach
                     // Full-state backups interleave telemetry rows (marked "_telemetry")
                     // among the note lines; route those to TelemetryDao instead of
                     // parsing them as a Note (which lacks the required fields).
@@ -796,6 +804,22 @@ class LearningRepository(
                         }
                     }
                     if (rows.isNotEmpty()) readingActivityDao?.insertAll(rows)
+                }
+                payload.optJSONArray("bookmarks")?.let { bookmarks ->
+                    repeat(bookmarks.length()) { index ->
+                        val bookmark = bookmarks.getJSONObject(index)
+                        val tokenIndex = bookmark.getInt("tokenIndex")
+                        if (readerBookmarkDao?.getAt(textId, tokenIndex) == null) {
+                            readerBookmarkDao?.insert(
+                                ReaderBookmark(
+                                    readerTextId = textId,
+                                    tokenIndex = tokenIndex,
+                                    label = bookmark.optString("label", ""),
+                                    createdAt = bookmark.optLong("createdAt", System.currentTimeMillis())
+                                )
+                            )
+                        }
+                    }
                 }
             }
             if (telemetryPayloads.isNotEmpty()) {
@@ -1115,11 +1139,12 @@ class LearningRepository(
 
     /**
      * Mints a TRANSFORM card (P4.4 L2) directly onto tier-0 verb notes whose
-     * recognition has matured — the card's actual sentence and rewrite are computed
-     * fresh at review time from the sentence bank (see [transformRealization]), so
-     * seeding here doesn't need to pre-validate that a negatable sentence exists.
+     * recognition has matured. A card is minted only when a register pair or a
+     * negatable sentence is available, so a dead fallback can never enter the queue.
      */
     private suspend fun syncMissingTransformCards(limit: Int = 24) {
+        val hasRegisterPairs = registerPairs().isNotEmpty()
+        if (contentDao == null && !hasRegisterPairs) return
         val notes = allNotesCached()
         val candidates = notes.filter { it.tier == 0 && it.partOfSpeech == "verb" }
         if (candidates.isEmpty()) return
@@ -1133,6 +1158,8 @@ class LearningRepository(
             val mature = recognition.reps >= 3 && recognition.consecutiveCorrect >= 2 &&
                 recognition.state in setOf(CardState.REVIEW, CardState.GRADUATED)
             if (!mature) continue
+            val hasRealization = hasRegisterPairs || transformRealization(verb, System.currentTimeMillis() / DAY_MILLIS) != null
+            if (!hasRealization) continue
             cardDao.insert(Card(noteId = verb.id, cardType = CardType.TRANSFORM, queue = Queue.VOCAB, due = 0L))
             minted++
         }
@@ -1140,12 +1167,11 @@ class LearningRepository(
 
     /**
      * Mints a SPEAK_SENTENCE card (P6.1 elicited imitation) directly onto tier-0
-     * notes whose recognition has matured, any part of speech — the actual
-     * sentence is picked fresh from the sentence bank at review time (see
-     * [speakSentenceRealization]), so seeding here doesn't need to pre-validate
-     * that a suitable sentence exists.
+     * notes whose recognition has matured and for which the sentence bank contains
+     * a suitable 5–9 token carrier. The sentence is still rotated at review time.
      */
     private suspend fun syncMissingSpeakSentenceCards(limit: Int = 24) {
+        val dao = contentDao ?: return
         val candidates = allNotesCached().filter { it.tier == 0 }
         if (candidates.isEmpty()) return
         val existingByNote = cardDao.getCardsForNotes(candidates.map { it.id }).groupBy { it.noteId }
@@ -1158,6 +1184,10 @@ class LearningRepository(
             val mature = recognition.reps >= 3 && recognition.consecutiveCorrect >= 2 &&
                 recognition.state in setOf(CardState.REVIEW, CardState.GRADUATED)
             if (!mature) continue
+            val unitMax = note.unit?.takeIf { note.tier == 0 } ?: Int.MAX_VALUE
+            val hasSentence = dao.sentencesFor(unitMax, requiredLemma = note.lemma, limit = 20)
+                .any { it.tokenCount in 5..9 }
+            if (!hasSentence) continue
             cardDao.insert(Card(noteId = note.id, cardType = CardType.SPEAK_SENTENCE, queue = Queue.VOCAB, due = 0L))
             minted++
         }
@@ -1175,6 +1205,7 @@ class LearningRepository(
         var schedulesSnapshot: List<ReadingSchedule> = emptyList()
         var encountersSnapshot: List<ReaderEncounter> = emptyList()
         var activitiesSnapshot: List<ReadingActivity> = emptyList()
+        var bookmarksSnapshot: List<ReaderBookmark> = emptyList()
         var pairsSnapshot: List<ConfusablePair> = emptyList()
         var telemetrySnapshot: List<TelemetryEvent> = emptyList()
         var modelLinesSnapshot: List<String> = emptyList()
@@ -1195,6 +1226,11 @@ class LearningRepository(
                 schedulesSnapshot = readingScheduleDao?.getAll().orEmpty()
                 encountersSnapshot = readerEncounterDao?.getAll().orEmpty()
                 activitiesSnapshot = readingActivityDao?.getAll().orEmpty()
+                if (readerBookmarkDao != null) {
+                    val savedBookmarks = mutableListOf<ReaderBookmark>()
+                    readers.forEach { reader -> savedBookmarks += readerBookmarkDao.getForText(reader.id) }
+                    bookmarksSnapshot = savedBookmarks
+                }
                 pairsSnapshot = confusablePairDao.getAll()
                 telemetrySnapshot = telemetryDao?.getAll().orEmpty()
                 learningModelDao?.let { dao ->
@@ -1311,6 +1347,7 @@ class LearningRepository(
         val schedules = schedulesSnapshot.associateBy { it.readerTextId }
         val encounters = encountersSnapshot.groupBy { it.readerTextId }
         val activities = activitiesSnapshot.groupBy { it.readerTextId }
+        val bookmarks = bookmarksSnapshot.groupBy { it.readerTextId }
         val readerLines = readers.asSequence().map { reader ->
             JSONObject().apply {
                 put("_readerText", true)
@@ -1333,6 +1370,15 @@ class LearningRepository(
                             put("completedAt", activity.completedAt)
                             put("mistakes", activity.mistakes)
                             put("intervalDays", activity.intervalDays)
+                        })
+                    }
+                })
+                put("bookmarks", org.json.JSONArray().apply {
+                    bookmarks[reader.id].orEmpty().forEach { bookmark ->
+                        put(JSONObject().apply {
+                            put("tokenIndex", bookmark.tokenIndex)
+                            put("label", bookmark.label)
+                            put("createdAt", bookmark.createdAt)
                         })
                     }
                 })
@@ -1397,9 +1443,33 @@ class LearningRepository(
     }
 
     suspend fun addReaderText(title: String, body: String, source: String = "local"): Long {
-        val id = readerTextDao.insert(ReaderText(title = title.ifBlank { "Imported Text" }, body = body, source = source))
-        readingScheduleDao?.insert(ReadingSchedule(readerTextId = id))
-        return id
+        return readerTextService.add(title, body, source)
+    }
+
+    suspend fun updateReaderSource(textId: Long, source: String): Boolean {
+        val normalized = source.trim().ifBlank { "local" }
+        val changed = readerTextService.updateSource(textId, normalized)
+        if (changed) {
+            telemetryDao?.insert(
+                TelemetryEvent(
+                    timestamp = System.currentTimeMillis(),
+                    eventType = "reader_source_updated",
+                    metadataJson = JSONObject().put("readerTextId", textId).put("source", normalized).toString()
+                )
+            )
+        }
+        return changed
+    }
+
+    suspend fun readerBookmarks(textId: Long): List<ReaderBookmark> =
+        readerTextService.bookmarks(textId)
+
+    suspend fun readerHistory(textId: Long): List<ReadingActivity> =
+        readingActivityDao?.getForText(textId).orEmpty()
+
+    /** Toggle a token bookmark; returns true when a bookmark was added. */
+    suspend fun toggleReaderBookmark(textId: Long, tokenIndex: Int, label: String = ""): Boolean {
+        return readerTextService.toggleBookmark(textId, tokenIndex, label)
     }
 
     private suspend fun syncReadingSchedules(recommendations: List<ReaderRecommendation>) {
@@ -1898,14 +1968,14 @@ class LearningRepository(
     }
 
     private suspend fun maybeFitSuccessCalibration() {
-        val telemetry = telemetryDao ?: return
         val dao = learningModelDao ?: return
-        val totalSamples = telemetry.countByType("success_calibration_sample")
+        val calibrationEvents = adaptiveTelemetry(5_000)
+            .filter { it.eventType == "success_calibration_sample" }
+        val totalSamples = calibrationEvents.size
         if (totalSamples < SuccessCalibrationFitter.MIN_SAMPLES) return
         val current = successCalibration(dao.parameters())
         if (current.observations >= totalSamples - 24) return
-        val samples = telemetry.recent(5_000).asReversed().mapNotNull { event ->
-            if (event.eventType != "success_calibration_sample") return@mapNotNull null
+        val samples = calibrationEvents.asReversed().mapNotNull { event ->
             runCatching {
                 val json = JSONObject(event.metadataJson)
                 WorldModel.CalibrationSample(
@@ -1943,7 +2013,7 @@ class LearningRepository(
      * without an at-show prediction are intentionally excluded rather than rebuilt
      * with today's model (which would introduce hindsight leakage). */
     suspend fun calibrationDriftReport(limit: Int = 2_000): com.sibirskyspeak.learning.DriftReport? {
-        val observations = telemetryDao?.recent(limit.coerceAtLeast(60)).orEmpty().asReversed().mapNotNull { event ->
+        val observations = adaptiveTelemetry(limit.coerceAtLeast(60)).asReversed().mapNotNull { event ->
             if (event.eventType != "success_calibration_sample") return@mapNotNull null
             runCatching {
                 val json = JSONObject(event.metadataJson)
@@ -2067,7 +2137,7 @@ class LearningRepository(
             now = now,
             daily = dailyPlan(now),
             gamification = gamificationStats(now),
-            recentTelemetry = recentTelemetry(200)
+            recentTelemetry = adaptiveTelemetry(200)
         )
         val minutesCenter = capacityRow?.let { tuningSnapshot.capacity.sustainableMinutes }
             ?.coerceIn(5.0, 45.0) ?: 12.0
@@ -2116,6 +2186,26 @@ class LearningRepository(
     }
 
     suspend fun recentTelemetry(limit: Int = 1000): List<TelemetryEvent> = telemetryDao?.recent(limit).orEmpty()
+
+    private suspend fun adaptiveTelemetry(limit: Int): List<TelemetryEvent> =
+        telemetryDao?.recent(limit).orEmpty().filter { it.timestamp >= adaptiveResetAt() }
+
+    private fun adaptiveResetAt(): Long = settingsStore?.adaptiveResetAt ?: 0L
+
+    /** Forget adaptive pacing evidence without touching learner cards or review history. */
+    suspend fun resetAdaptivePacing(now: Long = System.currentTimeMillis()) {
+        val dao = learningModelDao ?: return
+        val adaptiveKeys = dao.parameters()
+            .map { it.key }
+            .filter { key ->
+                key.startsWith("success_") || key.startsWith("tuned_") || key == "model:last_tuned_at"
+            }
+        if (adaptiveKeys.isNotEmpty()) dao.deleteParameters(adaptiveKeys)
+        val skills = dao.skillRatings().map { it.skill }
+        if (skills.isNotEmpty()) dao.deleteSkillRatings(skills)
+        dao.upsertCapacityState(CapacityState(updatedAt = now))
+        dao.upsertWillingnessState(WillingnessState(updatedAt = now))
+    }
 
     suspend fun banditArmStates(): List<ContextualBandit.Snapshot> =
         learningModelDao?.banditArmStates().orEmpty().mapNotNull { row ->
@@ -2367,7 +2457,7 @@ class LearningRepository(
         now: Long = System.currentTimeMillis()
     ): com.sibirskyspeak.learning.FluencySimEngine.SimResult {
         val modelDao = learningModelDao ?: return com.sibirskyspeak.learning.FluencySimEngine.SimResult(null, null, null, null, null, null, 0.0, 0)
-        val recentTelemetry = recentTelemetry(200)
+        val recentTelemetry = adaptiveTelemetry(200)
         val snapshot = currentSnapshot(
             now = now,
             daily = dailyPlan(now),
@@ -2375,10 +2465,11 @@ class LearningRepository(
             recentTelemetry = recentTelemetry
         )
         val evidenceDays = modelDao.allPaceLogs()
+            .filter { it.at >= adaptiveResetAt() }
             .map { it.at / com.sibirskyspeak.learning.FluencySimEngine.DAY_MILLIS }
             .distinct()
             .size
-        return com.sibirskyspeak.learning.FluencySimEngine.runSimulation(
+        val result = com.sibirskyspeak.learning.FluencySimEngine.runSimulation(
             currentCapacity = snapshot.capacity,
             currentWillingness = snapshot.willingness,
             initialActiveCards = snapshot.activeCards,
@@ -2387,6 +2478,143 @@ class LearningRepository(
             recentAccuracy = snapshot.recentAccuracy,
             startTimeMillis = now
         )
+        // Cache the fresh steady-state pace for currentSnapshot()'s live (non-
+        // simulated) goalPaceRatio computation, which must never re-run this
+        // simulation itself — see the field doc on SettingsStore.lastStablePaceWordsPerDay.
+        settingsStore?.lastStablePaceWordsPerDay = result.stablePace
+        return result
+    }
+
+    /** Local (device-timezone) calendar day for a millis timestamp — the same
+     * bucketing ReviewViewModel already uses to throttle the daily forecast, so a
+     * goal's target date and its progress checks agree on what "today" means. */
+    private fun localEpochDay(now: Long): Long {
+        val offset = java.util.TimeZone.getDefault().getOffset(now).toLong()
+        return (now + offset) / DAY_MILLIS
+    }
+
+    /**
+     * Pure arithmetic feasibility check for a candidate goal, safe to call on every
+     * Settings slider tick: no simulation, just the already-known word count against
+     * [currentStablePace] (the caller's already-cached FluencySimEngine.SimResult.stablePace,
+     * e.g. from ReviewUiState.fluencyForecast — this function must never trigger a
+     * fresh simulation itself, or dragging a slider would refreeze the UI).
+     */
+    suspend fun evaluateGoalFeasibility(
+        level: String,
+        targetDateEpochDay: Long,
+        currentStablePace: Double,
+        now: Long = System.currentTimeMillis()
+    ): com.sibirskyspeak.learning.GoalFeasibility? {
+        val milestone = com.sibirskyspeak.learning.FluencySimEngine.milestoneThreshold(level) ?: return null
+        val totalKnown = knownNoteIds().size
+        val requiredPace = com.sibirskyspeak.learning.GoalMath.requiredPace(
+            milestone, totalKnown, targetDateEpochDay, localEpochDay(now)
+        )
+        return com.sibirskyspeak.learning.GoalMath.feasibility(requiredPace, currentStablePace)
+    }
+
+    /**
+     * Persists a new (or replaces the current) learning goal and fires the
+     * corresponding telemetry. Called from Settings once the user commits, not on
+     * every slider tick — [evaluateGoalFeasibility] is what backs the live preview.
+     */
+    suspend fun setLearningGoal(level: String, targetDateEpochDay: Long, now: Long = System.currentTimeMillis()) {
+        val store = settingsStore ?: return
+        val previousLevel = store.goalTargetLevel
+        val nowDay = localEpochDay(now)
+        val totalKnown = knownNoteIds().size
+        store.goalTargetLevel = level
+        store.goalTargetDateEpochDay = targetDateEpochDay
+        store.goalCreatedAtEpochDay = nowDay
+        store.goalStatus = "ACTIVE"
+        store.goalLastWeeklyCheckDay = nowDay
+        store.goalLastVelocityWordsKnown = totalKnown
+        recordTelemetry(TelemetryEvent(
+            eventType = if (previousLevel.isEmpty()) "goal_created" else "goal_replanned",
+            metadataJson = JSONObject()
+                .put("level", level)
+                .put("targetDateEpochDay", targetDateEpochDay)
+                .put("previousLevel", previousLevel)
+                .put("totalKnown", totalKnown)
+                .toString()
+        ))
+    }
+
+    /** Drops the active goal (learner chose "Drop goal" on the off-track fork). */
+    suspend fun abandonLearningGoal(now: Long = System.currentTimeMillis()) {
+        val store = settingsStore ?: return
+        val level = store.goalTargetLevel
+        if (level.isEmpty()) return
+        val daysActive = (localEpochDay(now) - store.goalCreatedAtEpochDay).coerceAtLeast(0)
+        recordTelemetry(TelemetryEvent(
+            eventType = "goal_abandoned",
+            metadataJson = JSONObject().put("level", level).put("daysActive", daysActive).toString()
+        ))
+        store.goalStatus = "ABANDONED"
+        store.goalTargetLevel = ""
+        store.goalTargetDateEpochDay = Long.MIN_VALUE
+    }
+
+    /**
+     * Read-only goal-vs-projection gap, using the already-computed [forecast] (the
+     * daily simulation ReviewViewModel already ran) — this function performs no
+     * simulation of its own. Returns null when there's no active goal. Silently
+     * flips a reached milestone's stored status to ACHIEVED and fires telemetry
+     * once, the same idempotent-on-repeat-call shape as other status transitions
+     * in this file.
+     */
+    suspend fun currentGoalStatus(
+        forecast: com.sibirskyspeak.learning.FluencySimEngine.SimResult,
+        now: Long = System.currentTimeMillis()
+    ): com.sibirskyspeak.learning.GoalStatus? {
+        val store = settingsStore ?: return null
+        val level = store.goalTargetLevel
+        if (level.isEmpty() || store.goalStatus == "ABANDONED") return null
+        val milestone = com.sibirskyspeak.learning.FluencySimEngine.milestoneThreshold(level) ?: return null
+        val targetDay = store.goalTargetDateEpochDay
+        if (targetDay == Long.MIN_VALUE) return null
+        val totalKnown = knownNoteIds().size
+        val nowEpochDay = localEpochDay(now)
+        if (totalKnown >= milestone) {
+            if (store.goalStatus != "ACHIEVED") {
+                store.goalStatus = "ACHIEVED"
+                recordTelemetry(TelemetryEvent(
+                    eventType = "goal_achieved",
+                    metadataJson = JSONObject().put("level", level).put("daysEarly", targetDay - nowEpochDay).toString()
+                ))
+            }
+            return com.sibirskyspeak.learning.GoalStatus(level, targetDay, 1.0, com.sibirskyspeak.learning.GoalTrackState.ON_TRACK)
+        }
+        val requiredPace = com.sibirskyspeak.learning.GoalMath.requiredPace(milestone, totalKnown, targetDay, nowEpochDay)
+        val paceRatio = com.sibirskyspeak.learning.GoalMath.paceRatio(forecast.stablePace, requiredPace)
+        return com.sibirskyspeak.learning.GoalStatus(level, targetDay, paceRatio, com.sibirskyspeak.learning.GoalMath.trackState(paceRatio))
+    }
+
+    /**
+     * Weekly-throttled companion to [currentGoalStatus]: only called when
+     * ReviewViewModel's goalLastWeeklyCheckDay gate fires, records the
+     * goal_check_weekly telemetry event, and rebases the velocity snapshot used to
+     * report words-gained-this-week next time.
+     */
+    suspend fun weeklyGoalCheck(
+        forecast: com.sibirskyspeak.learning.FluencySimEngine.SimResult,
+        now: Long = System.currentTimeMillis()
+    ): com.sibirskyspeak.learning.GoalStatus? {
+        val status = currentGoalStatus(forecast, now) ?: return null
+        val store = settingsStore ?: return status
+        val totalKnown = knownNoteIds().size
+        val wordsGained = totalKnown - store.goalLastVelocityWordsKnown
+        recordTelemetry(TelemetryEvent(
+            eventType = "goal_check_weekly",
+            metadataJson = JSONObject()
+                .put("status", status.state.name)
+                .put("paceRatio", status.paceRatio)
+                .put("wordsGainedThisWeek", wordsGained)
+                .toString()
+        ))
+        store.goalLastVelocityWordsKnown = totalKnown
+        return status
     }
 
     suspend fun dashboardStats(
@@ -2470,7 +2698,9 @@ class LearningRepository(
         val capacityState = modelDao?.capacityState()
         val willingnessState = modelDao?.willingnessState()
         val estimatedFatigue = estimatedSessionFatigue(recentTelemetry)
-        val recentPace = modelDao?.paceLogs(5).orEmpty()
+        val recentPace = modelDao?.paceLogs(20).orEmpty()
+            .filter { it.at >= adaptiveResetAt() }
+            .take(5)
         val lastPace = recentPace.firstOrNull()
         val priorPace = recentPace.getOrNull(1)
         val sessionsPerDayExpected = expectedSessionsPerDay(recentTelemetry)
@@ -2484,7 +2714,8 @@ class LearningRepository(
         val activeCards = cardDao.getSchedulingCards()
         val totalKnown = knownNoteIds().size
         val recentAccuracy = recentDirectAccuracy()
-        val completedAdaptiveSessions = modelDao?.paceLogCount() ?: 0
+        val completedAdaptiveSessions = modelDao?.allPaceLogs()
+            ?.count { it.at >= adaptiveResetAt() } ?: 0
         val calibration = successCalibration(parameters)
         val calibrationObservations = calibration.observations
         val calibrationDrifted = calibrationObservations >= 60 && calibrationDriftReport()?.drifted == true
@@ -2501,6 +2732,18 @@ class LearningRepository(
                 ?: (daily.dueVocab.toDouble() / 100.0)
         )
         val capacityBelief = capacityState?.let { CapacityBelief(it.mu, it.sigma) } ?: CapacityBelief()
+        // Derived from the last daily-cached stablePace (settingsStore), never a fresh
+        // simulation — currentSnapshot() feeds the live per-session pace call, which
+        // must stay cheap. See getFluencyForecast()'s cache-write and GoalMath's docs.
+        val goalPaceRatio = settingsStore?.let { store ->
+            val level = store.goalTargetLevel
+            if (level.isEmpty() || store.goalStatus != "ACTIVE") return@let null
+            val milestone = com.sibirskyspeak.learning.FluencySimEngine.milestoneThreshold(level) ?: return@let null
+            val targetDay = store.goalTargetDateEpochDay
+            if (targetDay == Long.MIN_VALUE) return@let null
+            val requiredPace = com.sibirskyspeak.learning.GoalMath.requiredPace(milestone, totalKnown, targetDay, localEpochDay(now))
+            com.sibirskyspeak.learning.GoalMath.paceRatio(store.lastStablePaceWordsPerDay, requiredPace)
+        }
 
         return LearnerSnapshot(
             capacity = capacityBelief,
@@ -2524,7 +2767,8 @@ class LearningRepository(
                 calibrationDrifted = calibrationDrifted
             ),
             tunedTargetRetention = parametersByKey["tuned_target_retention"]?.value,
-            tunedNewBudgetScale = parametersByKey["tuned_new_budget_scale"]?.value ?: 1.0
+            tunedNewBudgetScale = parametersByKey["tuned_new_budget_scale"]?.value ?: 1.0,
+            goalPaceRatio = goalPaceRatio
         )
     }
 
@@ -2557,7 +2801,7 @@ class LearningRepository(
         val mastery = unitMastery()
         val modelDao = learningModelDao
         val gamification = gamificationStats(now)
-        val recentTelemetry = recentTelemetry(200)
+        val recentTelemetry = adaptiveTelemetry(200)
         val snapshot = currentSnapshot(now, daily, gamification, recentTelemetry)
         val parameters = modelDao?.parameters().orEmpty()
         val parametersByKey = parameters.associateBy { it.key }
@@ -2580,8 +2824,24 @@ class LearningRepository(
             evidence = snapshot.evidence,
             adaptiveEnabled = config().adaptiveEnabled
         )
-        val generatedCapacity = adoptedPace.capacity
-        val generatedNewBudget = adoptedPace.newBudget
+        // The configured session size is the learner's explicit minimum dose.
+        // Adaptive pacing may still order cards and shape retention, but it must
+        // not silently shrink a selected 40-card session (or inflate a selected
+        // smaller session) merely because the adaptive model is uncertain. Keep
+        // the new-card budget separate: 40 total cards must not accidentally mean
+        // 40 brand-new lexemes when the learner's new-card limit is lower.
+        val configuredCapacity = config().sessionSize.coerceAtLeast(1)
+        val generatedCapacity = maxOf(adoptedPace.capacity, configuredCapacity)
+        val configuredNewAllowance = config().newCardsPerDay.coerceAtLeast(0)
+        val generatedNewBudget = if (configuredCapacity >= SettingsStore.DAILY_CARD_TARGET) {
+            // The explicit full-dose setting is also an explicit allowance to fill
+            // that dose when due work is scarce. A smaller configured session keeps
+            // adaptive new-card throttling intact, so a normal 10/15-card session
+            // does not silently turn into a 40-new-word day.
+            maxOf(adoptedPace.newBudget, configuredNewAllowance).coerceAtMost(generatedCapacity)
+        } else {
+            adoptedPace.newBudget.coerceAtMost(generatedCapacity)
+        }
         val generatedRetention = adoptedPace.retention
         // From this point on there is one pace: the dose actually executed. Keeping
         // the raw proposal in SessionPlan/telemetry made the capacity model learn from
@@ -2938,6 +3198,7 @@ class LearningRepository(
      */
     private suspend fun unitMastery(): List<UnitMastery> {
         val notes = allNotesCached().filter { it.tier == 0 && it.unit != null && it.status != WordStatus.IGNORED }
+        val canDoByUnit = unitCanDoLabels()
         val byId = notes.associateBy { it.id }
         val vocab = cardDao.getAllVocabCards().filter { it.noteId in byId && it.cardType == CardType.RU_TO_MEANING && !it.suspended }
         // A note marked KNOWN never surfaces new cards of any type (see
@@ -2973,7 +3234,8 @@ class LearningRepository(
                 vocabularyTotal = unitVocab.size,
                 grammarMastered = grammarObjectives.count { (_, cards) -> cards.any { it.reps >= 2 && it.consecutiveCorrect >= 2 } },
                 grammarTotal = grammarObjectives.size,
-                unlocked = false
+                unlocked = false,
+                canDoLabel = canDoByUnit["$band:$unit"]
             )
         }
         val frontierIndex = raw.indexOfFirst { it.progress < UNIT_MASTERY_THRESHOLD }.let { if (it < 0) raw.size else it }
@@ -3354,16 +3616,12 @@ class LearningRepository(
             var day = if (todayBucket in daySet) todayBucket else todayBucket - 1
             while (day in daySet) { streak += 1; day -= 1 }
         }
-        val hours = reviewLogDao.recentReviewTimes().map {
-            java.util.Calendar.getInstance().apply { timeInMillis = it }.get(java.util.Calendar.HOUR_OF_DAY)
-        }.sorted()
         val due = cardDao.countDue(now) + if (readingScheduleDao?.nextDue(now) != null) 1 else 0
         return ReminderInfo(
             currentStreak = streak,
             studiedToday = todayBucket in daySet,
             dueToday = due,
-            estimatedMinutes = kotlin.math.ceil(due * 0.35).toInt(),
-            preferredHour = hours.getOrNull(hours.size / 2) ?: SettingsStore.DEFAULT_REMINDER_HOUR
+            estimatedMinutes = kotlin.math.ceil(due * 0.35).toInt()
         )
     }
 
@@ -3676,7 +3934,8 @@ class LearningRepository(
         card: Card,
         rating: Rating,
         now: Long = System.currentTimeMillis(),
-        objectiveCorrect: Boolean? = null
+        objectiveCorrect: Boolean? = null,
+        instructionalExposure: Boolean = false
     ): Boolean = reviewMutex.withLock {
         var becameLeech = false
         var undoSnapshot: UndoSnapshot? = null
@@ -3700,7 +3959,34 @@ class LearningRepository(
         // A lesson is "done" the moment it's read: graduate it so it never recurs.
         // We still log it (stateBefore = NEW) so it counts as the concept's
         // introduction — that is what unlocks the concept's drills.
-        if (live.cardType == CardType.LESSON) {
+        if (instructionalExposure && live.cardType == CardType.RU_TO_MEANING && live.state == CardState.NEW) {
+            // A new-word lesson is exposure, not successful recall. Put the card
+            // into learning with a short return window so the session can present
+            // its first real retrieval without granting a full FSRS GOOD interval.
+            val introduced = live.copy(
+                state = CardState.LEARNING,
+                due = now + 10L * 60L * 1000L,
+                stability = 0.0,
+                difficulty = 0.0,
+                scheduledDays = 0,
+                reps = live.reps + 1,
+                lastReview = now,
+                consecutiveCorrect = 0
+            )
+            cardDao.update(introduced)
+            reviewLogDao.insert(
+                ReviewLog(
+                    cardId = live.id,
+                    reviewDatetime = now,
+                    rating = rating,
+                    stateBefore = live.state,
+                    scheduledDays = 0,
+                    elapsedDays = 0,
+                    source = ReviewSource.SRS_REVIEW,
+                    evidenceStrength = EvidenceStrength.INSTRUCTION
+                )
+            )
+        } else if (live.cardType == CardType.LESSON) {
             val graduated = live.copy(
                 state = CardState.GRADUATED,
                 reps = live.reps + 1,
@@ -3744,7 +4030,13 @@ class LearningRepository(
         }
         note?.let {
             noteDao.update(it.copy(encounterCount = it.encounterCount + 1))
-            ensureEvidence(it.id)?.incrementDirect(it.id, now)
+            val evidence = ensureEvidence(it.id)
+            // A first-contact lesson is an exposure, not a successful retrieval.
+            // Keep the encounter for curriculum history, but do not let it inflate
+            // direct-retrieval evidence used by the adaptive model.
+            if (!instructionalExposure) {
+                evidence?.incrementDirect(it.id, now)
+            }
         }
         if (objectiveCorrect != null && live.cardType != CardType.LESSON) {
             // Keep the scheduled review and every adaptive consequence atomic. A model
@@ -4017,7 +4309,7 @@ class LearningRepository(
         if (previous.updatedAt <= 0L || previous.updatedAt >= now) return
         val hours = (now - previous.updatedAt) / 3_600_000.0
         val coefficients = parseWillingnessCoefficients(previous.coeffsJson)
-        val telemetry = recentTelemetry(80)
+        val telemetry = adaptiveTelemetry(80)
         val fatigue = estimatedSessionFatigue(telemetry)
         val streak = ((gamificationStats(now).currentStreak - 3.0) / 4.0).coerceIn(-3.0, 3.0)
         val context = ReturnContext(
@@ -4220,7 +4512,7 @@ class LearningRepository(
         modelTuningMutex.withLock {
             val dao = learningModelDao ?: return@withLock
             val telemetry = telemetryDao ?: return@withLock
-            if (telemetry.countByType("success_calibration_sample") < SuccessCalibrationFitter.MIN_SAMPLES) return@withLock
+            if (adaptiveTelemetry(5_000).count { it.eventType == "success_calibration_sample" } < SuccessCalibrationFitter.MIN_SAMPLES) return@withLock
             val drift = calibrationDriftReport()
             val currentVersion = dao.parameters().firstOrNull {
                 it.key == com.sibirskyspeak.learning.ModelGovernance.CURRENT_VERSION_KEY
@@ -5152,15 +5444,15 @@ class LearningRepository(
             prompt = prompt.copy(expectedAnswer = authoritative)
         }
         if (card.cardType == CardType.CONCEPT_APPLY) {
-            conceptApplyRealization(card, now)?.let { realized ->
-                prompt = prompt.copy(
-                    prompt = realized.ruBlanked,
-                    expectedAnswer = realized.targetAnswer,
-                    answerMode = AnswerMode.RUSSIAN_TYPED,
-                    exampleTranslation = realized.en,
-                    explanation = prompt.explanation
-                )
-            }
+            val realized = conceptApplyRealization(card, now) ?: return null
+            prompt = prompt.copy(
+                prompt = realized.ruBlanked,
+                expectedAnswer = realized.targetAnswer,
+                answerMode = AnswerMode.RUSSIAN_TYPED,
+                exampleSentence = realized.ru,
+                exampleTranslation = realized.en,
+                explanation = prompt.explanation
+            )
         }
         if (card.cardType == CardType.NOVEL_PRODUCE) {
             // Reuses the same per-concept frames as CONCEPT_APPLY, but the prompt
@@ -5168,24 +5460,24 @@ class LearningRepository(
             // is the expected answer — the ladder's payoff (P4.4 L3). A distinct
             // card.id from the sibling CONCEPT_APPLY card already gives this its own
             // realize() seed, so no carrier collision between the two card types.
-            conceptApplyRealization(card, now)?.let { realized ->
-                prompt = prompt.copy(
-                    prompt = realized.en,
-                    expectedAnswer = realized.ru,
-                    answerMode = AnswerMode.RUSSIAN_TYPED,
-                    explanation = prompt.explanation
-                )
-            }
+            val realized = conceptApplyRealization(card, now) ?: return null
+            prompt = prompt.copy(
+                prompt = realized.en,
+                expectedAnswer = realized.ru,
+                answerMode = AnswerMode.RUSSIAN_TYPED,
+                exampleSentence = realized.ru,
+                explanation = prompt.explanation
+            )
         }
         if (card.cardType == CardType.CHUNK) {
-            chunkRealization(note)?.let { realized ->
-                prompt = prompt.copy(
-                    prompt = realized.blankedRu,
-                    expectedAnswer = note.russian,
-                    answerMode = AnswerMode.RUSSIAN_TYPED,
-                    exampleTranslation = realized.translation
-                )
-            }
+            val realized = chunkRealization(note) ?: return null
+            prompt = prompt.copy(
+                prompt = realized.blankedRu,
+                expectedAnswer = note.russian,
+                answerMode = AnswerMode.RUSSIAN_TYPED,
+                exampleSentence = realized.blankedRu.replace("___", note.russian),
+                exampleTranslation = realized.translation
+            )
         }
         if (card.cardType == CardType.TRANSFORM) {
             val registerPair = if (effectiveCefrOrdinal() >= B2_ORDINAL) registerLadderRealization(card.id, now / DAY_MILLIS) else null
@@ -5194,37 +5486,46 @@ class LearningRepository(
                     prompt = "Rewrite in a more formal register.\n${registerPair.source}",
                     expectedAnswer = registerPair.answer,
                     answerMode = AnswerMode.RUSSIAN_TYPED,
+                    exampleSentence = registerPair.answer,
                     explanation = "Formal register avoids first-person narration; prefer nominalized, impersonal phrasing."
                 )
-            } else transformRealization(note, now / DAY_MILLIS)?.let { realized ->
+            } else {
+                val realized = transformRealization(note, now / DAY_MILLIS) ?: return null
                 prompt = prompt.copy(
                     prompt = "${realized.instruction}\n${realized.original}",
                     expectedAnswer = realized.result,
                     answerMode = AnswerMode.RUSSIAN_TYPED,
+                    exampleSentence = realized.result,
                     explanation = "Add «не» directly before the verb."
                 )
             }
         }
         if (card.cardType == CardType.PHONOLOGY_MINIMAL_PAIR) {
-            phonologyMinimalPairRealization(card, note, now / DAY_MILLIS)?.let { (played, other) ->
+            val (played, other) = phonologyMinimalPairRealization(card, note, now / DAY_MILLIS) ?: return null
+                val choices = if ((now / DAY_MILLIS + card.id) % 2L == 0L) {
+                    listOf(played, other)
+                } else {
+                    listOf(other, played)
+                }
+                val playedMeaning = if (played == note.russian) meaningLine(note.translation) else null
                 prompt = prompt.copy(
                     prompt = "",
                     expectedAnswer = played,
-                    answerMode = AnswerMode.AUDIO_ONLY,
-                    teachingHint = "Minimal-pair listening — type the word you heard.",
-                    explanation = "Contrast: $played vs $other. ${meaningLine(note.translation)}"
+                    answerMode = AnswerMode.CHOICE,
+                    choices = choices.distinct(),
+                    teachingHint = "Minimal-pair listening — choose the word you heard.",
+                    explanation = listOfNotNull("Contrast: $played vs $other.", playedMeaning).joinToString(" ")
                 )
-            }
         }
         if (card.cardType == CardType.SPEAK_SENTENCE) {
-            speakSentenceRealization(note, now / DAY_MILLIS)?.let { (ru, en) ->
-                prompt = prompt.copy(
-                    prompt = "",
-                    expectedAnswer = ru,
-                    answerMode = AnswerMode.SPEAK,
-                    explanation = en
-                )
-            }
+            val (ru, en) = speakSentenceRealization(note, now / DAY_MILLIS) ?: return null
+            prompt = prompt.copy(
+                prompt = "",
+                expectedAnswer = ru,
+                answerMode = AnswerMode.SPEAK,
+                exampleSentence = ru,
+                explanation = en
+            )
         }
         if (card.state == CardState.NEW && card.reps == 0 && prompt.lesson != null) {
             val enrichment = enrichmentFor(rawNote)
@@ -5354,6 +5655,22 @@ class LearningRepository(
         val noteIds = assessed.mapNotNull { index[normalizeToken(it.surface)]?.id }
         val knownCount = noteIds.count { it in knownIds }
         val coverage = if (assessed.isEmpty()) 0.0 else knownCount.toDouble() / assessed.size
+        val sentenceCount = text.body.count { it == '.' || it == '!' || it == '?' || it == '…' }.coerceAtLeast(1)
+        val morphologyCount = assessed.count { token ->
+            val note = index[normalizeToken(token.surface)]
+            note != null && (note.declensionJson != null || note.aktionsart != null) &&
+                normalizeToken(token.surface) != normalizeToken(note.russian)
+        }
+        val idiomCount = assessed.count { token ->
+            index[normalizeToken(token.surface)]?.partOfSpeech?.equals("chunk", ignoreCase = true) == true
+        }
+        val difficulty = ReaderDifficultyAnalyzer.analyze(
+            coverage = coverage,
+            tokenCount = assessed.size,
+            sentenceCount = sentenceCount,
+            morphologyCount = morphologyCount,
+            idiomCount = idiomCount
+        )
         return ReaderRecommendation(
             text = text,
             coverage = coverage,
@@ -5361,7 +5678,11 @@ class LearningRepository(
             totalTokens = assessed.size,
             status = statusForCoverage(coverage),
             authenticReady = text.source.startsWith("target:", ignoreCase = true) && coverage >= AUTHENTIC_READY_COVERAGE,
-            dueOverlap = noteIds.distinct().count { it in dueSoonNoteIds }
+            dueOverlap = noteIds.distinct().count { it in dueSoonNoteIds },
+            syntaxComplexity = difficulty.syntaxComplexity,
+            morphologyNovelty = difficulty.morphologyNovelty,
+            idiomDensity = difficulty.idiomDensity,
+            difficultyScore = difficulty.difficultyScore
         )
     }
 
@@ -5369,7 +5690,7 @@ class LearningRepository(
         takeIf { it.isNotEmpty() }?.let { ratings -> ratings.count { it.value >= Rating.GOOD.value }.toDouble() / ratings.size }
 
     private suspend fun recentDirectAccuracy(): Double =
-        reviewLogDao.recentDirectRatings(200).accuracyOrNull() ?: 0.85
+        reviewLogDao.recentDirectRatingsSince(adaptiveResetAt(), 200).accuracyOrNull() ?: 0.85
 
     private fun distanceFromTarget(coverage: Double): Double =
         when {
@@ -5510,7 +5831,12 @@ class LearningRepository(
             // STRESS_MARK retired: no longer generated and the legacy cards are purged
             // by MIGRATION_14_15, so it must not resurface as a deferred facet.
         )
-        private val LISTENING_CARD_TYPES = setOf(CardType.AUDIO_TO_RU, CardType.DICTATION, CardType.PHONOLOGY_MINIMAL_PAIR)
+        private val LISTENING_CARD_TYPES = setOf(
+            CardType.AUDIO_TO_RU,
+            CardType.DICTATION,
+            CardType.PHONOLOGY_MINIMAL_PAIR,
+            CardType.SPEAK_SENTENCE
+        )
         private val CEFR_LEVELS = listOf("A1", "A2", "B1", "B2", "C1", "C2")
         // Register-ladder TRANSFORM drills (Phase G6 §13.6) only activate once the
         // learner's effective CEFR reaches B2 — index 3 in CEFR_LEVELS above.

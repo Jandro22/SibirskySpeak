@@ -40,7 +40,6 @@ import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Science
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -91,6 +90,8 @@ import com.sibirskyspeak.review.SessionStep
 import com.sibirskyspeak.review.meaningLine
 import com.sibirskyspeak.learning.MatchOutcome
 import com.sibirskyspeak.learning.MatchReport
+import com.sibirskyspeak.learning.CardPedagogy
+import com.sibirskyspeak.learning.LearningFacet
 
 // ---------------------------------------------------------------------------
 
@@ -104,6 +105,7 @@ internal fun SessionCompleteCard(
     stoppedEarly: Boolean = false,
     deferredPrompts: Int = 0,
     matchReport: MatchReport? = null,
+    saving: Boolean = false,
     tomorrowReviews: Int = 0,
     tomorrowMinutes: Int = 0,
     tomorrowNewCards: Int = 0,
@@ -216,6 +218,7 @@ internal fun SessionCompleteCard(
                 )
                 Button(
                     onClick = onReadNext,
+                    enabled = !saving,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.onPrimary,
                         contentColor = MaterialTheme.colorScheme.primary
@@ -228,6 +231,7 @@ internal fun SessionCompleteCard(
             } else {
                 Button(
                     onClick = onDone,
+                    enabled = !saving,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.onPrimary,
                         contentColor = MaterialTheme.colorScheme.primary
@@ -235,7 +239,7 @@ internal fun SessionCompleteCard(
                 ) {
                     Icon(Icons.Filled.School, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Back to Practice", fontWeight = FontWeight.SemiBold)
+                    Text(if (saving) "Saving…" else "Back to Practice", fontWeight = FontWeight.SemiBold)
                 }
             }
             Spacer(Modifier.height(6.dp))
@@ -305,9 +309,13 @@ internal fun HeroCard(content: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-internal fun SectionCard(emphasis: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+internal fun SectionCard(
+    modifier: Modifier = Modifier,
+    emphasis: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit
+) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
             containerColor = if (emphasis) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f) else MaterialTheme.colorScheme.surface
@@ -343,7 +351,7 @@ internal fun StatusBanner(message: String, onDismiss: (() -> Unit)? = null) {
             color = MaterialTheme.colorScheme.primary
         )
         if (onDismiss != null) {
-            IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+            IconButton(onClick = onDismiss) {
                 Icon(Icons.Filled.Close, contentDescription = "Dismiss message", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
             }
         }
@@ -415,20 +423,19 @@ internal fun LetterTileBank(
     expected: String,
     cardId: Long,
     hint: String,
-    onChange: (String) -> Unit
+    onChange: (String) -> Unit,
+    resetKey: Any? = null
 ) {
     val haptics = LocalHapticFeedback.current
     // Strip the combining stress mark so it never becomes its own phantom tile;
     // answers are scored stress-insensitively anyway.
-    val answer = remember(cardId, expected) {
-        expected.split("/", ";", ",").firstOrNull()?.trim().orEmpty().replace("́", "")
-    }
+    val answer = remember(cardId, expected, resetKey) { tileAnswerText(expected) }
     val wordMode = answer.contains(' ')
     val partMode = !wordMode && answer.length >= 7
     val cyrillic = answer.any { it in 'а'..'я' || it in 'А'..'Я' || it == 'ё' || it == 'Ё' }
-    val tiles = remember(cardId, expected) {
+    val tiles = remember(cardId, expected, resetKey) {
         if (wordMode) {
-            val words = answer.lowercase().split(Regex("\\s+")).filter { it.isNotBlank() }
+            val words = sentenceTileWords(answer)
             val decoyPool = if (cyrillic) listOf("и", "в", "не", "на", "с", "по") else listOf("the", "a", "to", "of", "is", "in")
             (words + decoyPool.filter { it !in words }.shuffled().take(2)).shuffled()
         } else if (partMode) {
@@ -467,7 +474,7 @@ internal fun LetterTileBank(
         }
     }
     val separator = if (wordMode) " " else ""
-    var selected by remember(cardId, expected) { mutableStateOf(emptyList<Int>()) }
+    var selected by remember(cardId, expected, resetKey) { mutableStateOf(emptyList<Int>()) }
     fun emit(next: List<Int>) {
         selected = next
         onChange(next.joinToString(separator) { tiles[it] })
@@ -499,7 +506,7 @@ internal fun LetterTileBank(
                     Text(
                         "⌫",
                         modifier = Modifier
-                            .clip(RoundedCornerShape(50))
+                            .clip(PillShape)
                             .clickable {
                                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 emit(selected.dropLast(1))
@@ -530,6 +537,24 @@ internal fun LetterTileBank(
         )
     }
 }
+
+/** Keeps alternative short-form answers convenient without treating sentence
+ * punctuation as an answer separator. */
+internal fun tileAnswerText(expected: String): String {
+    val trimmed = expected.trim()
+    val compact = trimmed.split(Regex("\\s+")).size == 1
+    return (if (compact) trimmed.split("/", ";", ",").firstOrNull().orEmpty() else trimmed)
+        .trim()
+        .replace("́", "")
+}
+
+/** Sentence tiles must not carry boundary punctuation: punctuation belongs to the
+ * assembled answer, not to a word tile that gives away the final word. */
+internal fun sentenceTileWords(expected: String): List<String> =
+    Regex("[\\p{L}\\p{N}]+(?:[-'][\\p{L}\\p{N}]+)*")
+        .findAll(tileAnswerText(expected))
+        .map { it.value.lowercase() }
+        .toList()
 
 @Composable
 internal fun AnswerTile(label: String, used: Boolean, onClick: () -> Unit) {
@@ -676,7 +701,7 @@ internal fun tabIndex(step: SessionStep): Int = when (step.mainTab()) {
 internal fun Rating.accent(): Color = when (this) {
     Rating.AGAIN -> Color(0xFFD2453B)
     Rating.HARD -> Color(0xFFE08A1E)
-    Rating.GOOD -> Color(0xFF2E9E5B)
+    Rating.GOOD -> SuccessGreen
     Rating.EASY -> Color(0xFF2F73D8)
 }
 
@@ -685,7 +710,7 @@ internal fun SessionStep.icon(): ImageVector =
         SessionStep.REVIEWS -> Icons.Filled.School
         SessionStep.READER -> Icons.Filled.AutoStories
         SessionStep.DASHBOARD -> Icons.Filled.Insights
-        SessionStep.LAB -> Icons.Filled.Science
+        SessionStep.LAB -> Icons.Filled.Insights
         SessionStep.IMPORT -> Icons.Filled.Settings
         else -> Icons.Filled.School
     }
@@ -699,7 +724,7 @@ internal fun SessionStep.label(): String =
         SessionStep.READER -> "Read"
         SessionStep.IMPORT -> "Settings"
         SessionStep.DASHBOARD -> "Progress"
-        SessionStep.LAB -> "Lab"
+        SessionStep.LAB -> "Insights"
     }
 
 internal fun SessionStep.mainTab(): SessionStep =
@@ -759,8 +784,19 @@ internal fun reviewTaskTitle(prompt: ReviewPrompt): String =
         CardType.SENTENCE_BUILD -> "Build the Russian sentence"
         CardType.STRESS_MARK -> "Mark the stress"
         CardType.LESSON -> "Read the grammar lesson"
-        CardType.PHONOLOGY_MINIMAL_PAIR -> "Listen and type the word you heard"
+        CardType.PHONOLOGY_MINIMAL_PAIR -> "Listen and choose the word you heard"
     }
+
+internal fun reviewFacetLabel(prompt: ReviewPrompt): String = when (CardPedagogy.profile(prompt.card.cardType).facet) {
+    LearningFacet.MEANING -> "Meaning"
+    LearningFacet.FORM -> "Production"
+    LearningFacet.CONTEXT -> "Context"
+    LearningFacet.LISTENING -> "Listening"
+    LearningFacet.PRONUNCIATION -> "Pronunciation"
+    LearningFacet.SYNTAX -> "Grammar"
+    LearningFacet.MORPHOLOGY -> "Morphology"
+    LearningFacet.INSTRUCTION -> "Lesson"
+}
 
 internal fun reviewTaskHelp(prompt: ReviewPrompt): String =
     when (prompt.card.cardType) {
@@ -770,7 +806,11 @@ internal fun reviewTaskHelp(prompt: ReviewPrompt): String =
         CardType.AUDIO_TO_RU -> "Type the Russian you hear."
         CardType.SPEAK -> "Use the mic to say the Russian word or phrase aloud."
         CardType.CASE_FILL -> if (prompt.card.reps >= 2) {
-            "Read the sentence cues, choose the required case, and type the inflected form."
+            if (prompt.answerMode == AnswerMode.CHOICE) {
+                "Read the sentence cues and choose the form that fits the required case."
+            } else {
+                "Read the sentence cues and type the inflected form that fits the required case."
+            }
         } else if (prompt.answerMode == AnswerMode.CHOICE) {
             "Use the case cue and choose the ending that completes the form."
         } else {
@@ -796,10 +836,10 @@ internal fun reviewTaskHelp(prompt: ReviewPrompt): String =
         CardType.NOVEL_PRODUCE -> "There's no Russian shown — compose your own sentence expressing the English cue."
         CardType.SPEAK_SENTENCE -> "Listen to the sentence, then repeat it aloud from memory — word order matters."
         CardType.DICTATION -> "Listen to the Russian sentence and type what you hear."
-        CardType.SENTENCE_BUILD -> "Build the Russian sentence from the meaning or word-bank cue."
+        CardType.SENTENCE_BUILD -> "Build the Russian sentence from the meaning cue or word bank."
         CardType.STRESS_MARK -> "Choose the spelling with the stressed vowel marked."
         CardType.LESSON -> "Read the explanation, then continue when it feels familiar."
-        CardType.PHONOLOGY_MINIMAL_PAIR -> "Listen closely — this pair differs by a single sound. Type which word you heard."
+        CardType.PHONOLOGY_MINIMAL_PAIR -> "Listen closely — this pair differs by a single sound. Choose the word you heard."
     }
 
 internal fun answerHint(prompt: ReviewPrompt): String =

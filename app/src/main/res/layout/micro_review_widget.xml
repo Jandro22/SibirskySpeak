@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/widget_root"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/widget_root"
     android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
-    android:gravity="center_vertical" android:padding="16dp" android:background="#FF315DA8">
+    android:gravity="center_vertical" android:padding="16dp" android:background="#FF315DA8"
+    tools:ignore="Overdraw">
     <TextView android:id="@+id/widget_due" android:layout_width="wrap_content" android:layout_height="wrap_content"
         android:textColor="#FFD9E2FF" android:textSize="13sp" android:textStyle="bold" />
     <TextView android:id="@+id/widget_russian" android:layout_width="match_parent" android:layout_height="wrap_content"

@@ -9,6 +9,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.sibirskyspeak.notify.Reminders
 import dagger.hilt.android.AndroidEntryPoint
@@ -76,6 +77,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -100,12 +102,18 @@ class MainActivity : ComponentActivity() {
         // rival/pace-log state.
         const val EXTRA_DEBUG_FREEZE_ADAPTIVE = "debug_freeze_adaptive"
     }
+    private var pendingNotificationPermissionResult: ((Boolean) -> Unit)? = null
     private val notificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val callback = pendingNotificationPermissionResult
+            pendingNotificationPermissionResult = null
+            callback?.invoke(granted)
+        }
 
     @OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        configureSystemBars()
         Reminders.ensureChannel(this)
         Reminders.schedule(this)
         Reminders.scheduleWeekly(this)
@@ -126,12 +134,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    private fun configureSystemBars() {
+        val night = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !night
+            isAppearanceLightNavigationBars = !night
         }
+    }
+
+    private fun requestNotificationPermission(onResult: (Boolean) -> Unit) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        ) {
+            onResult(true)
+            return
+        }
+        pendingNotificationPermissionResult = onResult
+        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 }
 internal val MainTabs = listOf(SessionStep.REVIEWS, SessionStep.DASHBOARD, SessionStep.LAB, SessionStep.IMPORT)
@@ -142,7 +162,7 @@ internal fun ReviewScreen(
     viewModel: ReviewViewModel,
     launchMicro: Boolean = false,
     debugFreezeAdaptive: Boolean = false,
-    onReminderOptIn: () -> Unit = {}
+    onReminderOptIn: ((Boolean) -> Unit) -> Unit = { result -> result(true) }
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val tts = rememberRussianTts()
@@ -174,9 +194,15 @@ internal fun ReviewScreen(
     val currentDest by nav.current.collectAsState()
     if (state.showOnboarding) {
         Scaffold { innerPadding ->
-            Box(Modifier.padding(innerPadding)) {
+            Box(Modifier.fillMaxSize().padding(innerPadding)) {
                 OnboardingPanel(
-                    onStartAtBeginning = viewModel::completeOnboarding,
+                    onStartAtBeginning = {
+                        // The onboarding promise is a useful first lesson. Move
+                        // directly into Study so a new learner does not land on
+                        // the dashboard and need to discover a second button.
+                        viewModel.completeOnboarding()
+                        nav.push(Dest.Study)
+                    },
                     onTakePlacement = {
                         viewModel.completeOnboarding()
                         nav.replace(Dest.Import)
@@ -286,10 +312,9 @@ internal fun ReviewScreen(
                     viewModel.startRecommendedSession()
                     nav.push(Dest.Study)
                 },
-                onOpenReader = { id ->
-                    nav.replace(Dest.Reader(id))
-                    viewModel.setSessionStep(SessionStep.READER)
-                    viewModel.openReaderText(id)
+                onStartMicro = {
+                    viewModel.startMicroSession()
+                    nav.push(Dest.Study)
                 }
             )
             SessionStep.READER -> ReaderPanel(
@@ -306,11 +331,15 @@ internal fun ReviewScreen(
                     nav.replace(Dest.Import)
                     viewModel.setSessionStep(SessionStep.IMPORT)
                 },
-                onSpeakRussian = tts::speak
+                onSpeakRussian = tts::speak,
+                onEditSource = viewModel::updateReaderSource
             )
             SessionStep.DASHBOARD -> DashboardPanel(
                 state = state,
-                onStart = { nav.push(Dest.Study) },
+                onStart = {
+                    viewModel.startRecommendedSession()
+                    nav.push(Dest.Study)
+                },
                 onLoadLeeches = viewModel::loadLeeches,
                 onReleaseLeech = viewModel::releaseLeech,
                 onSaveLeechEdit = viewModel::editLeech,
@@ -328,7 +357,14 @@ internal fun ReviewScreen(
                     settingsArea = SettingsArea.STUDY
                     nav.replace(Dest.Import)
                     viewModel.setSessionStep(SessionStep.IMPORT)
-                }
+                },
+                onGoToGoalSettings = {
+                    settingsArea = SettingsArea.STUDY
+                    nav.replace(Dest.Import)
+                    viewModel.setSessionStep(SessionStep.IMPORT)
+                },
+                onDismissGoalOffTrackPrompt = viewModel::dismissGoalOffTrackPrompt,
+                onAbandonLearningGoal = viewModel::abandonLearningGoal
             )
             SessionStep.LAB -> LabPanel(
                 state = state,
@@ -347,24 +383,42 @@ internal fun ReviewScreen(
                 onExport = viewModel::exportJsonLines,
                 onFullBackup = viewModel::exportFullState,
                 onBackupTree = viewModel::setBackupTreeUri,
+                onAutomaticPublicBackup = viewModel::setAutomaticPublicBackupEnabled,
+                onConfigureBackupEncryption = viewModel::configureExternalBackupEncryption,
+                onClearBackupEncryption = viewModel::clearExternalBackupEncryption,
+                onDismissBackupRecoveryKey = viewModel::dismissBackupRecoveryKey,
                 onTitle = viewModel::setReaderTitle,
                 onBody = viewModel::setReaderBody,
+                onSource = viewModel::setReaderSource,
                 onAdd = viewModel::addReaderText,
                 onDailyGoal = viewModel::setDailyGoal,
                 onSessionSize = viewModel::setSessionSize,
                 onNewCardsPerDay = viewModel::setNewCardsPerDay,
                 onRetention = viewModel::setRetention,
+                onPreviewGoalFeasibility = viewModel::previewGoalFeasibility,
+                onCommitLearningGoal = viewModel::commitLearningGoal,
+                onAbandonLearningGoal = viewModel::abandonLearningGoal,
                 onAdaptiveEnabled = viewModel::setAdaptiveEnabled,
+                onResetAdaptivePacing = viewModel::resetAdaptivePacing,
+                onTemporarySessionMode = viewModel::setTemporarySessionMode,
                 onPlaceAfterLevel = viewModel::placeAfterLevel,
                 onStartPlacementTest = viewModel::startPlacementTest,
                 onAnswerPlacementQuestion = viewModel::answerPlacementQuestion,
                 onApplyPlacementResult = viewModel::applyPlacementResult,
+                onApplyPlacementAtLevel = viewModel::applyPlacementAtLevel,
                 onDismissPlacementTest = viewModel::dismissPlacementTest,
                 onReminderEnabled = { enabled ->
                     viewModel.setReminderEnabled(enabled)
-                    if (enabled) onReminderOptIn()
-                    Reminders.schedule(context)
-                    Reminders.scheduleWeekly(context)
+                    if (enabled) {
+                        onReminderOptIn { granted ->
+                            if (!granted) viewModel.setReminderEnabled(false)
+                            Reminders.schedule(context)
+                            Reminders.scheduleWeekly(context)
+                        }
+                    } else {
+                        Reminders.schedule(context)
+                        Reminders.scheduleWeekly(context)
+                    }
                 },
                 onReminderHour = { hour ->
                     viewModel.setReminderHour(hour)
@@ -379,11 +433,13 @@ internal fun ReviewScreen(
             )
             else -> PracticeScreen(
                 state = state,
-                onStart = { nav.push(Dest.Study) },
-                onOpenReader = { id ->
-                    nav.replace(Dest.Reader(id))
-                    viewModel.setSessionStep(SessionStep.READER)
-                    viewModel.openReaderText(id)
+                onStart = {
+                    viewModel.startRecommendedSession()
+                    nav.push(Dest.Study)
+                },
+                onStartMicro = {
+                    viewModel.startMicroSession()
+                    nav.push(Dest.Study)
                 }
             )
         }
@@ -544,6 +600,7 @@ internal fun ReviewScreen(
                             onSetStatus = viewModel::setReaderWordStatus,
                             onClearSelection = viewModel::clearSelectedToken,
                             onSpeakRussian = tts::speak,
+                            onToggleBookmark = viewModel::toggleReaderBookmark,
                             onMine = viewModel::mineSentence
                         )
                     }
@@ -635,7 +692,7 @@ internal fun MainBottomBar(selected: SessionStep, onSelect: (SessionStep) -> Uni
                         SessionStep.LAB -> TestTags.NAV_LAB
                         else -> TestTags.NAV_SETTINGS
                     }
-                ),
+                ).semantics { contentDescription = tab.label() },
                 selected = isSelected,
                 onClick = { onSelect(tab) },
                 icon = {

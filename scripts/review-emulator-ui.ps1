@@ -1,5 +1,6 @@
 param(
     [string]$AvdName = "Sibirsky_Pixel4a_API35",
+    [string]$Serial = "",
     [switch]$ResetApp,
     [switch]$Install,
     [switch]$Headless
@@ -13,10 +14,12 @@ $Apk = Join-Path $Root "app\build\outputs\apk\debug\app-debug.apk"
 $Package = "com.sibirskyspeak"
 $Output = Join-Path $Root ("build\emulator-review\" + (Get-Date -Format "yyyyMMdd-HHmmss"))
 
-$serial = (& (Join-Path $PSScriptRoot "start-emulator.ps1") -AvdName $AvdName -Visible:(-not $Headless) | Select-Object -Last 1).Trim()
+$serial = if ($Serial) { $Serial } else { (& (Join-Path $PSScriptRoot "start-emulator.ps1") -AvdName $AvdName -Visible:(-not $Headless) | Select-Object -Last 1).Trim() }
 $packageInstalled = ((& $Adb -s $serial shell pm path $Package 2>$null | Out-String) -match '^package:')
 if ($Install -or !$packageInstalled) {
-    if (!(Test-Path $Apk)) { & (Join-Path $PSScriptRoot "build-debug.ps1") }
+    # An explicit install request is a verification request: never reinstall a
+    # stale APK left by an earlier build.
+    if ($Install -or !(Test-Path $Apk)) { & (Join-Path $PSScriptRoot "build-debug.ps1") }
     & $Adb -s $serial install -r $Apk | Out-Host
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
@@ -28,11 +31,15 @@ foreach ($permission in @("android.permission.POST_NOTIFICATIONS", "android.perm
     & $Adb -s $serial shell pm grant $Package $permission 2>$null | Out-Null
 }
 
+$launchStarted = Get-Date
 & $Adb -s $serial shell monkey -p $Package -c android.intent.category.LAUNCHER 1 | Out-Null
 
 # First launch can spend several seconds importing the bundled curriculum. Wait for
 # real app semantics instead of taking a screenshot of the splash screen.
-$bodyPattern = "Today's Focus|Curriculum mastery|Practice actions completed|Daily goal|Study settings|Reader library|New vocabulary|Make the adjective agree|Choose the right Russian form|Translate this Russian word"
+# Include both first-run onboarding and post-onboarding surfaces. Matching only
+# dashboard/study copy made clean-install reviews falsely time out while the
+# rendered onboarding screen was already visible.
+$bodyPattern = "Start with a useful first session|Your first session|I know some Russian|Today's Focus|Curriculum mastery|Practice actions completed|Daily goal|Study settings|Reader library|New vocabulary|Make the adjective agree|Choose the right Russian form|Translate this Russian word|onboarding_beginner"
 $deadline = (Get-Date).AddSeconds(45)
 do {
     Start-Sleep -Seconds 2
@@ -94,5 +101,7 @@ if ($candidates.Count -gt 0) {
 & $Adb -s $serial pull /sdcard/sibirsky-review.xml (Join-Path $Output "ui.xml") | Out-Null
 & $Adb -s $serial shell rm -f /sdcard/sibirsky-ready.xml /sdcard/sibirsky-review.xml | Out-Null
 
-@("serial=$serial", "package=$Package", "avd=$AvdName") | Set-Content -LiteralPath (Join-Path $Output "review.txt")
+$startupMs = [int]((Get-Date) - $launchStarted).TotalMilliseconds
+@("serial=$serial", "package=$Package", "avd=$AvdName", "startup_ms=$startupMs") | Set-Content -LiteralPath (Join-Path $Output "review.txt")
+& $Adb -s $serial shell dumpsys meminfo $Package | Out-File -Encoding utf8 (Join-Path $Output "meminfo.txt")
 Write-Output $Output

@@ -55,7 +55,7 @@ object AdaptiveTrustPolicy {
 
     fun reason(evidence: AdaptiveEvidence, trust: Double): String = when {
         evidence.calibrationDrifted -> "Adaptive influence limited because recent predictions drifted"
-        trust < 0.50 -> "Mostly using your chosen settings while the tutor gathers evidence"
+        trust < 0.50 -> "Mostly using your chosen settings while the tutor learns your pace"
         trust < 0.80 -> "Blending your settings with ${evidence.completedSessions} completed adaptive sessions"
         else -> "Primarily using a well-supported personal pace model"
     }
@@ -76,7 +76,12 @@ data class PaceInputs(
     val sessionsPerDayExpected: Double = 1.0,
     val decay: Double = FsrsScheduler.decayOf(FsrsScheduler.DEFAULT_WEIGHTS),
     val tunedTargetRetention: Double? = null,
-    val tunedNewBudgetScale: Double = 1.0
+    val tunedNewBudgetScale: Double = 1.0,
+    /** stablePace / requiredPace from the active learning goal (GoalMath.paceRatio),
+     * or null with no active goal. Raises the new-item ceiling and floor below when
+     * behind schedule; never shrinks them when ahead, and never touches
+     * tunedTargetRetention or bypasses the safety guards further down. */
+    val goalPaceRatio: Double? = null
 )
 
 object PaceController {
@@ -162,7 +167,18 @@ object PaceController {
         val capacityFit = CapacityModel.successProbability(inputs.capacity, demandProbe)
         val demandScale = (0.60 + 0.60 * capacityFit).coerceIn(0.60, 1.20)
         val t0 = (sustainable * (0.70 + 0.30 * capacityFit) * demandScale).coerceIn(5.0, 40.0)
-        val budgetScale = inputs.tunedNewBudgetScale.takeIf(Double::isFinite)?.coerceIn(0.5, 1.5) ?: 1.0
+        val tunedScale = inputs.tunedNewBudgetScale.takeIf(Double::isFinite)?.coerceIn(0.5, 1.5) ?: 1.0
+        // A live goal behind schedule raises the ceiling (never shrinks it when
+        // ahead — the multiplier floors at 1.0) up to GoalMath.PRESSURE_CEILING, the
+        // exact bound the Settings feasibility verdict already promises the learner.
+        // This composes multiplicatively with the existing tuned scale and is the
+        // only place goal pressure enters — everything downstream (accuracyScaled's
+        // recovery gating, SAFETY_NEW_CAP, and safeNewBudget's debt/pReturn/capacity
+        // zeroing below) still runs unmodified afterward, so goal pressure can only
+        // raise what those guards already allowed, never bypass them.
+        val goalPressure = inputs.goalPaceRatio?.takeIf(Double::isFinite)
+            ?.let { ratio -> (1.0 / ratio.coerceAtLeast(0.05)).coerceIn(1.0, GoalMath.PRESSURE_CEILING) } ?: 1.0
+        val budgetScale = (tunedScale * goalPressure).coerceIn(0.5, 1.5 * GoalMath.PRESSURE_CEILING)
         val nMax = (maxNewItems(loadNow, debtPerNew, sustainable * sessionsPerDay, delta) * budgetScale).toInt().coerceAtLeast(0)
         val lookahead = SessionLookahead.choose(cap = nMax.coerceAtLeast(0), dueForecast = forecast, retention = targetRetention)
         val reviewBudget = minOf(atRisk.size, (t0 / reviewMinutes.coerceAtLeast(0.05)).toInt().coerceAtLeast(0))
@@ -171,7 +187,19 @@ object PaceController {
             accuracy < 0.82 -> nMax / 2
             else -> nMax
         }
-        val newBudget = minOf(accuracyScaled, lookahead.newCards, SAFETY_NEW_CAP, ((t0 - reviewBudget * reviewMinutes) / 0.45).toInt().coerceAtLeast(0))
+        // Anti-stagnation floor: without a goal, a homeostat-only controller's sole
+        // equilibrium is the minimum pace that preserves the habit, so soft comfort
+        // signals alone can legitimately walk newBudget to zero. With a live goal AND
+        // signals that are merely soft (not real fatigue/low-accuracy/low-capacity —
+        // those still zero accuracyScaled/safeNewBudget via their own independent
+        // checks), guarantee a small trickle instead of letting it settle at zero.
+        val goalFloor = if (inputs.goalPaceRatio != null && !recoveryLike && capacityFit >= 0.55 && accuracy >= 0.82) {
+            (nMax * 0.15).roundToInt().coerceIn(0, 3)
+        } else 0
+        val newBudget = maxOf(
+            minOf(accuracyScaled, lookahead.newCards, SAFETY_NEW_CAP, ((t0 - reviewBudget * reviewMinutes) / 0.45).toInt().coerceAtLeast(0)),
+            goalFloor
+        )
         val debtRatio = currentDebtRatio(loadNow, newBudget, debtPerNew, sustainable, HORIZON_DAYS)
         val rawPReturn = (pReturnBase - 0.005 * (newBudget / 5.0) - 0.006 * (t0 / 20.0) - 0.12 * fatigue - 0.08 * (1.0 - capacityFit)).coerceIn(0.0, 1.0)
         // When the unconstrained candidate risks tomorrow, the controller chooses an

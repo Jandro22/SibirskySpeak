@@ -1,6 +1,7 @@
 package com.sibirskyspeak
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -36,6 +37,9 @@ import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
@@ -98,11 +102,12 @@ internal fun ReaderPanel(
     onCheckpointAnswer: (String) -> Unit,
     onSetGoal: (Long) -> Unit,
     onAddText: () -> Unit,
-    onSpeakRussian: (String) -> Unit
+    onSpeakRussian: (String) -> Unit,
+    onEditSource: (Long, String) -> Unit
 ) {
     val selected = state.selectedReaderTextId?.let { id -> state.allReaderTexts.firstOrNull { it.text.id == id } }
     if (selected == null) {
-        ReaderBookshelf(state, onOpen, onAddText, onSpeakRussian, onSetGoal)
+        ReaderBookshelf(state, onOpen, onAddText, onSpeakRussian, onSetGoal, onEditSource)
     } else {
         ReaderTextScreen(state, selected, onLookup, onClose, onMarkVisible, onProgress, onSpeakRussian, onCheckpointAnswer)
     }
@@ -114,8 +119,9 @@ internal fun ReaderBookshelf(
     state: ReviewUiState,
     onOpen: (Long) -> Unit,
     onAddText: () -> Unit,
-    onSpeakRussian: (String) -> Unit
-    , onSetGoal: (Long) -> Unit
+    onSpeakRussian: (String) -> Unit,
+    onSetGoal: (Long) -> Unit,
+    onEditSource: (Long, String) -> Unit
 ) {
     val texts = state.allReaderTexts.sortedWith(compareByDescending<ReaderRecommendation> { it.coverage }.thenBy { it.text.title })
     val recommended = state.readerRecommendation
@@ -126,6 +132,8 @@ internal fun ReaderBookshelf(
         .filterNot { it.text.id == recommended?.text?.id }
         .take(24)
         .toList()
+    var editing by remember { mutableStateOf<ReaderRecommendation?>(null) }
+    var sourceDraft by rememberSaveable { mutableStateOf("") }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         SectionCard {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -196,7 +204,11 @@ internal fun ReaderBookshelf(
                             recommended = item.text.id == state.readerRecommendation?.text?.id,
                             progressIndex = state.readerProgressByText[item.text.id] ?: -1,
                             onOpen = onOpen,
-                            onSetGoal = onSetGoal
+                            onSetGoal = onSetGoal,
+                            onEditSource = {
+                                editing = item
+                                sourceDraft = item.text.source
+                            }
                         )
                     }
                 }
@@ -209,6 +221,25 @@ internal fun ReaderBookshelf(
             )
         }
     }
+    editing?.let { item ->
+        AlertDialog(
+            onDismissRequest = { editing = null },
+            title = { Text(stringResource(R.string.reader_source_edit_title)) },
+            text = {
+                OutlinedTextField(
+                    value = sourceDraft,
+                    onValueChange = { sourceDraft = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.reader_source_attribution_label)) },
+                    supportingText = { Text(stringResource(R.string.reader_source_attribution_help)) }
+                )
+            },
+            confirmButton = {
+                Button(onClick = { onEditSource(item.text.id, sourceDraft); editing = null }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { editing = null }) { Text("Cancel") } }
+        )
+    }
 }
 
 @Composable
@@ -216,7 +247,7 @@ internal fun ReaderRecommendationCard(item: ReaderRecommendation, onOpen: (Long)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onOpen(item.text.id) },
+            .clickable(role = Role.Button) { onOpen(item.text.id) },
         shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
@@ -229,7 +260,7 @@ internal fun ReaderRecommendationCard(item: ReaderRecommendation, onOpen: (Long)
             CoverageRing(item.coverage, Modifier.size(52.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Best next read", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text("Best next read", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     ReaderStatusChip(item.status)
                 }
                 Text(item.text.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -237,6 +268,17 @@ internal fun ReaderRecommendationCard(item: ReaderRecommendation, onOpen: (Long)
                     "${formatCount(item.knownTokens)} / ${formatCount(item.totalTokens)} familiar tokens",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    stringResource(R.string.reader_difficulty, item.difficultyLabel.replaceFirstChar(Char::uppercase)) +
+                        " · " + stringResource(
+                            R.string.reader_difficulty_detail,
+                            (item.syntaxComplexity * 100).toInt(),
+                            (item.morphologyNovelty * 100).toInt(),
+                            (item.idiomDensity * 100).toInt()
+                        ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
                 )
                 Text(
                     "Chosen for the 93-96% coverage sweet spot and unfinished progress.",
@@ -269,8 +311,9 @@ internal fun BookCover(
     index: Int,
     recommended: Boolean,
     progressIndex: Int,
-    onOpen: (Long) -> Unit
-    , onSetGoal: (Long) -> Unit
+    onOpen: (Long) -> Unit,
+    onSetGoal: (Long) -> Unit,
+    onEditSource: () -> Unit
 ) {
     val base = BookPalette[index % BookPalette.size]
     val deep = lerp(base, Color.Black, 0.28f)
@@ -293,11 +336,11 @@ internal fun BookCover(
     Box(
         modifier = Modifier
             .width(152.dp)
-            .height(198.dp)
+            .height(226.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(RoundedCornerShape(topStart = 5.dp, bottomStart = 5.dp, topEnd = 13.dp, bottomEnd = 13.dp))
             .background(Brush.linearGradient(listOf(base, deep)))
-            .clickable(interactionSource = interaction, indication = null) { onOpen(item.text.id) }
+            .clickable(interactionSource = interaction, indication = null, role = Role.Button) { onOpen(item.text.id) }
     ) {
         // Book spine down the left edge.
         Box(
@@ -334,7 +377,7 @@ internal fun BookCover(
                 )
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(50))
+                        .clip(PillShape)
                         .background(Color.White.copy(alpha = 0.22f))
                         .padding(horizontal = 9.dp, vertical = 3.dp)
                 ) {
@@ -350,16 +393,19 @@ internal fun BookCover(
             Text(progressLabel, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.92f), fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(2.dp))
             Text(statusLabel, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.82f), fontWeight = FontWeight.SemiBold)
-        }
-        TextButton(onClick = { onSetGoal(item.text.id) }, modifier = Modifier.align(Alignment.BottomCenter)) {
-            Text(if (item.text.source.startsWith("target:")) "Goal set" else "Set goal", color = Color.White)
+            IconButton(onClick = onEditSource, modifier = Modifier.align(Alignment.End).size(32.dp)) {
+                Icon(Icons.Filled.Edit, contentDescription = "Edit source or license", tint = Color.White)
+            }
+            TextButton(onClick = { onSetGoal(item.text.id) }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (item.text.source.startsWith("target:")) "Goal set" else "Set goal", color = Color.White)
+            }
         }
         if (recommended) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(10.dp)
-                    .clip(RoundedCornerShape(50))
+                    .clip(PillShape)
                     .background(Color.White.copy(alpha = 0.24f))
                     .padding(horizontal = 9.dp, vertical = 4.dp)
             ) {
@@ -404,6 +450,7 @@ internal fun ReaderTextScreen(
         .distinctBy { it.normalized }
         .map { it.surface }
     var confirmKnownBatch by remember(selected.text.id, newTokens.size) { mutableStateOf(false) }
+    var focusMode by rememberSaveable(selected.text.id) { mutableStateOf(false) }
     // Sentence-by-sentence "Listen" mode: its own TTS engine so it doesn't clash with
     // the tap-a-word pronunciation, with karaoke-style current-sentence highlighting.
     val readerTts = rememberRussianTts()
@@ -427,6 +474,7 @@ internal fun ReaderTextScreen(
         }
     }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        AnimatedVisibility(visible = !focusMode) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.medium,
@@ -442,7 +490,7 @@ internal fun ReaderTextScreen(
                 ) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(selected.text.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(selected.text.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             ReaderStatusChip(selected.status)
                         }
                         Text(
@@ -453,6 +501,13 @@ internal fun ReaderTextScreen(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        if (state.readerHistory.isNotEmpty()) {
+                            Text(
+                                "Completed ${state.readerHistory.size} time${if (state.readerHistory.size == 1) "" else "s"} · last ${state.readerHistory.maxOf { it.completedAt }}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = {
@@ -475,6 +530,7 @@ internal fun ReaderTextScreen(
                         TextButton(onClick = onClose) {
                             Text(if (state.inSessionReading) "Postpone" else "Close")
                         }
+                        TextButton(onClick = { focusMode = true }) { Text(stringResource(R.string.reader_focus)) }
                     }
                 }
                 if (isPlaying && playingSentence in sentences.indices) {
@@ -497,10 +553,21 @@ internal fun ReaderTextScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(4.dp)
-                        .clip(RoundedCornerShape(99.dp)),
+                        .clip(PillShape),
                     color = MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant
                 )
+            }
+        }
+        }
+        AnimatedVisibility(visible = focusMode) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(selected.text.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                TextButton(onClick = { focusMode = false }) { Text(stringResource(R.string.reader_exit_focus)) }
             }
         }
         // Paper-like reading surface: words flow as real text, not buttons. The
@@ -536,6 +603,7 @@ internal fun ReaderTextScreen(
                                 token = token,
                                 consolidation = token.lemma in state.sessionPlan?.consolidationLemmas.orEmpty(),
                                 selected = state.selectedToken?.normalized == token.normalized,
+                                bookmarked = state.readerBookmarks.any { it.tokenIndex == index },
                                 reached = index <= state.readerProgressIndex,
                                 enabled = !state.readerLookupInProgress,
                                 fontScale = state.readerFontScale,
@@ -741,10 +809,23 @@ internal fun ReaderMetricChip(value: String, label: String) {
     }
 }
 
+private val WordStatusNewColor = Color(0xFF4C8DFF)
+private val WordStatusLearningColor = Color(0xFFE0A21E)
+
 internal fun WordStatus.statusHighlight(): Color = when (this) {
-    WordStatus.NEW -> Color(0xFF4C8DFF)
-    WordStatus.LEARNING -> Color(0xFFE0A21E)
+    WordStatus.NEW -> WordStatusNewColor
+    WordStatus.LEARNING -> WordStatusLearningColor
     WordStatus.KNOWN, WordStatus.IGNORED -> Color.Transparent
+}
+
+/** Mirrors Rating.accent() in CommonComponents.kt: one canonical color per
+ * WordStatus, instead of three call sites separately hardcoding the same map. */
+@Composable
+internal fun WordStatus.accent(): Color = when (this) {
+    WordStatus.NEW -> WordStatusNewColor
+    WordStatus.LEARNING -> WordStatusLearningColor
+    WordStatus.KNOWN -> SuccessGreen
+    WordStatus.IGNORED -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 @Composable
@@ -752,6 +833,7 @@ internal fun ReaderWord(
     token: ReaderToken,
     consolidation: Boolean,
     selected: Boolean,
+    bookmarked: Boolean,
     reached: Boolean,
     enabled: Boolean,
     fontScale: Float,
@@ -771,9 +853,13 @@ internal fun ReaderWord(
         animationSpec = spring(stiffness = Spring.StiffnessMedium),
         label = "reader-word-scale"
     )
-    val borderMod = if (selected || consolidation) {
+    val borderMod = if (selected || consolidation || bookmarked) {
         Modifier.border(
-            BorderStroke(1.5.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary),
+            BorderStroke(1.5.dp, when {
+                selected -> MaterialTheme.colorScheme.primary
+                bookmarked -> MaterialTheme.colorScheme.secondary
+                else -> MaterialTheme.colorScheme.tertiary
+            }),
             RoundedCornerShape(5.dp)
         )
     } else {
@@ -835,6 +921,7 @@ internal fun WordDetailCard(
     onSetStatus: (WordStatus) -> Unit,
     onClearSelection: () -> Unit,
     onSpeakRussian: (String) -> Unit,
+    onToggleBookmark: (Int, String) -> Unit,
     onMine: (String, String?) -> Unit = { _, _ -> }
 ) {
     // The sentence the learner met this word in, for sentence-mining into study.
@@ -857,6 +944,8 @@ internal fun WordDetailCard(
         }
     }
     SectionCard(emphasis = true) {
+        val tokenIndex = state.readerTokens.indexOf(token)
+        val bookmarked = state.readerBookmarks.any { it.tokenIndex == tokenIndex }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -865,11 +954,20 @@ internal fun WordDetailCard(
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val spokenHeadword = token.stressForm ?: token.surface
-                    Text(spokenHeadword, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = { onSpeakRussian(spokenHeadword) }, modifier = Modifier.size(36.dp)) {
+                    Text(spokenHeadword, modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    IconButton(onClick = { onSpeakRussian(spokenHeadword) }) {
                         Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Hear word", modifier = Modifier.size(20.dp))
                     }
                     CurrentWordStatusPill(token.status)
+                    IconButton(
+                        onClick = { if (tokenIndex >= 0) onToggleBookmark(tokenIndex, token.surface) },
+                        enabled = tokenIndex >= 0
+                    ) {
+                        Icon(
+                            if (bookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                            contentDescription = if (bookmarked) "Remove bookmark" else "Bookmark word"
+                        )
+                    }
                 }
                 val gloss = token.translation?.takeIf { it != "lookup pending" }
                 Text(
@@ -902,7 +1000,7 @@ internal fun WordDetailCard(
         }
         if (state.readerLookupInProgress) {
             Spacer(Modifier.height(10.dp))
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(99.dp)))
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(6.dp).clip(PillShape))
         }
         Spacer(Modifier.height(14.dp))
         Text("Word status", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -964,7 +1062,7 @@ internal fun WordDetailCard(
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(prefix + ru, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                                IconButton(onClick = { ru?.let(onSpeakRussian) }, modifier = Modifier.size(34.dp)) {
+                                IconButton(onClick = { ru?.let(onSpeakRussian) }) {
                                     Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Hear example", modifier = Modifier.size(18.dp))
                                 }
                             }
@@ -1026,12 +1124,7 @@ internal fun WordStatusConfirmDialog(
 
 @Composable
 internal fun CurrentWordStatusPill(status: WordStatus) {
-    val accent = when (status) {
-        WordStatus.NEW -> Color(0xFF4C8DFF)
-        WordStatus.LEARNING -> Color(0xFFE0A21E)
-        WordStatus.KNOWN -> Color(0xFF2E9E5B)
-        WordStatus.IGNORED -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    val accent = status.accent()
     val container by animateColorAsState(accent.copy(alpha = 0.14f), tween(180), label = "word-status-pill")
     Surface(shape = MaterialTheme.shapes.small, color = container) {
         Text(
@@ -1052,17 +1145,12 @@ internal fun WordStatusChip(
     onSetStatus: (WordStatus) -> Unit
 ) {
     val selected = current == status
-    val accent = when (status) {
-        WordStatus.NEW -> Color(0xFF4C8DFF)
-        WordStatus.LEARNING -> Color(0xFFE0A21E)
-        WordStatus.KNOWN -> Color(0xFF2E9E5B)
-        WordStatus.IGNORED -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    val accent = status.accent()
     Surface(
         modifier = Modifier
-            .clip(RoundedCornerShape(50))
+            .clip(PillShape)
             .clickable { onSetStatus(status) },
-        shape = RoundedCornerShape(50),
+        shape = PillShape,
         color = if (selected) accent else MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, accent.copy(alpha = if (selected) 1f else 0.5f))
     ) {

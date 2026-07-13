@@ -40,13 +40,15 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import kotlin.math.roundToInt
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.School
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -57,6 +59,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -74,7 +77,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -107,7 +112,10 @@ internal fun DashboardPanel(
     onCloseExitTicket: () -> Unit = {},
     onSpeakRussian: (String) -> Unit = {},
     onGoToBackupSettings: () -> Unit = {},
-    onCustomizeToday: () -> Unit = {}
+    onCustomizeToday: () -> Unit = {},
+    onGoToGoalSettings: () -> Unit = {},
+    onDismissGoalOffTrackPrompt: () -> Unit = {},
+    onAbandonLearningGoal: () -> Unit = {}
 ) {
     val stats = state.dashboardStats
     if (stats == null) {
@@ -140,27 +148,47 @@ internal fun DashboardPanel(
         // window before that first automatic mirror, or on a pre-Android-10 device
         // where MediaStore.Downloads isn't available and a manually-chosen SAF
         // folder (Settings > Data) is the only durable option.
-        if (state.backupLastDurableAt <= 0L && stats.noteCount > 0) {
-            BackupNotConfiguredCard(onGoToBackupSettings)
-        }
         if (state.exitTicketSession != null) {
             ExitTicketCard(state, onSubmitExitTicketAnswer, onCloseExitTicket, onSpeakRussian)
         } else if (state.exitTicketOfferUnit != null) {
             ExitTicketOfferCard(state.exitTicketOfferUnit, state.exitTicketOfferCanDo, onStartExitTicket, onDismissExitTicketOffer)
         }
         DashboardNextActionCard(state, onStart, onCustomizeToday)
-        stats.goalProgress?.let { goal ->
-            SectionCard {
-                Text("${goal.unknownLemmaCount} words to «${goal.textTitle}»", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text("${goal.coveragePct}% coverage · ${if (goal.deltaThisWeek >= 0) "+" else ""}${goal.deltaThisWeek}% this week", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+        if (state.automaticPublicBackupEnabled && state.backupLastDurableAt <= 0L && stats.noteCount > 0) {
+            BackupNotConfiguredCard(onGoToBackupSettings)
         }
         StreakCard(game)
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            DailyGoalCard(Modifier.weight(1f), game)
-            WordsKnownCard(Modifier.weight(1f), game)
+        // At large font scales two equal cards become cramped and their labels
+        // wrap into unreadable fragments. Stack them on narrow windows; tablets
+        // and landscape retain the compact two-column layout.
+        BoxWithConstraints {
+            if (maxWidth < 420.dp) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    DailyGoalCard(Modifier.fillMaxWidth(), game)
+                    WordsKnownCard(Modifier.fillMaxWidth(), game)
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    DailyGoalCard(Modifier.weight(1f), game)
+                    WordsKnownCard(Modifier.weight(1f), game)
+                }
+            }
         }
-        FluencyForecastCard(state.fluencyForecast)
+        FluencyForecastCard(state.fluencyForecast, state.goalStatus)
+        if (state.showGoalOffTrackPrompt) {
+            GoalOffTrackDialog(
+                onRaiseCommitment = onDismissGoalOffTrackPrompt,
+                onPushBackDate = {
+                    onDismissGoalOffTrackPrompt()
+                    onGoToGoalSettings()
+                },
+                onDropGoal = {
+                    onDismissGoalOffTrackPrompt()
+                    onAbandonLearningGoal()
+                },
+                onDismiss = onDismissGoalOffTrackPrompt
+            )
+        }
         if (stats.leechCount > 0) LeechCard(state.leeches, stats.leechCount, onReleaseLeech, onEdit = { editingLeech = it })
         DetailsSection(stats, showDetails) { showDetails = !showDetails }
     }
@@ -183,8 +211,9 @@ internal fun DashboardPanel(
  * picker, no permission prompt); this card is only reachable in the narrow
  * window before that first automatic mirror lands, or on a pre-Android-10
  * device where a manually-chosen SAF folder is the only durable option.
- * Deliberately styled with the error container (not the neutral SectionCard)
- * so it reads as "your data has a real gap," not routine chrome.
+ * This is an informational first-run state, not a failed backup. Keep it
+ * visually subordinate to the learning action so a brand-new learner is not
+ * greeted by an alarming red warning before completing a first session.
  */
 @Composable
 internal fun BackupNotConfiguredCard(onGoToBackupSettings: () -> Unit) {
@@ -192,28 +221,23 @@ internal fun BackupNotConfiguredCard(onGoToBackupSettings: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(Icons.Filled.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.onErrorContainer)
+                Icon(Icons.Filled.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Text(
-                    if (automatic) "Waiting for first backup copy" else "Backup folder not set up",
+                    if (automatic) stringResource(R.string.dashboard_backup_waiting_title) else stringResource(R.string.dashboard_backup_folder_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onErrorContainer
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
             Text(
-                if (automatic) {
-                    "Your review history is backed up on this phone, but only in a location that an uninstall or \"Clear storage\" wipes along with the app. " +
-                        "A durable copy mirrors automatically to Downloads/SibirskySpeak after your next completed session — no setup needed."
-                } else {
-                    "Your review history is backed up on this phone, but only in a location that an uninstall or \"Clear storage\" wipes along with the app. " +
-                        "Pick a folder once (e.g. a synced Downloads or Drive folder) and it mirrors there automatically after every session."
-                },
+                if (automatic) stringResource(R.string.dashboard_backup_waiting_body)
+                else stringResource(R.string.dashboard_backup_folder_body),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.9f)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             if (!automatic) {
                 Button(
@@ -223,7 +247,7 @@ internal fun BackupNotConfiguredCard(onGoToBackupSettings: () -> Unit) {
                         contentColor = MaterialTheme.colorScheme.errorContainer
                     )
                 ) {
-                    Text("Choose a backup folder")
+                    Text(stringResource(R.string.dashboard_backup_choose_folder))
                 }
             }
         }
@@ -296,7 +320,7 @@ internal fun ExitTicketCard(
                 )
                 item.audioPrompt?.let { audio ->
                     OutlinedButton(onClick = { onSpeakRussian(audio) }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Filled.VolumeUp, contentDescription = null)
+                        Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text("Listen")
                     }
@@ -410,41 +434,44 @@ internal fun DashboardNextActionCard(
     onCustomize: () -> Unit = {}
 ) {
     val prompts = state.sessionPlan?.reviewQueue.orEmpty()
-    val reader = state.sessionPlan?.readingAssignment?.recommendation
     val hasGrammar = prompts.any { it.card.queue.name == "GRAMMAR" }
     val hasNew = prompts.any { it.card.state.name == "NEW" }
     val leechCount = state.dashboardStats?.leechCount ?: 0
-    SectionCard {
+    val estimatedMinutes = (prompts.size * 0.3f).roundToInt().coerceAtLeast(1)
+    HeroCard {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(Icons.Filled.Insights, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
+            Icon(Icons.Filled.Insights, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(34.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Next Best Step", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Today's path", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
                 Text(
                     when {
-                        prompts.isNotEmpty() -> stringResource(R.string.dashboard_session_estimate, prompts.size, (prompts.size * 0.3f).roundToInt().coerceAtLeast(1))
-                        leechCount > 0 -> "Reviews are clear. Repair parked leeches, then read for fresh input."
-                        reader != null -> "Reviews are clear. Reading keeps Russian input flowing."
-                        else -> "Reviews are clear for now. Manage imported material from Settings."
+                        prompts.isNotEmpty() -> {
+                            val cards = pluralStringResource(R.plurals.dashboard_cards, prompts.size, prompts.size)
+                            val minutes = pluralStringResource(R.plurals.dashboard_minutes, estimatedMinutes, estimatedMinutes)
+                            "$cards · about $minutes"
+                        }
+                        leechCount > 0 -> stringResource(R.string.dashboard_repair_leeches)
+                        prompts.isEmpty() -> stringResource(R.string.dashboard_reviews_clear)
+                        else -> stringResource(R.string.dashboard_reviews_clear_manage)
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
                 )
                 if (prompts.isNotEmpty()) {
                     Text(
                         stringResource(R.string.dashboard_adaptive_reason, state.sessionPlan?.adaptiveReason ?: "your recent accuracy and memory risk"),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f)
                     )
                 }
             }
         }
         Spacer(Modifier.height(12.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            PracticeFocusChip(if (prompts.isEmpty()) "Reviews clear" else "Memory review", null)
-            if (hasNew) PracticeFocusChip("New material", null)
-            if (hasGrammar) PracticeFocusChip("Grammar", null)
-            if (leechCount > 0) PracticeFocusChip("Repair needed", null)
-            if (reader != null) PracticeFocusChip("${(reader.coverage * 100).toInt()}% reader fit", null)
+            TodayFocusChip(if (prompts.isEmpty()) "Reviews clear" else "Memory review")
+            if (hasNew) TodayFocusChip("New material")
+            if (hasGrammar) TodayFocusChip("Grammar")
+            if (leechCount > 0) TodayFocusChip("Repair needed")
         }
         // One action, same as the Practice screen: the session already interleaves
         // reviews + new vocab + grammar and folds reading in, so there is no separate
@@ -453,24 +480,48 @@ internal fun DashboardNextActionCard(
         // Adding material (import/reader text) is a Settings action, not a Dashboard one —
         // when there's nothing sessionable, this card just says so above with no button.
         val startSession = prompts.isNotEmpty()
-        if (startSession || reader != null) {
+        if (startSession) {
             Spacer(Modifier.height(14.dp))
             Button(
                 // A due reading must enter through the study-session state machine (same
                 // as the Practice tab's CTA) so its checkpoint updates the reading
-                // schedule — opening it as a manual reader here left the assignment due
-                // forever, since onOpenReader() never marks it complete.
+                // schedule instead of opening a manual reader outside the session.
                 onClick = onStart,
-                modifier = Modifier.fillMaxWidth().testTag(TestTags.DASHBOARD_NEXT_ACTION_BUTTON)
+                modifier = Modifier.fillMaxWidth().testTag(TestTags.DASHBOARD_NEXT_ACTION_BUTTON),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.onPrimary,
+                    contentColor = MaterialTheme.colorScheme.primary
+                )
             ) {
-                Icon(if (startSession) Icons.Filled.School else Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.School, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(if (startSession) "Study" else "Read")
+                Text("Study")
             }
         }
-        OutlinedButton(onClick = onCustomize, modifier = Modifier.fillMaxWidth().testTag(TestTags.DASHBOARD_ADJUST_TODAY)) {
+        TextButton(
+            onClick = onCustomize,
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.DASHBOARD_ADJUST_TODAY),
+            colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f))
+        ) {
             Text(stringResource(R.string.dashboard_adjust_today))
         }
+    }
+}
+
+@Composable
+private fun TodayFocusChip(label: String) {
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.14f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.28f))
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onPrimary,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }
 
@@ -645,12 +696,12 @@ internal fun DailyGoalCard(modifier: Modifier, game: GamificationStats) {
             progress = progress,
             modifier = Modifier.size(84.dp),
             trackColor = MaterialTheme.colorScheme.surfaceVariant,
-            color = if (game.goalReached) Color(0xFF2E9E5B) else MaterialTheme.colorScheme.primary
+            color = if (game.goalReached) SuccessGreen else MaterialTheme.colorScheme.primary
         ) {
             Icon(
                 if (game.goalReached) Icons.Filled.CheckCircle else Icons.Filled.School,
                 contentDescription = null,
-                tint = if (game.goalReached) Color(0xFF2E9E5B) else MaterialTheme.colorScheme.primary,
+                tint = if (game.goalReached) SuccessGreen else MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(30.dp)
             )
         }
@@ -670,7 +721,7 @@ internal fun WordsKnownCard(modifier: Modifier, game: GamificationStats) {
         Box(
             modifier = Modifier
                 .size(84.dp)
-                .clip(RoundedCornerShape(50))
+                .clip(PillShape)
                 .background(MaterialTheme.colorScheme.secondaryContainer),
             contentAlignment = Alignment.Center
         ) {
@@ -692,7 +743,7 @@ internal fun AchievementsCard(game: GamificationStats) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { expanded = !expanded },
+                .clickable(role = Role.Button) { expanded = !expanded },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -735,19 +786,38 @@ internal fun SkillRadarCard(skillRatings: List<SkillRating>) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(Icons.Filled.Insights, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Column(Modifier.weight(1f)) {
-                Text("Skill radar", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text("Skill shape", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text("Ability means with uncertainty bands.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Spacer(Modifier.height(12.dp))
-        SkillRadarChart(axes, ratings)
+        val hasEvidence = skillRatings.any { it.observations > 0 }
+        if (hasEvidence) {
+            SkillRadarChart(axes, ratings)
+        } else {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+            ) {
+                Text(
+                    "Complete a few guided sessions and this view will start to take shape. It is a signal, not a grade.",
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
         Spacer(Modifier.height(12.dp))
         val statLabels = remember(ratings, axes) {
             axes.take(4).map { skill ->
                 val row = ratings[skill.name]
-                val value = row?.mu ?: 0.0
-                val uncertainty = row?.sigma ?: 0.0
-                skill.name.lowercase().replace('_', ' ') to String.format(Locale.US, "%.1f ± %.1f", value, uncertainty)
+                val label = if (row == null || row.observations == 0) {
+                    "Building"
+                } else {
+                    String.format(Locale.US, "%.1f ± %.1f", row.mu, row.sigma)
+                }
+                skill.name.lowercase().replace('_', ' ') to label
             }.toTypedArray()
         }
         FlowRowWithStats(*statLabels)
@@ -872,18 +942,22 @@ private fun SkillRadarChart(axes: List<AbilitySkill>, ratings: Map<String, Skill
 
 @Composable
 internal fun RivalProgressCard(rivalState: com.sibirskyspeak.data.RivalState?, history: List<com.sibirskyspeak.data.MatchHistory>) {
-    // rival_state.mu/sigma is the AI opponent's own TrueSkill rating (see
-    // LearningRepository.finishAdaptiveSession: it's set from report.opponentAfter), not the
-    // learner's — using it here would show the learner their opponent's tier. The learner's own
-    // conservative rating (mu - 3*sigma) after each match is already stored as
-    // MatchHistory.ratingAfter, so the most recent match has exactly the right number.
-    val displayRating = history.firstOrNull()?.ratingAfter
+    // Ghost matches are useful for analysis but are not part of the learner's
+    // current rival record or rank progression.
+    val rankedHistory = history.filterNot { it.opponent.startsWith("ghost:", ignoreCase = true) }
+    // rival_state.mu/sigma is the AI opponent's own TrueSkill rating, not the
+    // learner's. The learner's conservative rating is stored in MatchHistory.
+    val displayRating = rankedHistory.firstOrNull()?.ratingAfter
+    val wins = rankedHistory.count { it.outcome.equals("WIN", ignoreCase = true) }
+    val draws = rankedHistory.count { it.outcome.equals("DRAW", ignoreCase = true) }
+    val losses = rankedHistory.count { it.outcome.equals("LOSS", ignoreCase = true) }
+    val winRate = if (rankedHistory.isNotEmpty()) wins.toDouble() / rankedHistory.size else null
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Box(
                 modifier = Modifier
                     .size(52.dp)
-                    .clip(RoundedCornerShape(50))
+                    .clip(PillShape)
                     .background(MaterialTheme.colorScheme.secondaryContainer),
                 contentAlignment = Alignment.Center
             ) {
@@ -895,7 +969,12 @@ internal fun RivalProgressCard(rivalState: com.sibirskyspeak.data.RivalState?, h
                 )
             }
             Column(Modifier.weight(1f)) {
-                Text("Rival / season", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text("Ranked season", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Climb tiers through focused study sessions",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 val tierName = displayRating?.let { Rival.tier(it) }
                 // Keying on the tier name (not displayRating) means this only pops on
                 // an actual promotion/demotion, not on every minor rating wobble
@@ -917,9 +996,9 @@ internal fun RivalProgressCard(rivalState: com.sibirskyspeak.data.RivalState?, h
             }
             if (rivalState != null) {
                 Column(horizontalAlignment = Alignment.End) {
-                    Text("Streak", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Win streak", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("${rivalState.winStreak}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                    Text(rivalState.persona, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("wins", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -935,30 +1014,51 @@ internal fun RivalProgressCard(rivalState: com.sibirskyspeak.data.RivalState?, h
             }
             AppLinearProgressIndicator(
                 progress = { progress },
-                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)),
+                modifier = Modifier.fillMaxWidth().height(8.dp).clip(PillShape),
                 color = MaterialTheme.colorScheme.secondary,
                 trackColor = MaterialTheme.colorScheme.surfaceVariant
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "Rating ${"%.1f".format(displayRating)}" +
-                    (upper?.takeIf { it.isFinite() }?.let { " · ${"%.1f".format((it - displayRating).coerceAtLeast(0.0))} to next tier" } ?: " · top tier"),
+                "Rating ${String.format(Locale.US, "%.1f", displayRating)}" +
+                    (upper?.takeIf { it.isFinite() }?.let {
+                        " · ${String.format(Locale.US, "%.1f", (it - displayRating).coerceAtLeast(0.0))} to next tier"
+                    } ?: " · top tier"),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        if (history.isNotEmpty()) {
+        if (rankedHistory.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text("Recent record", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("$wins–$losses–$draws", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("Win rate", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        "${(winRate!! * 100).roundToInt()}%",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("Matches", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${rankedHistory.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                }
+            }
             Spacer(Modifier.height(16.dp))
             Text("Recent matches", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                history.take(4).forEach { match ->
+                rankedHistory.take(4).forEach { match ->
                     val won = match.outcome.equals("WIN", ignoreCase = true)
                     val drew = match.outcome.equals("DRAW", ignoreCase = true)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(MaterialTheme.shapes.small)
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -967,23 +1067,41 @@ internal fun RivalProgressCard(rivalState: com.sibirskyspeak.data.RivalState?, h
                         Box(
                             modifier = Modifier
                                 .size(10.dp)
-                                .clip(RoundedCornerShape(50))
+                                .clip(PillShape)
                                 .background(
                                     when {
-                                        won -> Color(0xFF3DAA6B)
+                                        won -> SuccessGreen
                                         drew -> MaterialTheme.colorScheme.outline
                                         else -> MaterialTheme.colorScheme.error
                                     }
                                 )
                         )
                         Text(
-                            match.opponent,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.weight(1f)
+                            when {
+                                won -> "Win"
+                                drew -> "Draw"
+                                else -> "Loss"
+                            },
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = when {
+                                won -> SuccessGreen
+                                drew -> MaterialTheme.colorScheme.onSurfaceVariant
+                                else -> MaterialTheme.colorScheme.error
+                            }
                         )
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(match.opponent, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            Text(
+                                "You ${(match.perfYou * 100).roundToInt()}% · rival ${(match.perfOpp * 100).roundToInt()}%",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         Text(
-                            "${"%.1f".format(match.ratingBefore)} → ${"%.1f".format(match.ratingAfter)}",
+                            "${String.format(Locale.US, "%.1f", match.ratingBefore)} → ${String.format(Locale.US, "%.1f", match.ratingAfter)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1125,13 +1243,68 @@ internal fun DetailsSection(stats: com.sibirskyspeak.data.DashboardStats, expand
     }
 }
 
+/**
+ * Weekly off-track fork: the tutor's alternative to either silently grinding
+ * harder or silently letting the goal lapse. All three choices are explicit
+ * and honest — this dialog itself makes no scheduling decision.
+ */
 @Composable
-internal fun FluencyForecastCard(forecast: com.sibirskyspeak.learning.FluencySimEngine.SimResult?) {
+internal fun GoalOffTrackDialog(
+    onRaiseCommitment: () -> Unit,
+    onPushBackDate: () -> Unit,
+    onDropGoal: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Your goal is off track") },
+        text = {
+            Text(
+                "At your current pace you won't reach it by the target date. " +
+                    "Raise your daily commitment, push back the date, or drop the goal — whichever fits."
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onRaiseCommitment) { Text("Raise commitment") }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onPushBackDate) { Text("Push back date") }
+                TextButton(onClick = onDropGoal) { Text("Drop goal") }
+            }
+        }
+    )
+}
+
+@Composable
+internal fun FluencyForecastCard(
+    forecast: com.sibirskyspeak.learning.FluencySimEngine.SimResult?,
+    goalStatus: com.sibirskyspeak.learning.GoalStatus? = null
+) {
     if (forecast == null) return
     val anyMilestone = listOf("A1", "A2", "B1", "B2", "C1", "C2").any { forecast.days(it) != null }
     SectionCard {
         Text("Days to Fluency Forecast", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
+
+        goalStatus?.let { goal ->
+            val (statusLabel, statusColor) = when (goal.state) {
+                com.sibirskyspeak.learning.GoalTrackState.ON_TRACK -> "on track" to MaterialTheme.colorScheme.secondary
+                com.sibirskyspeak.learning.GoalTrackState.DRIFTING -> "drifting" to MaterialTheme.colorScheme.tertiary
+                com.sibirskyspeak.learning.GoalTrackState.OFF_TRACK -> "off track" to MaterialTheme.colorScheme.error
+            }
+            val dateLabel = runCatching {
+                java.time.LocalDate.ofEpochDay(goal.targetDateEpochDay)
+                    .format(java.time.format.DateTimeFormatter.ofPattern("MMM yyyy"))
+            }.getOrDefault("your target date")
+            Text(
+                "Goal: ${goal.targetLevel} by $dateLabel — $statusLabel",
+                style = MaterialTheme.typography.bodyMedium,
+                color = statusColor,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(8.dp))
+        }
 
         if (!anyMilestone) {
             // Every milestone() call below silently no-ops when its level isn't

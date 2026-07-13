@@ -12,6 +12,7 @@ import androidx.documentfile.provider.DocumentFile
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.security.MessageDigest
 
 /**
  * Local full-state backup, kept in a separate app-private file so it survives a
@@ -23,7 +24,9 @@ import java.io.File
  * [LearningRepository.seedIfEmpty]).
  *
  * Two generations are kept (latest + previous) and writes go through a temp file
- * + rename so a crash mid-write can never leave us with a truncated backup.
+ * + rename so a crash mid-write can never leave us with a truncated backup. Each
+ * new generation ends with a format/version and SHA-256 sentinel; a damaged
+ * latest generation is rejected and the previous validated copy is used.
  *
  * The durable mirror (public Downloads/SibirskySpeak, via MediaStore) is
  * automatic on Android 10+ and needs no setup: apps can always write their own
@@ -39,9 +42,30 @@ import java.io.File
 class BackupManager(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("sibirsky_settings", Context.MODE_PRIVATE)
+    private val secrets = BackupSecretStore(appContext)
     private val dir = File(context.filesDir, "backups")
     private val latest = File(dir, "full_state_latest.jsonl")
     private val previous = File(dir, "full_state_previous.jsonl")
+
+    private val publicMirrorEnabled: Boolean
+        get() = prefs.getBoolean("automatic_public_backup_enabled", true)
+
+    /** Whether external mirrors will be written as authenticated encrypted payloads. */
+    fun externalEncryptionConfigured(): Boolean = secrets.password() != null
+
+    /** Configure the password used for Downloads/SAF mirrors and return a recovery key. */
+    fun configureExternalEncryption(password: String): String {
+        secrets.setPassword(password)
+        return secrets.ensureRecoveryKey()
+    }
+
+    fun clearExternalEncryption() = secrets.clear()
+
+    fun recoveryKey(): String? = secrets.recoveryKey()
+
+    /** Decode a mirrored encrypted backup after the learner supplies a credential. */
+    fun decryptExternalBackup(payload: ByteArray, credential: String): ByteArray =
+        BackupEncryptionCodec.decrypt(payload, credential)
 
     /** Newest non-empty backup, preferring latest then falling back to previous. */
     fun read(): String? = listOf(latest, previous).asSequence()
@@ -72,16 +96,32 @@ class BackupManager(context: Context) {
             latest.copyTo(previous, overwrite = true)
         }
         val tmp = File(dir, "full_state.tmp")
+        val digest = MessageDigest.getInstance("SHA-256")
         var wroteData = false
         tmp.bufferedWriter().use { writer ->
             lines.forEach { raw ->
                 val line = raw.trimEnd()
                 if (line.isBlank()) return@forEach
-                if (runCatching { JSONObject(line).optBoolean("_preferences", false) }.getOrDefault(false)) return@forEach
+                if (runCatching {
+                        val json = JSONObject(line)
+                        json.optBoolean("_preferences", false) || json.optBoolean("_backup_meta", false)
+                    }.getOrDefault(false)) return@forEach
                 writer.appendLine(line)
+                digest.update((line + "\n").toByteArray(Charsets.UTF_8))
                 wroteData = true
             }
-            if (wroteData) writer.appendLine(preferenceLine())
+            if (wroteData) {
+                val preferences = preferenceLine()
+                writer.appendLine(preferences)
+                digest.update((preferences + "\n").toByteArray(Charsets.UTF_8))
+                writer.appendLine(
+                    JSONObject()
+                        .put("_backup_meta", true)
+                        .put("format", BACKUP_FORMAT)
+                        .put("sha256", digest.digest().toHex())
+                        .toString()
+                )
+            }
         }
         if (!wroteData) { tmp.delete(); return }
         if (latest.exists() && !latest.delete()) error("Could not rotate current backup")
@@ -94,13 +134,17 @@ class BackupManager(context: Context) {
         prefs.edit()
             .putLong("backup_last_size", latest.length())
             .putLong("backup_last_validated_at", System.currentTimeMillis())
-            .commit()
+            // This method is invoked from the repository's IO dispatcher; an
+            // asynchronous preference write avoids blocking the caller.
+            .apply()
         // A revoked/unavailable mirror target must not make the already-successful
         // local backup look failed and trigger repeated huge exports every session.
         // MediaStore.Downloads is tried first since it needs no setup at all; the
         // SAF folder (if the learner deliberately chose one) mirrors there too, in
         // addition to — not instead of — the automatic Downloads copy.
-        val mirroredToDownloads = runCatching { mirrorToDownloads(latest) }.getOrDefault(false)
+        val mirroredToDownloads = if (publicMirrorEnabled) {
+            runCatching { mirrorToDownloads(latest) }.getOrDefault(false)
+        } else false
         val mirroredToSaf = runCatching { mirrorToSaf(latest) }.getOrDefault(false)
         if (mirroredToDownloads || mirroredToSaf) {
             prefs.edit().putLong("backup_last_saf_at", System.currentTimeMillis()).apply()
@@ -118,14 +162,17 @@ class BackupManager(context: Context) {
         val resolver = appContext.contentResolver
         val stamp = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
             .withZone(java.time.ZoneOffset.UTC).format(java.time.Instant.now())
+        val encrypted = secrets.password()
         val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, "sibirskyspeak-$stamp.jsonl")
-            put(MediaStore.MediaColumns.MIME_TYPE, "application/json")
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "sibirskyspeak-$stamp${if (encrypted != null) ".jsonl.enc" else ".jsonl"}")
+            put(MediaStore.MediaColumns.MIME_TYPE, if (encrypted != null) "application/octet-stream" else "application/json")
             put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/SibirskySpeak")
         }
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return false
         val wrote = resolver.openOutputStream(uri)?.use { output ->
-            source.inputStream().use { input -> input.copyTo(output) }
+            val bytes = source.readBytes()
+            val payload = encrypted?.let { BackupEncryptionCodec.encrypt(bytes, it, secrets.recoveryKey()) } ?: bytes
+            output.write(payload)
             true
         } ?: false
         if (!wrote) {
@@ -178,9 +225,15 @@ class BackupManager(context: Context) {
         val root = DocumentFile.fromTreeUri(appContext, Uri.parse(raw)) ?: return false
         val stamp = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
             .withZone(java.time.ZoneOffset.UTC).format(java.time.Instant.now())
-        val target = root.createFile("application/json", "sibirskyspeak-$stamp.jsonl") ?: return false
+        val encrypted = secrets.password()
+        val target = root.createFile(
+            if (encrypted != null) "application/octet-stream" else "application/json",
+            "sibirskyspeak-$stamp${if (encrypted != null) ".jsonl.enc" else ".jsonl"}"
+        ) ?: return false
         appContext.contentResolver.openOutputStream(target.uri, "w")?.use { output ->
-            source.inputStream().use { input -> input.copyTo(output) }
+            val bytes = source.readBytes()
+            val payload = encrypted?.let { BackupEncryptionCodec.encrypt(bytes, it, secrets.recoveryKey()) } ?: bytes
+            output.write(payload)
         } ?: return false
         thin(root)
         return true
@@ -250,34 +303,63 @@ class BackupManager(context: Context) {
                 }
             }
         }
-        editor.commit()
+        // Restore runs off the main thread; do not block on SharedPreferences I/O.
+        editor.apply()
     }
 
     private fun isValidBackup(content: String): Boolean {
         var hasNote = false
         var hasRows = false
+        val digest = MessageDigest.getInstance("SHA-256")
+        var metadata: JSONObject? = null
         for (raw in content.lineSequence()) {
             val line = raw.trim()
             if (line.isEmpty()) continue
             hasRows = true
             val json = runCatching { JSONObject(line) }.getOrNull() ?: return false
+            if (json.optBoolean("_backup_meta", false)) {
+                metadata = json
+                continue
+            }
+            digest.update((line + "\n").toByteArray(Charsets.UTF_8))
             if (json.has("russian") && json.has("lemma")) hasNote = true
         }
-        return hasRows && hasNote
+        return hasRows && hasNote && metadataMatches(metadata, digest)
     }
 
     private fun isValidBackupFile(file: File): Boolean {
         var hasNote = false
         var hasRows = false
+        val digest = MessageDigest.getInstance("SHA-256")
+        var metadata: JSONObject? = null
         file.bufferedReader().useLines { lines ->
             for (raw in lines) {
                 val line = raw.trim()
                 if (line.isEmpty()) continue
                 hasRows = true
                 val json = runCatching { JSONObject(line) }.getOrNull() ?: return false
+                if (json.optBoolean("_backup_meta", false)) {
+                    metadata = json
+                    continue
+                }
+                digest.update((line + "\n").toByteArray(Charsets.UTF_8))
                 if (json.has("russian") && json.has("lemma")) hasNote = true
             }
         }
-        return hasRows && hasNote
+        return hasRows && hasNote && metadataMatches(metadata, digest)
+    }
+
+    /** Legacy exports had no metadata sentinel; keep them importable while every
+     * newly written local generation gets corruption detection. */
+    private fun metadataMatches(metadata: JSONObject?, digest: MessageDigest): Boolean {
+        if (metadata == null) return true
+        if (metadata.optInt("format", -1) != BACKUP_FORMAT) return false
+        return metadata.optString("sha256").equals(digest.digest().toHex(), ignoreCase = true)
+    }
+
+    private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
+
+    companion object {
+        private const val BACKUP_FORMAT = 2
     }
 }

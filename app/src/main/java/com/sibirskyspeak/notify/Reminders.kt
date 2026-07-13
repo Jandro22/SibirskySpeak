@@ -15,9 +15,12 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import com.sibirskyspeak.MainActivity
 import com.sibirskyspeak.R
 import com.sibirskyspeak.data.LearningRepository
@@ -27,13 +30,6 @@ import dagger.assisted.AssistedInject
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
 import android.content.BroadcastReceiver
-import dagger.hilt.EntryPoint
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
-import dagger.hilt.android.EntryPointAccessors
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 object Reminders {
     const val CHANNEL_ID = "daily_reminders"
@@ -43,10 +39,10 @@ object Reminders {
     fun ensureChannel(context: Context) {
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Daily study reminders",
+            context.getString(R.string.notification_channel_name),
             NotificationManager.IMPORTANCE_DEFAULT
         ).apply {
-            description = "Nudges to keep your streak alive and clear due reviews."
+            description = context.getString(R.string.notification_channel_description)
         }
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
@@ -61,12 +57,14 @@ object Reminders {
             WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
             return
         }
-        val request = PeriodicWorkRequestBuilder<DailyReminderWorker>(1, TimeUnit.DAYS)
+        // Recalculate the next local wall-clock occurrence after every run so
+        // DST and timezone changes do not permanently shift the reminder.
+        val request = OneTimeWorkRequestBuilder<DailyReminderWorker>()
             .setInitialDelay(millisUntilNextReminder(settings.reminderHour), TimeUnit.MILLISECONDS)
             .build()
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+        WorkManager.getInstance(context).enqueueUniqueWork(
             WORK_NAME,
-            ExistingPeriodicWorkPolicy.UPDATE,
+            ExistingWorkPolicy.REPLACE,
             request
         )
     }
@@ -119,7 +117,9 @@ object Reminders {
         if (inlineCardId != null) {
             val replyIntent=Intent(context,InlineReviewReceiver::class.java).putExtra("cardId",inlineCardId)
             val replyPending=PendingIntent.getBroadcast(context,inlineCardId.toInt(),replyIntent,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
-            builder.addAction(NotificationCompat.Action.Builder(0,"Answer",replyPending).addRemoteInput(RemoteInput.Builder("answer").setLabel("English meaning").build()).build())
+            builder.addAction(NotificationCompat.Action.Builder(0, context.getString(R.string.notification_action_answer), replyPending)
+                .addRemoteInput(RemoteInput.Builder("answer").setLabel(context.getString(R.string.notification_remote_input_label)).build())
+                .build())
         }
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder.build())
     }
@@ -131,7 +131,11 @@ object Reminders {
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         if (runCatching { repository.createWeeklyReport() }.getOrElse { return Result.retry() } == null) return Result.success()
-        Reminders.postNotification(applicationContext, "Your weekly Russian letter", "Retention, time, and the next useful adjustment are ready in Lab.")
+        Reminders.postNotification(
+            applicationContext,
+            applicationContext.getString(R.string.notification_weekly_title),
+            applicationContext.getString(R.string.notification_weekly_body)
+        )
         return Result.success()
     }
 }
@@ -147,56 +151,80 @@ class DailyReminderWorker @AssistedInject constructor(
         if (!settings.reminderEnabled) return Result.success()
         val info = runCatching { repository.reminderInfo() }.getOrElse { return Result.retry() }
         val inline = runCatching { repository.nextPrompt() }.getOrNull()?.takeIf { it.answerMode == com.sibirskyspeak.review.AnswerMode.ENGLISH }
-        if (settings.reminderHour != info.preferredHour) settings.reminderHour = info.preferredHour
-        val title = if (info.studiedToday) "Today's contract is kept" else "Russian is ready"
-        val body = "${info.dueToday} reviews, ~${info.estimatedMinutes} min — streak day ${info.currentStreak + if (info.studiedToday) 0 else 1}"
+        val title = applicationContext.getString(
+            if (info.studiedToday) R.string.notification_studied_title else R.string.notification_ready_title
+        )
+        val streakDay = info.currentStreak + if (info.studiedToday) 0 else 1
+        val body = applicationContext.resources.getQuantityString(
+            R.plurals.notification_due_reviews,
+            info.dueToday,
+            info.dueToday,
+            info.estimatedMinutes,
+            streakDay
+        )
         Reminders.postNotification(applicationContext, title, body, inline?.card?.id)
+        Reminders.schedule(applicationContext)
         return Result.success()
     }
 
-    private fun composeMessage(streak: Int, studiedToday: Boolean, dueToday: Int): Pair<String, String> {
-        // Already studied today: a lighter, congratulatory nudge.
-        if (studiedToday) {
-            val msgs = listOf(
-                "Nicely done today. Your streak is safe. A few extra cards never hurt.",
-                "Today's goal is in the bag. Want to push your level a little higher?",
-                "Great work today. Reading a short text now would lock it in."
-            )
-            return "Nice work today" to msgs.random()
-        }
-        // Streak at risk: emphasize the streak.
-        if (streak > 0) {
-            return "Keep your $streak-day streak" to
-                if (dueToday > 0) "$dueToday cards are waiting. Two minutes keeps your streak alive."
-                else "Keep the momentum. A quick review keeps your streak going."
-        }
-        // No active streak: invite to start.
-        val openers = listOf(
-            "Time for Russian",
-            "Your daily Russian is ready",
-            "A few minutes of Russian today?"
-        )
-        val body = when {
-            dueToday > 0 -> "$dueToday cards are due. Start a quick session and begin a new streak."
-            else -> "Read a short text or learn a few new words to start a streak."
-        }
-        return openers.random() to body
-    }
 }
-
-@EntryPoint @InstallIn(SingletonComponent::class) interface InlineReviewEntryPoint { fun repository(): LearningRepository }
 
 class InlineReviewReceiver: BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val answer=RemoteInput.getResultsFromIntent(intent)?.getCharSequence("answer")?.toString() ?: return
         val cardId=intent.getLongExtra("cardId",-1L); if(cardId<0)return
-        val pending=goAsync()
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val repo=EntryPointAccessors.fromApplication(context.applicationContext,InlineReviewEntryPoint::class.java).repository()
-                val correct=repo.gradeInlineEnglish(cardId,answer)
-                Reminders.postNotification(context,if(correct==true)"Correct" else "Review saved",if(correct==true)"That retrieval counts." else "The card will return sooner.")
-            } finally { pending.finish() }
+        val request = OneTimeWorkRequestBuilder<InlineReviewWorker>()
+            .setInputData(workDataOf(InlineReviewWorker.CARD_ID to cardId, InlineReviewWorker.ANSWER to answer))
+            .build()
+        // KEEP makes repeated broadcasts for the same card idempotent while a
+        // review is in flight; completed work can be queued again later.
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "inline_review_$cardId",
+            ExistingWorkPolicy.KEEP,
+            request
+        )
+    }
+}
+
+@HiltWorker
+class InlineReviewWorker @AssistedInject constructor(
+    @Assisted appContext: Context,
+    @Assisted params: WorkerParameters,
+    private val repository: LearningRepository
+) : CoroutineWorker(appContext, params) {
+    override suspend fun doWork(): Result {
+        val cardId = inputData.getLong(CARD_ID, -1L)
+        val answer = inputData.getString(ANSWER)?.takeIf(String::isNotBlank)
+            ?: return Result.success()
+        if (cardId < 0L) return Result.success()
+        val correct = runCatching { repository.gradeInlineEnglish(cardId, answer) }
+            .getOrElse { return Result.retry() }
+        if (correct != null) {
+            Reminders.postNotification(
+                applicationContext,
+                applicationContext.getString(if (correct) R.string.notification_correct_title else R.string.notification_saved_title),
+                applicationContext.getString(if (correct) R.string.notification_correct_body else R.string.notification_saved_body)
+            )
         }
+        return Result.success()
+    }
+
+    companion object {
+        const val CARD_ID = "card_id"
+        const val ANSWER = "answer"
+    }
+}
+
+class ReminderTimeChangeReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        // TIME_SET and TIMEZONE_CHANGED are protected broadcasts. Still verify
+        // the action because malformed explicit intents must not trigger a
+        // reschedule on platform versions that dispatch them to this receiver.
+        if (intent.action != Intent.ACTION_TIME_CHANGED &&
+            intent.action != Intent.ACTION_TIMEZONE_CHANGED
+        ) {
+            return
+        }
+        Reminders.schedule(context.applicationContext)
     }
 }

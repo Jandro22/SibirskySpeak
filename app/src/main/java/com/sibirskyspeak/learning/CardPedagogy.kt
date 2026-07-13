@@ -34,7 +34,7 @@ data class CardPedagogyProfile(
     fun weight(stage: LearningStage): Double = stageWeights.getValue(stage)
 }
 
-/** Single source of truth for the pedagogical semantics of all fifteen persisted
+/** Single source of truth for the pedagogical semantics of all persisted
  * card types. Queue construction, live selection, telemetry, and reports use this
  * instead of inferring learning value from keyboard/choice/audio UI alone. */
 object CardPedagogy {

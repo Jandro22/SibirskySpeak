@@ -84,6 +84,19 @@ class LearningEfficiencyTest {
         assertEquals(2L, NextCardSelector.select(listOf(sibling), blueprint, live, 0L)?.card?.id)
     }
 
+    @Test fun `selector falls back to queued work during a struggle instead of returning no card`() {
+        val fresh = prompt(
+            Card(id = 9, noteId = 9, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB, state = CardState.NEW),
+            note(9, "слово", "word")
+        )
+        val live = LiveSessionState(
+            shown = 4,
+            recent = listOf(1_000L to false, 1_100L to false, 1_200L to false, 1_300L to false)
+        )
+        val blueprint = SessionBlueprint(emptySet(), 10, 0, 0, 0, emptyList(), .88)
+        assertEquals(9L, NextCardSelector.select(listOf(fresh), blueprint, live, 0L)?.card?.id)
+    }
+
     @Test fun `load smoothing alternates against the actual previous card difficulty`() {
         val now = 10L * 86_400_000
         val easy = prompt(

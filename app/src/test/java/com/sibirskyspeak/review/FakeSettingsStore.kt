@@ -17,6 +17,7 @@ internal class FakeSettingsStore : SettingsStore {
     override var readerFontScale: Float = 1.0f
     override var lastBackupAt: Long = 0L
     override var backupTreeUri: String = ""
+    override var automaticPublicBackupEnabled: Boolean = true
     override val lastBackupSizeBytes: Long = 0L
     override val lastBackupValidatedAt: Long = 0L
     override val lastDurableBackupAt: Long = 0L
@@ -25,9 +26,18 @@ internal class FakeSettingsStore : SettingsStore {
     override var lastInsuredGapDay: Long = Long.MIN_VALUE
     override var planSkeletonCardIds: String = ""
     override var lastAdaptiveLoadDay: Long = Long.MIN_VALUE
+    override var adaptiveResetAt: Long = 0L
+    override var adaptiveBoostDay: Long = Long.MIN_VALUE
     override var lastFluencyForecastDay: Long = Long.MIN_VALUE
     override var preferredDomain: String = ""
     override var adaptiveEnabled: Boolean = true
+    override var goalTargetLevel: String = ""
+    override var goalTargetDateEpochDay: Long = Long.MIN_VALUE
+    override var goalCreatedAtEpochDay: Long = Long.MIN_VALUE
+    override var goalStatus: String = ""
+    override var goalLastWeeklyCheckDay: Long = Long.MIN_VALUE
+    override var goalLastVelocityWordsKnown: Int = 0
+    override var lastStablePaceWordsPerDay: Double = 0.0
     override var sessionSnapshotJson: String = ""
     override var onboardingCompleted: Boolean = false
     override val learningExperimentVariant: String = "A"

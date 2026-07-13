@@ -31,4 +31,49 @@ class BackupManagerInstrumentedTest {
         manager.write("""{"russian":"тест","lemma":"тест","translation":"test","pos":"noun"}""")
         assertTrue(manager.read().orEmpty().contains("\"lemma\":\"тест\""))
     }
+    @Test fun tamperedLatestGenerationFallsBackToPreviousValidatedCopy() {
+        context.filesDir.resolve("backups").deleteRecursively()
+        val manager = BackupManager(context)
+        manager.write("""{"russian":"first","lemma":"first","translation":"first","pos":"adj"}""")
+        manager.write("""{"russian":"second","lemma":"second","translation":"second","pos":"adj"}""")
+        val latest = context.filesDir.resolve("backups").resolve("full_state_latest.jsonl")
+        latest.appendText("\n{\"russian\":\"tampered\"}\n")
+        assertTrue(manager.read().orEmpty().contains("\"lemma\":\"first\""))
+    }
+
+    @Test fun publicMirrorCanBeDisabledWithoutDisablingLocalValidation() {
+        context.filesDir.resolve("backups").deleteRecursively()
+        context.getSharedPreferences("sibirsky_settings", Context.MODE_PRIVATE).edit()
+            .putBoolean("automatic_public_backup_enabled", false)
+            .remove("backup_last_saf_at")
+            .commit()
+        val manager = BackupManager(context)
+        manager.write("""{"russian":"private","lemma":"private","translation":"private","pos":"noun"}""")
+        assertTrue(manager.read().orEmpty().contains("\"lemma\":\"private\""))
+        assertTrue(context.getSharedPreferences("sibirsky_settings", Context.MODE_PRIVATE).getLong("backup_last_saf_at", 0L) == 0L)
+        context.getSharedPreferences("sibirsky_settings", Context.MODE_PRIVATE).edit()
+            .putBoolean("automatic_public_backup_enabled", true).commit()
+    }
+
+    @Test fun encryptedExternalBackupRoundTripsAndRejectsTampering() {
+        val manager = BackupManager(context)
+        val secretPrefs = context.getSharedPreferences("sibirsky_backup_secrets", Context.MODE_PRIVATE)
+        secretPrefs.edit().clear().commit()
+        val recovery = manager.configureExternalEncryption("correct horse battery")
+        assertTrue(recovery.length >= 20)
+        assertTrue(manager.externalEncryptionConfigured())
+        val plain = "{\"lemma\":\"house\"}\n".toByteArray()
+        val encrypted = BackupEncryptionCodec.encrypt(plain, "correct horse battery")
+        assertTrue(!encrypted.contentEquals(plain))
+        assertTrue(manager.decryptExternalBackup(encrypted, "correct horse battery").contentEquals(plain))
+        val withRecovery = BackupEncryptionCodec.encrypt(plain, "correct horse battery", recovery)
+        assertTrue(manager.decryptExternalBackup(withRecovery, recovery).contentEquals(plain))
+        runCatching { manager.decryptExternalBackup(encrypted, "wrong password") }
+            .onSuccess { error("wrong password unexpectedly decrypted a backup") }
+        val tampered = encrypted.copyOf().also { it[it.lastIndex] = (it[it.lastIndex].toInt() xor 1).toByte() }
+        runCatching { manager.decryptExternalBackup(tampered, "correct horse battery") }
+            .onSuccess { error("tampered backup unexpectedly decrypted") }
+        manager.clearExternalEncryption()
+        assertTrue(!manager.externalEncryptionConfigured())
+    }
 }

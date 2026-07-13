@@ -6,24 +6,24 @@ on:
       - "v*"
   workflow_dispatch:
     inputs:
-      version_code:
-        description: "Android versionCode"
-        required: true
-        default: "2"
       version_name:
         description: "Android versionName"
         required: true
         default: "2.0.0"
 
+# Keep metadata/read operations least-privilege; the publish job opts into write
+# access explicitly below.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           lfs: true
 
@@ -37,14 +37,14 @@ jobs:
           fi
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           distribution: temurin
           java-version: "17"
           cache: gradle
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
 
       - name: Install required SDK packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
@@ -61,8 +61,17 @@ jobs:
       - name: Run Android lint
         run: ./gradlew lint
 
+      - name: Run release instrumentation gate
+        uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          script: ./gradlew connectedQaAndroidTest --stacktrace
+
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.11"
 
@@ -72,22 +81,24 @@ jobs:
       - name: Run content-pipeline tests
         run: python -m pytest -q tools/preprocess
 
+      - name: Audit shipped curriculum quality
+        run: python tools/preprocess/audit_curriculum.py
+
       - name: Resolve release version
         id: version
         shell: bash
         env:
-          INPUT_VERSION_CODE: ${{ inputs.version_code }}
           INPUT_VERSION_NAME: ${{ inputs.version_name }}
           GIT_TAG: ${{ github.ref_name }}
         run: |
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            code="$INPUT_VERSION_CODE"
             name="$INPUT_VERSION_NAME"
           else
             name="${GIT_TAG#v}"
-            code="${name%%.*}"
             tag="$GIT_TAG"
           fi
+          IFS=. read -r major minor patch <<< "$name"
+          code=$((10#$major * 1000000 + 10#$minor * 1000 + 10#$patch))
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             tag="v$name"
           fi
@@ -97,20 +108,50 @@ jobs:
           echo "version_name=$name" >> "$GITHUB_OUTPUT"
           echo "tag_name=$tag" >> "$GITHUB_OUTPUT"
 
+      - name: Materialize production signing key
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$RELEASE_KEYSTORE_BASE64"
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/sibirskyspeak-release.keystore"
+          test -s "$RUNNER_TEMP/sibirskyspeak-release.keystore"
+
       - name: Build release APK
         env:
           VERSION_CODE: ${{ steps.version.outputs.version_code }}
           VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          KEYSTORE_FILE: ${{ runner.temp }}/sibirskyspeak-release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: ./gradlew assembleRelease
 
+      - name: Smoke-test signed release APK
+        uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          script: python tools/smoke_release.py app/build/outputs/apk/release/app-release.apk
+
       - name: Enforce asset and APK budgets
-        run: python tools/verify_budgets.py
+        run: python tools/verify_budgets.py --apk app/build/outputs/apk/release/app-release.apk
+
+      - name: Validate release APK
+        env:
+          RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
+        run: >-
+          python tools/verify_release.py app/build/outputs/apk/release/app-release.apk
+          --version-name "${{ steps.version.outputs.version_name }}"
+          --version-code "${{ steps.version.outputs.version_code }}"
+          --certificate-sha256 "$RELEASE_CERT_SHA256"
 
       - name: Stage APK with a stable name
         run: cp app/build/outputs/apk/release/app-release.apk SibirskySpeak-${{ steps.version.outputs.version_name }}.apk
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           tag_name: ${{ steps.version.outputs.tag_name }}
           name: SibirskySpeak v${{ steps.version.outputs.version_name }}

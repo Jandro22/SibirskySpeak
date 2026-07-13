@@ -114,10 +114,10 @@ class CardFactoryTest {
     }
 
     @Test
-    fun stressMarkOnlyForMultiVowelWordsWithAnExplicitMark() {
+    fun stressMarkIsRetiredEvenForExplicitlyMarkedWords() {
         val marked = Note(id = 1, russian = "дома́", lemma = "дом", translation = "houses", partOfSpeech = "noun", tier = 0)
         val unmarked = Note(id = 2, russian = "дом", lemma = "дом", translation = "house", partOfSpeech = "noun", tier = 0)
-        assertTrue(CardFactory.cardsFor(marked).any { it.cardType == CardType.STRESS_MARK })
+        assertFalse(CardFactory.cardsFor(marked).any { it.cardType == CardType.STRESS_MARK })
         assertFalse(CardFactory.cardsFor(unmarked).any { it.cardType == CardType.STRESS_MARK })
     }
 

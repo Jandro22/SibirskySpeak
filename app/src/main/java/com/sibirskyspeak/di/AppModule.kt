@@ -21,6 +21,7 @@ import com.sibirskyspeak.data.NoteEvidenceDao
 import com.sibirskyspeak.data.NoteFormDao
 import com.sibirskyspeak.data.PrefsSettingsStore
 import com.sibirskyspeak.data.ReaderEncounterDao
+import com.sibirskyspeak.data.ReaderBookmarkDao
 import com.sibirskyspeak.data.ReaderTextDao
 import com.sibirskyspeak.data.ReadingActivityDao
 import com.sibirskyspeak.data.ReadingScheduleDao
@@ -66,6 +67,7 @@ object AppModule {
     @Provides fun provideReviewLogDao(db: AppDatabase): ReviewLogDao = db.reviewLogDao()
     @Provides fun provideConfusablePairDao(db: AppDatabase): ConfusablePairDao = db.confusablePairDao()
     @Provides fun provideReaderTextDao(db: AppDatabase): ReaderTextDao = db.readerTextDao()
+    @Provides fun provideReaderBookmarkDao(db: AppDatabase): ReaderBookmarkDao = db.readerBookmarkDao()
     @Provides fun provideReadingScheduleDao(db: AppDatabase): ReadingScheduleDao = db.readingScheduleDao()
     @Provides fun provideReaderEncounterDao(db: AppDatabase): ReaderEncounterDao = db.readerEncounterDao()
     @Provides fun provideReadingActivityDao(db: AppDatabase): ReadingActivityDao = db.readingActivityDao()
@@ -120,6 +122,7 @@ object AppModule {
         readerTextDao: ReaderTextDao,
         readingScheduleDao: ReadingScheduleDao,
         readerEncounterDao: ReaderEncounterDao,
+        readerBookmarkDao: ReaderBookmarkDao,
         readingActivityDao: ReadingActivityDao,
         telemetryDao: TelemetryDao,
         minedExampleDao: MinedExampleDao,
@@ -145,6 +148,7 @@ object AppModule {
         readerTextDao = readerTextDao,
         readingScheduleDao = readingScheduleDao,
         readerEncounterDao = readerEncounterDao,
+        readerBookmarkDao = readerBookmarkDao,
         readingActivityDao = readingActivityDao,
         telemetryDao = telemetryDao,
         minedExampleDao = minedExampleDao,
@@ -154,6 +158,7 @@ object AppModule {
         checkpointResultDao = checkpointResultDao,
         curriculumStateDao = curriculumStateDao,
         contentDao = contentDao,
+        settingsStore = settings,
         morphologyEngine = morphologyEngine,
         frameRealizer = frameRealizer,
         corpusLemmaProvider = { assets.readTextAsset("deck_lemma.json") },
@@ -163,7 +168,6 @@ object AppModule {
         bootstrapManifest = { assets.readTextAsset("curriculum_manifest.json") },
         bootstrapUnits = { assets.readTextAsset("units.json") },
         bootstrapTransformations = { assets.readTextAsset("transformations.json") },
-        bootstrapCompleteness = { assets.readTextAsset("curriculum_completeness.json") },
         bootstrapPhonology = { assets.readTextAsset("phonology.json") },
         transactionRunner = { block -> appDatabase.withTransaction(block) },
         config = {
@@ -182,6 +186,10 @@ object AppModule {
         restoreBackupLines = { withContext(Dispatchers.IO) { backup.readLines() } },
         writeBackup = { content -> withContext(Dispatchers.IO) { backup.write(content) } },
         writeBackupLines = { lines -> withContext(Dispatchers.IO) { backup.writeLines(lines) } },
+        backupEncryptionConfigured = backup::externalEncryptionConfigured,
+        configureBackupEncryption = backup::configureExternalEncryption,
+        clearBackupEncryption = backup::clearExternalEncryption,
+        backupRecoveryKey = backup::recoveryKey,
         enrichFullState = backup::enrichFullState,
         restoreFullStateMetadata = backup::restoreMetadata
     )

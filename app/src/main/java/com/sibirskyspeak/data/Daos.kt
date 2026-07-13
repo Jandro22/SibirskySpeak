@@ -574,6 +574,9 @@ interface ReviewLogDao {
     @Query("SELECT rating FROM review_logs WHERE source IN ('SRS_REVIEW','GRAMMAR_DRILL') ORDER BY reviewDatetime DESC, id DESC LIMIT :limit")
     suspend fun recentDirectRatings(limit: Int = 200): List<Rating>
 
+    @Query("SELECT rating FROM review_logs WHERE reviewDatetime >= :since AND source IN ('SRS_REVIEW','GRAMMAR_DRILL') ORDER BY reviewDatetime DESC, id DESC LIMIT :limit")
+    suspend fun recentDirectRatingsSince(since: Long, limit: Int = 200): List<Rating>
+
     @Query("SELECT COUNT(*) FROM review_logs WHERE cardId = :cardId AND reviewDatetime >= :dayStart AND source IN ('READING','LISTENING','PRODUCTION')")
     suspend fun passiveEvidenceCountSince(cardId: Long, dayStart: Long): Int
 
@@ -804,6 +807,24 @@ interface ReaderTextDao {
 
     @Query("UPDATE reader_texts SET source = :source WHERE id = :id")
     suspend fun updateSource(id: Long, source: String): Int
+}
+
+@Dao
+interface ReaderBookmarkDao {
+    @Insert
+    suspend fun insert(bookmark: ReaderBookmark): Long
+
+    @Query("SELECT * FROM reader_bookmarks WHERE readerTextId = :readerTextId ORDER BY tokenIndex")
+    suspend fun getForText(readerTextId: Long): List<ReaderBookmark>
+
+    @Query("SELECT * FROM reader_bookmarks WHERE readerTextId = :readerTextId AND tokenIndex = :tokenIndex LIMIT 1")
+    suspend fun getAt(readerTextId: Long, tokenIndex: Int): ReaderBookmark?
+
+    @Query("DELETE FROM reader_bookmarks WHERE id = :id")
+    suspend fun deleteById(id: Long): Int
+
+    @Query("DELETE FROM reader_bookmarks WHERE readerTextId = :readerTextId")
+    suspend fun deleteForText(readerTextId: Long): Int
 }
 
 @Dao

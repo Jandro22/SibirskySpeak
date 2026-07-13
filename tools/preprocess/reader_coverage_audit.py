@@ -21,7 +21,10 @@ WORD_RE = re.compile(r"[^\W\d_]+", re.UNICODE)
 def normalize(s):
     s = s.strip().lower().replace("ё", "е")  # ё -> е
     s = unicodedata.normalize("NFD", s)
-    return s.replace("́", "").replace("̈", "")
+    s = s.replace("́", "").replace("̈", "")
+    # NFD also splits й into и + a combining breve; recompose back to NFC
+    # so comparisons/lookups match precomposed text elsewhere in the pipeline.
+    return unicodedata.normalize("NFC", s)
 
 
 # Closed-class paradigms mirrored from RussianForms.kt

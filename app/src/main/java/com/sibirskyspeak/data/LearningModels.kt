@@ -46,7 +46,25 @@ data class ReaderRecommendation(
     val authenticReady: Boolean,
     // Count of distinct text lemmas with a card due within 48h (P5.2): the day's
     // chapter deliberately smuggles in the words FSRS wants reviewed.
-    val dueOverlap: Int = 0
+    val dueOverlap: Int = 0,
+    /** Heuristic difficulty signals beyond simple vocabulary coverage. */
+    val syntaxComplexity: Double = 0.0,
+    val morphologyNovelty: Double = 0.0,
+    val idiomDensity: Double = 0.0,
+    val difficultyScore: Double = 0.0
+) {
+    val difficultyLabel: String
+        get() = when {
+            difficultyScore < 0.30 -> "gentle"
+            difficultyScore < 0.55 -> "stretch"
+            else -> "challenging"
+        }
+}
+
+data class ContentProvenance(
+    val id: String,
+    val attribution: String,
+    val license: String
 )
 
 enum class ReaderStatus {
@@ -92,14 +110,6 @@ data class ExitTicketSession(
     val band: String = "A1",
     val canDoLabel: String?,
     val items: List<ExitTicketItem>
-)
-
-/** Phase G11: one CEFR band's row in the curriculum-completeness dashboard —
- * see LearningRepository.curriculumCompleteness(). */
-data class CurriculumCompletenessBand(
-    val corpusSentences: Int,
-    val parseableSentences: Int,
-    val percent: Double
 )
 
 /** Phase G10: one phonology.json MINIMAL_PAIR item usable as a real on-device
@@ -228,7 +238,9 @@ data class UnitMastery(
     val vocabularyTotal: Int,
     val grammarMastered: Int,
     val grammarTotal: Int,
-    val unlocked: Boolean
+    val unlocked: Boolean,
+    /** Learner-facing outcome from the curriculum manifest, when available. */
+    val canDoLabel: String? = null
 ) {
     val stableKey: String get() = "$band:$unit"
     val progress: Double get() =
@@ -255,8 +267,7 @@ data class ReminderInfo(
     val currentStreak: Int,
     val studiedToday: Boolean,
     val dueToday: Int,
-    val estimatedMinutes: Int = 0,
-    val preferredHour: Int = SettingsStore.DEFAULT_REMINDER_HOUR
+    val estimatedMinutes: Int = 0
 )
 
 data class GamificationStats(

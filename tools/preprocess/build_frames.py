@@ -22,8 +22,14 @@ PERSONS = {1: "1", 2: "2", 3: "3"}
 
 
 def norm(value: str) -> str:
+    # NFD decomposition (to strip the combining stress mark) also splits й
+    # into и + a combining breve as a side effect. Recompose back to NFC
+    # afterward so lookups match tatoeba.db's paradigm/analysis tables,
+    # which store precomposed text (build_paradigms.norm() does the same;
+    # this is the same bug fixed there and in mine_examples.py's norm()).
     value = unicodedata.normalize("NFD", (value or "").lower().replace("ё", "е"))
-    return value.replace("́", "").replace("̈", "").strip()
+    value = value.replace("́", "").replace("̈", "").strip()
+    return unicodedata.normalize("NFC", value)
 
 
 def load_inventory(notes_path: Path) -> dict[str, list[dict]]:

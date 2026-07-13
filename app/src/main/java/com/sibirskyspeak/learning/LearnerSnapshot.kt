@@ -35,7 +35,10 @@ data class LearnerSnapshot(
     val calibration: WorldModel.Calibration,
     val evidence: AdaptiveEvidence,
     val tunedTargetRetention: Double?,
-    val tunedNewBudgetScale: Double
+    val tunedNewBudgetScale: Double,
+    /** stablePace / requiredPace for the active learning goal, or null with no
+     * active goal. See PaceInputs.goalPaceRatio for how this is used. */
+    val goalPaceRatio: Double? = null
 ) {
     fun paceInputs(plannedNewFraction: Double): PaceInputs = PaceInputs(
         capacity = capacity,
@@ -52,6 +55,7 @@ data class LearnerSnapshot(
         sessionsPerDayExpected = sessionsPerDayExpected,
         decay = decay,
         tunedTargetRetention = tunedTargetRetention,
-        tunedNewBudgetScale = tunedNewBudgetScale
+        tunedNewBudgetScale = tunedNewBudgetScale,
+        goalPaceRatio = goalPaceRatio
     )
 }

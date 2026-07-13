@@ -10,8 +10,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -44,8 +45,9 @@ import org.json.JSONObject
     onDismissMigrationReport: () -> Unit = {}
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("Learning Lab", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text("Diagnostics and experiments; FSRS remains the scheduler.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Learning insights", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text("A calm readout of what your guided practice is building.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        InsightSummaryCard(state)
         state.curriculumMigrationReport?.let { report ->
             SectionCard {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -68,14 +70,13 @@ import org.json.JSONObject
         state.sessionPlan?.levelConstraint?.let { constraint ->
             SectionCard { Text(constraint, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.SemiBold) }
         }
-        CurriculumCompletenessCard(state.curriculumCompleteness)
         RivalProgressCard(state.rivalState, state.matchHistory)
         CheckpointCard(state, onStartCheckpoint, onSubmitCheckpointAnswer, onDismissCheckpoint)
         // Was hardcoded to expanded = true with onToggle = {} — the collapse arrow
         // rendered and rotated but tapping it did nothing, since there was no state
         // for it to flip. This is the only DetailsSection call site in the app not
         // wired to real state (compare DashboardScreens.kt's showDetails toggle).
-        var detailsExpanded by rememberSaveable { mutableStateOf(true) }
+        var detailsExpanded by rememberSaveable { mutableStateOf(false) }
         state.dashboardStats?.let { DetailsSection(it, detailsExpanded) { detailsExpanded = !detailsExpanded } }
         state.weeklyReports.firstOrNull()?.let { report ->
             WeeklyLetterCard(report)
@@ -83,45 +84,38 @@ import org.json.JSONObject
     }
 }
 
-/** Phase G11: how much of the Tatoeba corpus is fully parseable with the
- * currently-shipped grammar+vocab spine, by CEFR band — the honest number
- * behind "40 concepts is too few" turned into a dashboard readout. */
 @Composable
-private fun CurriculumCompletenessCard(bands: Map<String, com.sibirskyspeak.data.CurriculumCompletenessBand>) {
-    if (bands.isEmpty()) return
-    SectionCard {
-        Text("Curriculum completeness", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Text(
-            "% of on-device example sentences fully parseable with what's shipped so far",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.height(10.dp))
-        val order = listOf("A1", "A2", "B1", "B2+")
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            order.forEach { band ->
-                bands[band]?.let { metrics ->
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(band, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                "${metrics.percent}%  ·  ${metrics.parseableSentences}/${metrics.corpusSentences}",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        AppLinearProgressIndicator(
-                            progress = { (metrics.percent / 100.0).toFloat().coerceIn(0f, 1f) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                        )
-                    }
+private fun InsightSummaryCard(state: ReviewUiState) {
+    val observed = state.skillRatings.filter { it.observations > 0 }
+    val strongest = observed.maxByOrNull { it.mu }
+    val nextFocus = observed.minByOrNull { it.mu }
+    val grammarFocus = state.dailyPlan?.grammarFocus?.firstOrNull()?.label?.takeIf { it.isNotBlank() }
+    val message = when {
+        observed.isEmpty() -> "Keep following the guided sessions. After a few completed reviews, this page will explain what is getting stronger and what the tutor is bringing back."
+        strongest == null -> "Your guided practice is building a useful base. Keep going and the tutor will sharpen the picture."
+        nextFocus == null || strongest.skill == nextFocus.skill -> "Your practice is moving together as one system. More completed sessions will reveal the next useful edge."
+        else -> "Your strongest signal is ${insightSkillLabel(strongest.skill)}. The next area the tutor is watching is ${insightSkillLabel(nextFocus.skill)}."
+    }
+    HeroCard {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Filled.Insights, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(34.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("Your learning path", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f))
+                grammarFocus?.let {
+                    Text("Current guided focus: $it", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f))
                 }
             }
         }
     }
+}
+
+private fun insightSkillLabel(raw: String): String = when (raw.lowercase()) {
+    "reading" -> "reading and lessons"
+    "listening" -> "listening"
+    "production" -> "producing Russian"
+    "vocab", "vocabulary" -> "vocabulary"
+    else -> raw.lowercase().replace('_', ' ')
 }
 
 /** One band's mastery dot in [ProficiencyMapCard]: filled + labeled when reached,

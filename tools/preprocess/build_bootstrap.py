@@ -480,7 +480,42 @@ def finalize_notes(notes):
             lemmas.add(lemma_key)
         note.pop("authored", None)
         unique.append(note)
+    # A verb's aspect partner can independently fail lexicon verification
+    # (above) or dedup out, leaving the surviving half pointing at a lemma
+    # that was never shipped. The app no-ops gracefully on that (no crash),
+    # but it's still a dangling reference in shipped data — drop it here so
+    # every aspectPartner resolves to a real note, regardless of which half
+    # of the pair happened to survive verification.
+    surviving_lemmas = {normalize_text(n.get("lemma", "")) for n in unique}
+    for note in unique:
+        partner = note.get("aspectPartner")
+        if partner and normalize_text(partner) not in surviving_lemmas:
+            del note["aspectPartner"]
     return unique
+
+
+def _split_top_level(text: str, seps: str) -> list[str]:
+    """Split on any char in `seps`, but never inside (...) or [...] — a gloss
+    like "to go (on foot, now)" must not be split at the comma that's part of
+    the parenthetical qualifier, or downstream code (mnemonic/secondSense
+    derivation) mistakes the parenthetical's tail for a whole extra sense."""
+    parts = []
+    depth = 0
+    current = []
+    for ch in text:
+        if ch in "([":
+            depth += 1
+            current.append(ch)
+        elif ch in ")]":
+            depth = max(0, depth - 1)
+            current.append(ch)
+        elif ch in seps and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    parts.append("".join(current))
+    return parts
 
 
 def apply_phase3_enrichment(notes):
@@ -520,23 +555,49 @@ def apply_phase3_enrichment(notes):
             note["exampleSentence2"] = f"Он сказал: «{quoted}»"
             note["exampleTranslation2"] = f"He said: “{translated}”"
         if note.get("tier") == 0 and note.get("cefrLevel") in {"A1", "A2"} and not note.get("mnemonic"):
-            meaning = note.get("translation", "").split(",")[0].strip()
+            meaning = _split_top_level(note.get("translation", ""), ",")[0].strip()
             note["mnemonic"] = f"Picture {meaning or 'the meaning'} saying «{note.get('russian', lemma)}» out loud."[:120]
-        if morph is not None:
-            parses = [p for p in morph.parse(lemma) if paradigm_norm(p.normal_form) == lemma]
+        # pymorphy3 analyzes single tokens; feeding it a multi-word idiom (e.g.
+        # "принять во внимание") makes it silently match the last word's
+        # normal_form and inflect the *whole phrase* using that word's suffix
+        # rules, producing nonsense forms like "принять во вниманием". Skip
+        # morphology entirely for fixed multi-word expressions.
+        if morph is not None and " " not in lemma:
+            # Parse on the note's original spelling, not the normalized
+            # `lemma` -- pymorphy3's dictionary is keyed on precomposed
+            # text, and even with norm() recomposing its own output, a
+            # defensive raw-spelling parse (matching build_paradigms.py's
+            # documented safe pattern) avoids ever depending on that.
+            raw_spelling = note.get("lemma") or note.get("russian", "")
+            parses = [p for p in morph.parse(raw_spelling) if paradigm_norm(p.normal_form) == lemma]
             if parses:
                 parse = parses[0]
+                # pymorphy3's lexeme can list a non-standard-register variant
+                # (Litr=literary/archaic, Infr=informal/colloquial, Slng)
+                # for a case/number slot BEFORE the standard form -- e.g.
+                # ACC_SG of "огонь" lists archaic "огнь" ahead of "огонь",
+                # and setdefault() would lock onto whichever comes first.
+                # Two passes: standard forms always win when both exist, but
+                # a variant still fills a key that has no standard form.
+                REGISTER_VARIANT_GRAMMEMES = {"Litr", "Infr", "Slng"}
                 table = {}
+                variant_forms = []
                 for form in parse.lexeme:
                     key = legacy_key(form.tag)
-                    if key:
-                        table.setdefault(key, form.word)
+                    if not key:
+                        continue
+                    if any(g in form.tag for g in REGISTER_VARIANT_GRAMMEMES):
+                        variant_forms.append((key, form.word))
+                        continue
+                    table.setdefault(key, form.word)
+                for key, word in variant_forms:
+                    table.setdefault(key, word)
                 if table:
                     note["declensionJson"] = {"verbForms": table} if str(parse.tag.POS) in {"VERB", "INFN"} else table
                 if note.get("pos", "").lower().startswith("verb") and not note.get("aspect"):
                     note["aspect"] = "PF" if "perf" in parse.tag else "IPF" if "impf" in parse.tag else None
         if polysemes < 300 and not note.get("secondSense"):
-            senses = [s.strip() for s in re.split(r"[,;/]", note.get("translation", "")) if s.strip()]
+            senses = [s.strip() for s in _split_top_level(note.get("translation", ""), ",;/") if s.strip()]
             if len(senses) >= 2:
                 note["secondSense"] = senses[1]
                 note["secondSenseExample"] = note.get("exampleSentence2") or note.get("exampleSentence")
@@ -692,6 +753,26 @@ def main():
         "curriculumVersion": f"2026-07-g12-{checksum[:8]}",
         "schemaVersion": 2,
         "contentChecksum": checksum,
+        "provenance": {
+            "generatedBy": "SibirskySpeak offline curriculum pipeline",
+            "sources": [
+                {
+                    "id": "tatoeba",
+                    "attribution": "Example sentences from Tatoeba via OPUS",
+                    "license": "CC-BY 2.0 FR",
+                },
+                {
+                    "id": "wiktionary",
+                    "attribution": "Lexical verification from Wiktionary via Kaikki",
+                    "license": "CC BY-SA 4.0",
+                },
+                {
+                    "id": "graded-curriculum",
+                    "attribution": "SibirskySpeak graded curriculum and lesson authoring",
+                    "license": "Project content",
+                },
+            ],
+        },
         "noteCountsByBand": dict(sorted(counts.items())),
         "noteCountsByTier": dict(sorted(tiers.items())),
         "assets": {

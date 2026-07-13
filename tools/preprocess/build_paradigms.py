@@ -24,8 +24,16 @@ PERSONS = {"1per": "1", "2per": "2", "3per": "3"}
 
 
 def norm(value: str) -> str:
+    # NFD decomposition is only a means to strip the combining stress mark
+    # (́) cleanly -- but it ALSO splits й (U+0439) into и + a
+    # combining breve (U+0306) as a side effect. Left decomposed, that string
+    # no longer matches pymorphy3's dictionary (which indexes precomposed
+    # й), so morph.parse() silently falls back to low-confidence guess
+    # parses for every word containing й -- corrupting their generated
+    # declension/analysis tables. Recompose back to NFC before returning.
     value = unicodedata.normalize("NFD", value.lower().replace("ё", "е")).replace(ACUTE, "")
-    return value.replace("\u0308", "").strip()
+    value = value.replace("\u0308", "").strip()
+    return unicodedata.normalize("NFC", value)
 
 
 def analysis_feats(tag) -> str:

@@ -32,6 +32,9 @@ object FluencySimEngine {
         "B2" to 4_209, "C1" to 5_192, "C2" to 6_983
     )
 
+    /** Known-word count threshold for [level], or null if not a recognized CEFR band. */
+    fun milestoneThreshold(level: String): Int? = MILESTONES[level]
+
     data class DayRange(val low: Int, val high: Int)
 
     data class SimResult(

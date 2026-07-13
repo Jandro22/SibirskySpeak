@@ -6,6 +6,7 @@ import com.sibirskyspeak.data.CardType
 import com.sibirskyspeak.data.ItemDifficulty
 import com.sibirskyspeak.data.Queue
 import com.sibirskyspeak.data.SkillRating
+import com.sibirskyspeak.data.SettingsStore
 import com.sibirskyspeak.review.AnswerMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -101,6 +102,38 @@ class GenerativePaceWorldModelTest {
                 true,
                 sparseEvidence,
                 MpcInputs(fatigue = 0.289, debtRatio = 0.688, debtLimit = 0.35, pReturn = 0.865)
+            )
+        )
+
+        // A refillable 40-card daily target must not be converted into a protected
+        // stop while there are still cards available, even if the adaptive signals
+        // temporarily look tired.
+        assertEquals(
+            MpcAction.CARD,
+            SessionMpcController.decide(
+                true,
+                tired.copy(recoveryAttempted = true),
+                MpcInputs(fatigue = 0.9, minimumSessionCards = SettingsStore.DAILY_CARD_TARGET)
+            )
+        )
+        // The decision is made after the current card is counted. At shown == 40,
+        // the 40th card is still the target card, not an early-stop boundary.
+        assertEquals(
+            MpcAction.CARD,
+            SessionMpcController.decide(
+                true,
+                tired.copy(shown = SettingsStore.DAILY_CARD_TARGET, recoveryAttempted = true),
+                MpcInputs(fatigue = 0.9, minimumSessionCards = SettingsStore.DAILY_CARD_TARGET)
+            )
+        )
+        // Once the configured target is actually complete, the safety stop remains
+        // available if severe struggle persists.
+        assertEquals(
+            MpcAction.STOP,
+            SessionMpcController.decide(
+                true,
+                tired.copy(shown = SettingsStore.DAILY_CARD_TARGET + 1, recoveryAttempted = true),
+                MpcInputs(fatigue = 0.9, minimumSessionCards = SettingsStore.DAILY_CARD_TARGET)
             )
         )
     }

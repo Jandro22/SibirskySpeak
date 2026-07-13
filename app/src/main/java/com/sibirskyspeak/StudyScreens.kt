@@ -29,6 +29,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -45,7 +46,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -124,6 +124,7 @@ import com.sibirskyspeak.review.AnswerMode
 import com.sibirskyspeak.review.AnswerMatch
 import com.sibirskyspeak.review.ReviewPrompt
 import com.sibirskyspeak.review.ReviewUiState
+import com.sibirskyspeak.review.shouldAutoStartStudySession
 import com.sibirskyspeak.review.isNewVocabularyIntroduction
 import kotlinx.coroutines.delay
 
@@ -167,15 +168,22 @@ internal fun StudySessionScreen(
     // back to false as ordinary end-of-sitting bookkeeping (LearningRepository ends
     // the match, ReviewViewModel.loadSession sets inStudySession = false) — while
     // this same composable instance is still mounted showing the completion screen.
-    // Without a per-mount guard, that transition re-satisfies this exact condition
-    // and silently launches a brand new session/lesson with zero learner input: the
-    // "session finishes, then instantly jumps into another grammar lesson" bug.
-    // Firing at most once per mount preserves both the cold-start and Dashboard-tap
-    // cases (first satisfying transition after this screen appears) without
-    // re-arming every time a later session in the same sitting completes.
+    // Without an explicit completed-session check, that transition can silently
+    // launch a brand new session/lesson with zero learner input: the "session
+    // finishes, then instantly jumps into another grammar lesson" bug. Normal
+    // Dashboard/Practice entry starts explicitly; this effect is only the restore /
+    // cold-start fallback.
     var autoStartAttempted by remember { mutableStateOf(false) }
     LaunchedEffect(state.inStudySession, state.sessionPlan != null) {
-        if (!autoStartAttempted && !state.inStudySession && state.sessionPlan != null) {
+        if (shouldAutoStartStudySession(
+                autoStartAttempted = autoStartAttempted,
+                inStudySession = state.inStudySession,
+                planReady = state.sessionPlan != null,
+                completedCards = state.sessionCompletedCards,
+                hasMatchReport = state.matchReport != null,
+                ratingInProgress = state.ratingInProgress
+            )
+        ) {
             autoStartAttempted = true
             onStartSession()
         }
@@ -263,7 +271,7 @@ internal fun StudySessionScreen(
                                             leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
                                             onClick = { actionsExpanded = false; editing = true }
                                         )
-                                        if (prompt.card.queue.name == "VOCAB" && !prompt.isNewVocabularyIntroduction()) {
+                                        if (prompt.card.cardType == CardType.RU_TO_MEANING && !prompt.isNewVocabularyIntroduction()) {
                                             DropdownMenuItem(
                                                 text = { Text("Mark word known") },
                                                 leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
@@ -302,6 +310,31 @@ internal fun StudySessionScreen(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
+                    if (state.sessionProgressTotal > 0) {
+                        val completed = state.sessionProgressCompleted.coerceIn(0, state.sessionProgressTotal)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .semantics {
+                                    contentDescription = "Session progress: $completed of ${state.sessionProgressTotal} cards"
+                                },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            AppLinearProgressIndicator(
+                                progress = { completed.toFloat() / state.sessionProgressTotal.toFloat() },
+                                modifier = Modifier.weight(1f).height(5.dp).clip(PillShape),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f)
+                            )
+                            Text(
+                                "$completed / ${state.sessionProgressTotal}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
             // A rating on the last queued card forces a full (non-reused) session
@@ -333,6 +366,7 @@ internal fun StudySessionScreen(
                         stoppedEarly = state.sessionStoppedEarly,
                         deferredPrompts = state.stoppedQueueRemaining,
                         matchReport = state.matchReport,
+                        saving = state.ratingInProgress,
                         tomorrowReviews = state.dashboardStats?.dueForecast?.getOrNull(0) ?: 0,
                         tomorrowMinutes = kotlin.math.ceil((state.dashboardStats?.dueForecast?.getOrNull(0) ?: 0) * 0.35).toInt(),
                         tomorrowNewCards = state.newCardsPerDaySetting,
@@ -529,9 +563,9 @@ internal fun SessionProgressStrip(
         // Remaining-in-queue counts, labeled so the colored numbers aren't a riddle:
         // new (blue) · learning (red) · review (green).
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            QueueCount(newCount, "new", Color(0xFF2F73D8))
-            QueueCount(learningCount, "learning", Color(0xFFD2453B))
-            QueueCount(reviewCount, "review", Color(0xFF2E9E5B))
+            QueueCount(newCount, "new", Rating.EASY.accent())
+            QueueCount(learningCount, "learning", Rating.AGAIN.accent())
+            QueueCount(reviewCount, "review", Rating.GOOD.accent())
         }
         Text(
             if (reviewedToday > dailyGoal) {
@@ -630,9 +664,10 @@ internal fun ReviewContent(
     // word is already shown). For production, cloze, stress, and choice cards, auto-
     // play would speak the very answer the learner is meant to recall — so it's off;
     // they can still tap "Hear Russian" any time (and after reveal).
-    if (prompt.answerMode == AnswerMode.AUDIO_ONLY || prompt.answerMode == AnswerMode.ENGLISH ||
-        prompt.isNewVocabularyIntroduction()
-    ) {
+    val audioLedPrompt = prompt.answerMode == AnswerMode.AUDIO_ONLY ||
+        prompt.card.cardType == CardType.SPEAK_SENTENCE ||
+        prompt.card.cardType == CardType.PHONOLOGY_MINIMAL_PAIR
+    if (audioLedPrompt || prompt.answerMode == AnswerMode.ENGLISH || prompt.isNewVocabularyIntroduction()) {
         AutoPlayCardAudio(cardId = prompt.card.id, onSpeak = onSpeak)
     }
     // A lesson is a teaching screen, not a quiz: render it on its own and bail out
@@ -655,7 +690,9 @@ internal fun ReviewContent(
     // tiles automatically for multi-word answers, so short phrases work too.
     val supportsTiles = prompt.answerMode == AnswerMode.RUSSIAN_TYPED ||
         prompt.answerMode == AnswerMode.AUDIO_ONLY
-    var keyboardMode by rememberSaveable(prompt.card.id) { mutableStateOf(!supportsTiles) }
+    val freeProduction = prompt.card.cardType in setOf(CardType.NOVEL_PRODUCE, CardType.TRANSFORM)
+    val offersTiles = supportsTiles && !freeProduction
+    var keyboardMode by rememberSaveable(prompt.card.id) { mutableStateOf(!offersTiles) }
     SectionCard(emphasis = true) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -668,7 +705,7 @@ internal fun ReviewContent(
             }
             Spacer(Modifier.width(10.dp))
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                StatusTag(if (prompt.card.queue.name == "VOCAB") "Vocab" else "Grammar")
+                StatusTag(reviewFacetLabel(prompt))
                 if (prompt.note.tier == 0 && prompt.note.unit != null) {
                     Text(
                         "${prompt.note.cefrLevel ?: "A1"} - Unit ${prompt.note.unit}",
@@ -683,12 +720,12 @@ internal fun ReviewContent(
             Spacer(Modifier.height(8.dp))
             Surface(
                 color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
-                shape = RoundedCornerShape(10.dp)
+                shape = MaterialTheme.shapes.small
             ) {
                 Text(
                     // The reason phrases ("Warm-up: a secure scheduled review") already
                     // carry their own colon, so frame with an em dash to avoid "card: …:".
-                    "Why this card — $reason",
+                    stringResource(R.string.study_why_card, reason),
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSecondaryContainer
@@ -731,7 +768,7 @@ internal fun ReviewContent(
                         )
                     }
                 }
-                prompt.teachingHint?.takeIf { prompt.card.queue.name == "GRAMMAR" }?.let { hint ->
+                prompt.teachingHint?.takeIf { it.isNotBlank() }?.let { hint ->
                     Surface(
                         color = MaterialTheme.colorScheme.secondaryContainer,
                         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -753,7 +790,7 @@ internal fun ReviewContent(
                 // until recognition is stable, so when one first appears the *word* is
                 // already familiar — only the format is new. Saying "new word" here
                 // would be false and make a fair card feel like a failure.
-                if (!state.revealed && prompt.card.queue.name == "VOCAB" &&
+                if (!state.revealed && prompt.card.cardType == CardType.RU_TO_MEANING &&
                     prompt.card.state.name == "NEW" && prompt.card.reps == 0
                 ) {
                     Surface(
@@ -784,12 +821,17 @@ internal fun ReviewContent(
                 }
                 Text(
                     prompt.prompt.ifBlank {
-                        if (prompt.card.cardType == CardType.AUDIO_TO_RU) "Word dictation: type what you hear"
-                        else "Sentence dictation: type what you hear"
+                        when (prompt.card.cardType) {
+                            CardType.AUDIO_TO_RU -> "Word dictation: type what you hear"
+                            CardType.DICTATION -> "Sentence dictation: type what you hear"
+                            CardType.PHONOLOGY_MINIMAL_PAIR -> "Choose the word you hear"
+                            CardType.SPEAK_SENTENCE -> "Listen, then repeat the sentence aloud"
+                            else -> "Listen and respond"
+                        }
                     },
                     style = RussianDisplay
                 )
-                if (prompt.answerMode == AnswerMode.AUDIO_ONLY) {
+                if (audioLedPrompt) {
                     AudioPracticeButton(onClick = onSpeak)
                 }
                 reviewContext(prompt)?.let {
@@ -825,7 +867,7 @@ internal fun ReviewContent(
                             onRecognized = onAnswerChanged
                         )
                     } else {
-                        if (supportsTiles) {
+                        if (offersTiles) {
                             InputModeToggle(
                                 keyboardMode = keyboardMode,
                                 onKeyboard = {
@@ -946,6 +988,7 @@ internal fun SpeakingAnswerInput(
             return
         }
         helperText = "Listening..."
+        onRecognized("")
         recognizedConfidence = null
         recognizer.startListening(
             onResult = { result, confidence ->
@@ -959,8 +1002,11 @@ internal fun SpeakingAnswerInput(
                     helperText = "Recognized. Check the answer when it looks right."
                 }
             },
+            // Do not publish partial ASR text as a submittable answer. The parent
+            // Check Answer button cannot see this local listening flag, so a partial
+            // transcript could otherwise be committed before recognition finishes.
             onPartial = { partial ->
-                if (partial.isNotBlank()) onRecognized(partial)
+                if (partial.isNotBlank()) helperText = "Hearing: $partial"
             },
             onError = { error ->
                 listening = false
@@ -1011,6 +1057,16 @@ internal fun SpeakingAnswerInput(
                 Spacer(Modifier.width(8.dp))
                 Text(if (listening) "Listening..." else "Start Mic", fontWeight = FontWeight.SemiBold)
             }
+        }
+        // Pronunciation practice must remain useful when an offline ASR model is
+        // absent (or when the learner prefers not to grant microphone access).
+        // This path records a deliberate self-check and leaves the final rating
+        // to the learner instead of fabricating an ASR transcript or score.
+        OutlinedButton(
+            onClick = { onRecognized("Self-check: I said it aloud") },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("I said it aloud · self-check")
         }
         if (recognized.isNotBlank()) {
             Surface(
@@ -1173,7 +1229,7 @@ internal fun ChoiceAnswerButton(choice: String, index: Int, onClick: () -> Unit)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Surface(
-                shape = RoundedCornerShape(99.dp),
+                shape = PillShape,
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                 contentColor = MaterialTheme.colorScheme.primary
             ) {
@@ -1469,6 +1525,7 @@ internal fun RevealPanel(
  * reveal state call for. Nothing is shown before reveal: the Reveal/Check button
  * stays inline, since reading the prompt first is the point.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun StudyActionBar(
     state: ReviewUiState,
@@ -1559,30 +1616,38 @@ internal fun StudyActionBar(
                     }
                 }
                 else -> {
-                    // AnkiDroid-style answer bar: all four grades in a single row.
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Rating.entries.forEach { rating ->
-                            RatingButton(
-                                rating = rating,
-                                intervalDays = prompt.intervalPreview[rating] ?: 0,
-                                saving = state.ratingInProgress,
-                                suggested = state.suggestedRating == rating,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(84.dp)
-                                    .testTag(
-                                        when (rating) {
-                                            Rating.AGAIN -> TestTags.RATE_AGAIN
-                                            Rating.HARD -> TestTags.RATE_HARD
-                                            Rating.GOOD -> TestTags.RATE_GOOD
-                                            Rating.EASY -> TestTags.RATE_EASY
-                                        }
-                                    ),
-                                onClick = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onRate(rating)
-                                }
-                            )
+                    // Keep the four grades side-by-side on normal phones, but use
+                    // two rows when large text would make each button unreadable.
+                    BoxWithConstraints {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            maxItemsInEachRow = if (maxWidth < 420.dp) 2 else 4,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Rating.entries.forEach { rating ->
+                                RatingButton(
+                                    rating = rating,
+                                    intervalDays = prompt.intervalPreview[rating] ?: 0,
+                                    saving = state.ratingInProgress,
+                                    suggested = state.suggestedRating == rating,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(84.dp)
+                                        .testTag(
+                                            when (rating) {
+                                                Rating.AGAIN -> TestTags.RATE_AGAIN
+                                                Rating.HARD -> TestTags.RATE_HARD
+                                                Rating.GOOD -> TestTags.RATE_GOOD
+                                                Rating.EASY -> TestTags.RATE_EASY
+                                            }
+                                        ),
+                                    onClick = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onRate(rating)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -1721,7 +1786,11 @@ internal fun CorrectionPractice(
                 expected = prompt.expectedAnswer,
                 cardId = prompt.card.id xor 0x5F3759DFL,
                 hint = "Build the correction with tiles; keyboard remains optional.",
-                onChange = onChange
+                onChange = onChange,
+                // Switching input modes clears the ViewModel value. This key also
+                // clears the tile bank's local selection so it cannot submit stale
+                // tiles after returning from the keyboard.
+                resetKey = keyboardMode
             )
         }
     }
@@ -1823,15 +1892,25 @@ internal fun ReviewPrompt.speechText(): String =
         AnswerMode.AUDIO_ONLY -> expectedAnswer
         AnswerMode.SPEAK -> expectedAnswer
         AnswerMode.RUSSIAN_STRESS_TYPED -> expectedAnswer
-        AnswerMode.RUSSIAN_TYPED -> listOfNotNull(
-            exampleSentence,
-            prompt.russianLinesForSpeech(),
-            expectedAnswer
-        ).firstOrNull { it.hasRussianTextForSpeech() } ?: expectedAnswer
+        AnswerMode.RUSSIAN_TYPED -> {
+            val formFirst = card.cardType in setOf(
+                com.sibirskyspeak.data.CardType.CASE_FILL,
+                com.sibirskyspeak.data.CardType.ADJ_AGREE,
+                com.sibirskyspeak.data.CardType.VERB_FORM,
+                com.sibirskyspeak.data.CardType.CONCEPT_DRILL
+            )
+            val candidates = if (formFirst) {
+                listOfNotNull(expectedAnswer, exampleSentence, prompt.russianLinesForSpeech())
+            } else {
+                listOfNotNull(exampleSentence, prompt.russianLinesForSpeech(), expectedAnswer)
+            }
+            candidates.firstOrNull { it.hasRussianTextForSpeech() } ?: expectedAnswer
+        }
         AnswerMode.CHOICE -> listOfNotNull(
+            expectedAnswer.takeIf { it.hasRussianTextForSpeech() },
             exampleSentence,
             prompt.russianLinesForSpeech(),
-            expectedAnswer
+            null
         ).firstOrNull { it.hasRussianTextForSpeech() }
             ?: expectedAnswer
         AnswerMode.LESSON -> if (isNewVocabularyIntroduction()) {

@@ -231,7 +231,35 @@ def _strip_stress(value: str) -> str:
 def clean_line(value: str) -> str:
     value = value.replace("", "•").replace(" ", " ")
     value = re.sub(r"\s+", " ", value).strip()
+    value = _repair_latin_homoglyphs(value)
     return _rejoin_oversplit(value)
+
+
+# The source PDF's font/cmap occasionally substitutes a visually identical
+# Latin letter for a Cyrillic one within an otherwise-Cyrillic word (e.g.
+# "Cоединённые" with a Latin "C" instead of Cyrillic "С", or "Дени́сa" with a
+# trailing Latin "a"). Genuine Latin words (brand names, "iPhone", etc.) are
+# untouched because they're all-Latin tokens, not Cyrillic words with one
+# stray Latin letter — so only mixed-script tokens that are majority-Cyrillic
+# get their look-alike Latin letters swapped back.
+_LATIN_TO_CYRILLIC_LOOKALIKE = str.maketrans({
+    "A": "А", "B": "В", "E": "Е", "K": "К", "M": "М", "H": "Н", "O": "О",
+    "P": "Р", "C": "С", "T": "Т", "X": "Х", "a": "а", "c": "с", "e": "е",
+    "o": "о", "p": "р", "x": "х", "y": "у",
+})
+_WORD_RE = re.compile(r"[A-Za-zА-Яа-яЁё" + ACUTE + r"]+")
+
+
+def _repair_latin_homoglyphs(text: str) -> str:
+    def fix(match: re.Match[str]) -> str:
+        word = match.group()
+        cyr = sum(1 for ch in word if "А" <= ch <= "я" or ch in "Ёё")
+        lat = sum(1 for ch in word if "A" <= ch <= "z" and ch.isalpha() and not ("А" <= ch <= "я"))
+        if cyr == 0 or lat == 0 or lat > cyr:
+            return word
+        return word.translate(_LATIN_TO_CYRILLIC_LOOKALIKE)
+
+    return _WORD_RE.sub(fix, text)
 
 
 # One-letter words that legitimately follow a stressed word ("до́м с окно́м"): never

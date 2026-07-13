@@ -26,6 +26,8 @@ interface SettingsStore {
     var readerFontScale: Float
     var lastBackupAt: Long
     var backupTreeUri: String
+    /** Whether the automatic public Downloads mirror is allowed. */
+    var automaticPublicBackupEnabled: Boolean
     val lastBackupSizeBytes: Long
     val lastBackupValidatedAt: Long
     val lastDurableBackupAt: Long
@@ -36,6 +38,10 @@ interface SettingsStore {
     var lastInsuredGapDay: Long
     var planSkeletonCardIds: String
     var lastAdaptiveLoadDay: Long
+    /** Timestamp from which adaptive pacing evidence should be considered valid. */
+    var adaptiveResetAt: Long
+    /** Local day bucket for the one-day fuller-study allowance after a reset. */
+    var adaptiveBoostDay: Long
     /** Local epoch-day the "days to fluency" forecast last recomputed — it runs a
      * real day-by-day simulation (FluencySimEngine) that can take tens of seconds,
      * so it's throttled to daily and always run off the Main dispatcher. */
@@ -43,6 +49,21 @@ interface SettingsStore {
     /** Empty means the general inventory; otherwise a build-time validated domain tag. */
     var preferredDomain: String
     var adaptiveEnabled: Boolean
+    /** "" = no active goal; else "A1".."C2", the CEFR level the learner has committed to. */
+    var goalTargetLevel: String
+    /** Local epoch-day the learner is targeting for [goalTargetLevel]. Long.MIN_VALUE = unset. */
+    var goalTargetDateEpochDay: Long
+    var goalCreatedAtEpochDay: Long
+    /** "ACTIVE" | "ABANDONED" | "ACHIEVED". */
+    var goalStatus: String
+    /** Local epoch-day the weekly on-track/drifting/off-track check last ran (throttle). */
+    var goalLastWeeklyCheckDay: Long
+    /** Known-word count snapshot at the last weekly check, for delta-based velocity. */
+    var goalLastVelocityWordsKnown: Int
+    /** Steady-state words/day from the last daily FluencySimEngine run, cached so the
+     * live (non-simulated) pace call can derive goal pressure without re-running the
+     * ~34s simulation on every session load — see LearningRepository.currentSnapshot. */
+    var lastStablePaceWordsPerDay: Double
     /** Compact durable session checkpoint; empty means there is no resumable session. */
     var sessionSnapshotJson: String
         get() = ""
@@ -58,6 +79,7 @@ interface SettingsStore {
     fun setReaderProgress(textId: Long, tokenIndex: Int)
 
     companion object {
+        const val DAILY_CARD_TARGET = 40
         const val DEFAULT_DAILY_GOAL = 20
         const val DEFAULT_SESSION_SIZE = 25
         const val DEFAULT_NEW_CARDS_PER_DAY = 15
@@ -172,6 +194,9 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
     override var backupTreeUri: String
         get() = prefs.getString(KEY_BACKUP_TREE_URI, "") ?: ""
         set(value) = prefs.edit().putString(KEY_BACKUP_TREE_URI, value).apply()
+    override var automaticPublicBackupEnabled: Boolean
+        get() = prefs.getBoolean(KEY_AUTOMATIC_PUBLIC_BACKUP, true)
+        set(value) = prefs.edit().putBoolean(KEY_AUTOMATIC_PUBLIC_BACKUP, value).apply()
     override val lastBackupSizeBytes: Long get() = prefs.getLong("backup_last_size", 0L)
     override val lastBackupValidatedAt: Long get() = prefs.getLong("backup_last_validated_at", 0L)
     override val lastDurableBackupAt: Long get() = prefs.getLong("backup_last_saf_at", 0L)
@@ -194,6 +219,14 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         get() = prefs.getLong(KEY_LAST_ADAPTIVE_LOAD_DAY, Long.MIN_VALUE)
         set(value) = prefs.edit().putLong(KEY_LAST_ADAPTIVE_LOAD_DAY, value).apply()
 
+    override var adaptiveResetAt: Long
+        get() = prefs.getLong(KEY_ADAPTIVE_RESET_AT, 0L)
+        set(value) = prefs.edit().putLong(KEY_ADAPTIVE_RESET_AT, value).apply()
+
+    override var adaptiveBoostDay: Long
+        get() = prefs.getLong(KEY_ADAPTIVE_BOOST_DAY, Long.MIN_VALUE)
+        set(value) = prefs.edit().putLong(KEY_ADAPTIVE_BOOST_DAY, value).apply()
+
     override var lastFluencyForecastDay: Long
         get() = prefs.getLong(KEY_LAST_FLUENCY_FORECAST_DAY, Long.MIN_VALUE)
         set(value) = prefs.edit().putLong(KEY_LAST_FLUENCY_FORECAST_DAY, value).apply()
@@ -205,6 +238,34 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
     override var adaptiveEnabled: Boolean
         get() = prefs.getBoolean(KEY_ADAPTIVE_ENABLED, true)
         set(value) = prefs.edit().putBoolean(KEY_ADAPTIVE_ENABLED, value).apply()
+
+    override var goalTargetLevel: String
+        get() = prefs.getString(KEY_GOAL_TARGET_LEVEL, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_GOAL_TARGET_LEVEL, value).apply()
+
+    override var goalTargetDateEpochDay: Long
+        get() = prefs.getLong(KEY_GOAL_TARGET_DATE_EPOCH_DAY, Long.MIN_VALUE)
+        set(value) = prefs.edit().putLong(KEY_GOAL_TARGET_DATE_EPOCH_DAY, value).apply()
+
+    override var goalCreatedAtEpochDay: Long
+        get() = prefs.getLong(KEY_GOAL_CREATED_AT_EPOCH_DAY, Long.MIN_VALUE)
+        set(value) = prefs.edit().putLong(KEY_GOAL_CREATED_AT_EPOCH_DAY, value).apply()
+
+    override var goalStatus: String
+        get() = prefs.getString(KEY_GOAL_STATUS, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_GOAL_STATUS, value).apply()
+
+    override var goalLastWeeklyCheckDay: Long
+        get() = prefs.getLong(KEY_GOAL_LAST_WEEKLY_CHECK_DAY, Long.MIN_VALUE)
+        set(value) = prefs.edit().putLong(KEY_GOAL_LAST_WEEKLY_CHECK_DAY, value).apply()
+
+    override var goalLastVelocityWordsKnown: Int
+        get() = prefs.getInt(KEY_GOAL_LAST_VELOCITY_WORDS_KNOWN, 0)
+        set(value) = prefs.edit().putInt(KEY_GOAL_LAST_VELOCITY_WORDS_KNOWN, value).apply()
+
+    override var lastStablePaceWordsPerDay: Double
+        get() = prefs.getFloat(KEY_LAST_STABLE_PACE, 0f).toDouble()
+        set(value) = prefs.edit().putFloat(KEY_LAST_STABLE_PACE, value.toFloat()).apply()
 
     override var sessionSnapshotJson: String
         get() = prefs.getString(KEY_SESSION_SNAPSHOT, "") ?: ""
@@ -219,7 +280,7 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         get() {
             prefs.getString(KEY_LEARNING_EXPERIMENT, null)?.let { return it }
             val variant = if (java.util.UUID.randomUUID().leastSignificantBits and 1L == 0L) "A" else "B"
-            prefs.edit().putString(KEY_LEARNING_EXPERIMENT, variant).commit()
+            prefs.edit().putString(KEY_LEARNING_EXPERIMENT, variant).apply()
             return variant
         }
 
@@ -265,6 +326,7 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         private const val KEY_ACH_SEEDED = "achievements_seeded"
         private const val KEY_LAST_BACKUP_AT = "last_backup_at"
         private const val KEY_BACKUP_TREE_URI = "backup_tree_uri"
+        private const val KEY_AUTOMATIC_PUBLIC_BACKUP = "automatic_public_backup_enabled"
         private const val KEY_REST_DAY_CREDITS = "rest_day_credits"
         private const val KEY_LAST_REST_AWARD_DAY = "last_rest_award_day"
         private const val KEY_LAST_INSURED_GAP_DAY = "last_insured_gap_day"
@@ -273,10 +335,19 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         private const val KEY_FSRS_WEIGHTS = "fsrs_weights_v1"
         private const val KEY_LAST_WEIGHT_FIT_DAY = "last_weight_fit_day"
         private const val KEY_LAST_ADAPTIVE_LOAD_DAY = "last_adaptive_load_day"
+        private const val KEY_ADAPTIVE_RESET_AT = "adaptive_reset_at"
+        private const val KEY_ADAPTIVE_BOOST_DAY = "adaptive_boost_day"
         private const val KEY_LAST_FLUENCY_FORECAST_DAY = "last_fluency_forecast_day"
         private const val KEY_LEARNING_EXPERIMENT = "learning_experiment_v1"
         private const val KEY_PREFERRED_DOMAIN = "preferred_domain"
         private const val KEY_ADAPTIVE_ENABLED = "adaptive_enabled"
+        private const val KEY_GOAL_TARGET_LEVEL = "goal_target_level"
+        private const val KEY_GOAL_TARGET_DATE_EPOCH_DAY = "goal_target_date_epoch_day"
+        private const val KEY_GOAL_CREATED_AT_EPOCH_DAY = "goal_created_at_epoch_day"
+        private const val KEY_GOAL_STATUS = "goal_status"
+        private const val KEY_GOAL_LAST_WEEKLY_CHECK_DAY = "goal_last_weekly_check_day"
+        private const val KEY_GOAL_LAST_VELOCITY_WORDS_KNOWN = "goal_last_velocity_words_known"
+        private const val KEY_LAST_STABLE_PACE = "last_stable_pace_words_per_day"
         private const val KEY_SESSION_SNAPSHOT = "session_snapshot_v1"
         private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
         private const val MAX_SESSION_SNAPSHOT_CHARS = 32_000

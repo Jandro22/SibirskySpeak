@@ -17,9 +17,10 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:largeHeap="true"
+        android:enableOnBackInvokedCallback="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.SibirskySpeak">
+        <profileable android:shell="true" tools:targetApi="29" />
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -33,6 +34,12 @@
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/micro_review_widget_info" />
         </receiver>
         <receiver android:name=".notify.InlineReviewReceiver" android:exported="false" />
+        <receiver android:name=".notify.ReminderTimeChangeReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
 
         <!-- WorkManager's default startup initializer would build a Worker via
              reflection, bypassing Hilt injection. Removing it lets SibirskySpeakApp's

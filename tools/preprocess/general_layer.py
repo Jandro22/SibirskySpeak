@@ -123,19 +123,41 @@ def _guess_class(lemma: str, gender: str):
     return None
 
 
-def _full_table(word, gender, gen_sg, gen_pl, prep_sg, nom_pl):
+# Substantivized adjectives: words tagged pos="noun" in the source (because
+# they function as one, e.g. "рабочий" = "a worker") but that are
+# structurally adjectives and MUST decline like one (рабочий -> рабочего,
+# not the regular -ий noun pattern -> рабочия). _guess_class can't tell
+# these apart from real -ий/-ый/-ой nouns like "герой"/"часовой" (the noun,
+# hour hand) by ending alone, and the source never supplies gen_sg for them
+# to validate against, so the wrong engine's non-words shipped silently.
+SUBSTANTIVIZED_ADJECTIVE_NOUNS = {
+    "малый", "старший", "рабочий", "мёртвый", "пьяный", "рядовой",
+    "полицейский", "участковый", "часовой", "виновный", "безработный",
+    "военнопленный", "придворный",
+}
+
+
+def _full_table(word, gender, gen_sg, gen_pl, prep_sg, nom_pl, animate=False):
     """Try a full 12-case table via the rule engine, VALIDATED against the deck's
     real forms. If the engine disagrees on any form the deck supplies (irregular
     stems, fleeting vowels, stress-shift plurals), fall back to the partial real
     table — so no incorrect form ever enters the index.
     Returns (table, used_engine)."""
     partial = _partial_table(word, gen_sg, gen_pl, prep_sg, nom_pl)
-    cls = _guess_class(strip_stress(word).lower(), gender)
+    stripped = strip_stress(word).lower()
+    if stripped in SUBSTANTIVIZED_ADJECTIVE_NOUNS and gender == "M" and not nom_pl:
+        try:
+            adj = decline_adjective(word)
+        except Exception:
+            return partial, False
+        keys = ("NOM_SG", "GEN_SG", "DAT_SG", "ACC_SG", "INS_SG", "PREP_SG")
+        return {k: adj[k] for k in keys}, True
+    cls = _guess_class(stripped, gender)
     if cls is None:
         return partial, False
     numbers = ("SG", "PL") if nom_pl else ("SG",)
     try:
-        gen = decline_noun(word, cls, animate=False, numbers=numbers)
+        gen = decline_noun(word, cls, animate=animate, numbers=numbers)
     except Exception:
         return partial, False
     # validate against every deck-supplied form
@@ -301,6 +323,9 @@ _ANIMATE_KEYWORDS = frozenset([
     "husband", "wife", "son", "daughter", "uncle", "aunt",
     "grandfather", "grandmother", "baby", "citizen", "master",
     "dog", "cat", "animal", "bird", "horse", "bear", "fish", "wolf",
+    "hero", "jew", "major", "genius", "scoundrel", "parrot", "villain",
+    "priest", "lieutenant", "sergeant", "sniper", "captive", "prisoner",
+    "policeman", "sentry", "convict", "guard", "criminal", "suspect",
 ])
 
 
@@ -443,10 +468,33 @@ def general_rows(domain_lemmas: set[str]) -> list[dict]:
             # rather than ship a half-glossed card.
             ru, en = "", ""
             # Only spaced separators — a bare "-" wrongly splits dates/hyphenated words.
+            # Russian sentences sometimes use an em dash as a copula (e.g.
+            # "История — учительница жизни"), so the RU/EN boundary is not
+            # necessarily the *first* separator in the string — usually it's
+            # the *last* one (English glosses rarely contain a spaced dash).
+            # But occasionally the English gloss itself contains a spaced
+            # dash too (e.g. "Full brake-power - we're plummeting - !"), so
+            # try candidate split points from rightmost to leftmost and take
+            # the first one that actually looks like a Russian/English
+            # boundary (Cyrillic before, Latin after) rather than assuming
+            # the rightmost occurrence is always correct.
+            candidates = []
             for sep in (" — ", " -- ", " - "):
-                if sep in example:
-                    head, _, tail = example.partition(sep)
-                    ru, en = head.strip(), tail.strip()
+                start = 0
+                while True:
+                    idx = example.find(sep, start)
+                    if idx == -1:
+                        break
+                    candidates.append((idx, sep))
+                    start = idx + 1
+            candidates.sort(key=lambda c: -c[0])
+            for idx, sep in candidates:
+                head = example[:idx].strip()
+                tail = example[idx + len(sep):].strip()
+                has_cyr_head = any("а" <= ch.lower() <= "я" or ch == "ё" for ch in head)
+                has_latin_tail = any("a" <= ch.lower() <= "z" for ch in tail)
+                if head and tail and has_cyr_head and has_latin_tail:
+                    ru, en = head, tail
                     break
             # Repair each half independently, not the joined string — an isolated
             # mojibake character in one half (e.g. a single scrambled proper noun in
@@ -466,8 +514,10 @@ def general_rows(domain_lemmas: set[str]) -> list[dict]:
         table = None
         if pos == "noun" and gender:
             note["gender"] = gender
+            animate = _seems_animate(gender_raw, translation)
             table, used_engine = _full_table(
-                word, gender, e.get("gen_sg"), e.get("gen_pl"), e.get("prep_sg"), e.get("nom_pl"))
+                word, gender, e.get("gen_sg"), e.get("gen_pl"), e.get("prep_sg"), e.get("nom_pl"),
+                animate=animate)
             note["declensionJson"] = table
             if used_engine:
                 engine_tables += 1

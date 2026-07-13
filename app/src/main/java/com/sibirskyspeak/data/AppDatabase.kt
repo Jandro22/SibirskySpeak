@@ -10,8 +10,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.sibirskyspeak.scheduler.FsrsScheduler
 
 @Database(
-    entities = [Note::class, NoteEvidence::class, NoteForm::class, Card::class, ReviewLog::class, ConfusablePair::class, ReaderText::class, ReadingSchedule::class, ReaderEncounter::class, ReadingActivity::class, TelemetryEvent::class, MinedExample::class, ItemDifficulty::class, ConceptMastery::class, OptimizerParameter::class, SkillRating::class, CapacityState::class, WillingnessState::class, RivalState::class, GhostSnapshot::class, MatchHistory::class, PaceLog::class, BanditPending::class, BanditArmState::class, WeeklyReport::class, ConfusionEvent::class, CheckpointResult::class, CurriculumState::class, CurriculumMigrationReport::class, ExitTicketResult::class],
-    version = 30,
+    entities = [Note::class, NoteEvidence::class, NoteForm::class, Card::class, ReviewLog::class, ConfusablePair::class, ReaderText::class, ReaderBookmark::class, ReadingSchedule::class, ReaderEncounter::class, ReadingActivity::class, TelemetryEvent::class, MinedExample::class, ItemDifficulty::class, ConceptMastery::class, OptimizerParameter::class, SkillRating::class, CapacityState::class, WillingnessState::class, RivalState::class, GhostSnapshot::class, MatchHistory::class, PaceLog::class, BanditPending::class, BanditArmState::class, WeeklyReport::class, ConfusionEvent::class, CheckpointResult::class, CurriculumState::class, CurriculumMigrationReport::class, ExitTicketResult::class],
+    version = 32,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -23,6 +23,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun reviewLogDao(): ReviewLogDao
     abstract fun confusablePairDao(): ConfusablePairDao
     abstract fun readerTextDao(): ReaderTextDao
+    abstract fun readerBookmarkDao(): ReaderBookmarkDao
     abstract fun readingScheduleDao(): ReadingScheduleDao
     abstract fun readerEncounterDao(): ReaderEncounterDao
     abstract fun readingActivityDao(): ReadingActivityDao
@@ -44,7 +45,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "sibirsky_speak.db"
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32)
                     // Only versions before the first real migration (7) are allowed to
                     // wipe destructively — those predate the JSON backup/restore safety
                     // net, so there's nothing worth preserving. Any version from 7 on
@@ -511,6 +512,38 @@ abstract class AppDatabase : RoomDatabase() {
                 // The old total mixed several sources. Preserve it conservatively as
                 // legacy direct evidence; all new events are typed from this version on.
                 db.execSQL("INSERT INTO note_evidence(noteId,directRetrievals,passiveExposures,completedReadings,lookups,placementPriors,lastDirectAt,lastPassiveAt,lastLookupAt) SELECT id,encounterCount,0,0,0,0,NULL,NULL,NULL FROM notes WHERE encounterCount > 0")
+            }
+        }
+
+        // A "chunk" note (raw collocation like "дверь открытой", translation="")
+        // is meant to carry only its own CardType.CHUNK production card, minted
+        // directly by syncMissingChunkCards. But syncPedagogicalFacets swept every
+        // tier-0 note — chunk notes included — through CardFactory.cardsFor(),
+        // which unconditionally adds RU_TO_MEANING/MEANING_TO_RU/AUDIO_TO_RU/SPEAK
+        // cards. Those have no real expected answer (there's no translation to
+        // recall), so a miss on one soft-locks the wrong-answer correction UI,
+        // which has nothing meaningful to rebuild. CardFactory now refuses to
+        // generate anything for a chunk note; this migration removes the
+        // already-minted bad cards (and their review logs) from existing installs.
+        val MIGRATION_30_31 = object : Migration(30, 31) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "DELETE FROM review_logs WHERE cardId IN (" +
+                        "SELECT c.id FROM cards c JOIN notes n ON c.noteId = n.id " +
+                        "WHERE n.partOfSpeech = 'chunk' AND c.cardType != 'CHUNK')"
+                )
+                db.execSQL(
+                    "DELETE FROM cards WHERE id IN (" +
+                        "SELECT c.id FROM cards c JOIN notes n ON c.noteId = n.id " +
+                        "WHERE n.partOfSpeech = 'chunk' AND c.cardType != 'CHUNK')"
+                )
+            }
+        }
+
+        val MIGRATION_31_32 = object : Migration(31, 32) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS reader_bookmarks (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, readerTextId INTEGER NOT NULL, tokenIndex INTEGER NOT NULL, label TEXT NOT NULL, createdAt INTEGER NOT NULL, FOREIGN KEY(readerTextId) REFERENCES reader_texts(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_reader_bookmarks_readerTextId_tokenIndex ON reader_bookmarks(readerTextId, tokenIndex)")
             }
         }
     }

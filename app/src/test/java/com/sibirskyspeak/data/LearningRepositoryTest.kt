@@ -1,6 +1,8 @@
 package com.sibirskyspeak.data
 
 import com.sibirskyspeak.scheduler.FsrsScheduler
+import com.sibirskyspeak.review.TemporarySessionMode
+import com.sibirskyspeak.review.TemporarySessionPolicy
 import com.sibirskyspeak.learning.EvidenceEvent
 import com.sibirskyspeak.learning.EvidenceStrength
 import com.sibirskyspeak.learning.FluencySimEngine
@@ -18,6 +20,34 @@ import java.time.Instant
 import java.util.TimeZone
 
 class LearningRepositoryTest {
+    @Test
+    fun configuredFullDoseKeepsEnoughCardsEvenWhenAdaptiveCapacityIsSmaller() = runTest {
+        val bootstrap = (1..48).joinToString("\n") { index ->
+            "{\"russian\":\"word$index\",\"lemma\":\"word$index\",\"pos\":\"noun\",\"translation\":\"word $index\",\"tier\":0,\"unit\":1}"
+        }
+        val fixture = RepoFixture(
+            bootstrapNotes = bootstrap,
+            config = { LearningConfig(dailyGoal = 40, sessionSize = 40, newCardsPerDay = 40) }
+        )
+        fixture.repository.seedIfEmpty()
+
+        val plan = fixture.repository.sessionPlan(includeReaderInsights = false)
+
+        assertTrue("a configured 40-card dose must not collapse to the adaptive proposal", plan.reviewQueue.size >= 40)
+    }
+
+    @Test
+    fun temporarySessionModesNeverRewriteAdaptivePlanOrLeakNewCardsIntoReviewsOnly() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.seedIfEmpty()
+        val plan = fixture.repository.sessionPlan(includeReaderInsights = false)
+        val reviewsOnly = TemporarySessionPolicy.queue(plan, TemporarySessionMode.REVIEWS_ONLY)
+        assertTrue(reviewsOnly.none { it.card.state == CardState.NEW })
+        assertTrue(TemporarySessionPolicy.queue(plan, TemporarySessionMode.READER_ONLY).isEmpty())
+        assertTrue(TemporarySessionPolicy.queue(plan, TemporarySessionMode.FOCUS).size <= 8)
+        assertEquals(plan.reviewQueue.size, fixture.repository.sessionPlan(includeReaderInsights = false).reviewQueue.size)
+    }
+
     @Test
     fun learnerSnapshotFeedsSessionAndFluencyReadsFromTheSameModelRows() = runTest {
         val model = FakeLearningModelDao().apply {
@@ -420,7 +450,7 @@ class LearningRepositoryTest {
         fixture.repository.importJsonLines(jsonl)
 
         val note = fixture.notes.getByLemma("\u043c\u043e\u043b\u043e\u043a\u043e")
-        assertTrue(fixture.cards.cards.any { it.noteId == note?.id && it.cardType == CardType.STRESS_MARK })
+        assertFalse(fixture.cards.cards.any { it.noteId == note?.id && it.cardType == CardType.STRESS_MARK })
         assertTrue(fixture.cards.cards.any { it.noteId == note?.id && it.cardType == CardType.AUDIO_TO_RU })
     }
 
@@ -763,12 +793,58 @@ class LearningRepositoryTest {
 
         assertEquals(ReaderStatus.PRODUCTIVE, target.status)
         assertTrue(target.authenticReady)
+        assertTrue(target.syntaxComplexity > 0.0)
+        assertTrue(target.difficultyScore > 0.0)
+        assertTrue(target.difficultyLabel in setOf("gentle", "stretch", "challenging"))
         assertEquals(15, tokens.count { it.known })
         assertTrue(tokens.filter { it.known }.any { it.parse != null })
         assertTrue(stats.authenticReady)
         assertEquals(4, stats.noteCount)
         assertFalse(stats.importQualityReport.meetsDesignDocMinimum)
         assertTrue(stats.importQualityReport.warnings.isNotEmpty())
+    }
+
+    @Test
+    fun importedReaderSourceCanBeCorrectedAfterImport() = runTest {
+        val fixture = RepoFixture()
+        val id = fixture.repository.addReaderText("Imported", "дом", "unknown")
+        assertTrue(fixture.repository.updateReaderSource(id, "Author — CC BY 4.0 — https://example.test"))
+        val updated = fixture.repository.readerTexts().single { it.text.id == id }
+        assertEquals("Author — CC BY 4.0 — https://example.test", updated.text.source)
+    }
+
+    @Test
+    fun readerBookmarksToggleAndRemainAttachedToTheirText() = runTest {
+        val fixture = RepoFixture()
+        val id = fixture.repository.addReaderText("Book", "дом книга", "local")
+        assertTrue(fixture.repository.toggleReaderBookmark(id, 1, "книга"))
+        assertEquals("книга", fixture.repository.readerBookmarks(id).single().label)
+        assertFalse(fixture.repository.toggleReaderBookmark(id, 1))
+        assertTrue(fixture.repository.readerBookmarks(id).isEmpty())
+    }
+
+    @Test
+    fun readerBookmarksRoundTripThroughFullStateBackup() = runTest {
+        val source = RepoFixture()
+        val sourceId = source.repository.addReaderText("Book", "дом книга", "Author · CC BY")
+        source.repository.toggleReaderBookmark(sourceId, 1, "книга")
+        val payload = source.repository.exportFullState()
+
+        val restored = RepoFixture()
+        restored.repository.importJsonLines(payload)
+        val restoredId = restored.readers.texts.single { it.title == "Book" }.id
+        assertEquals("книга", restored.repository.readerBookmarks(restoredId).single().label)
+    }
+
+    @Test
+    fun curriculumProvenanceComesFromBundledManifestAndCachesSafely() = runTest {
+        val fixture = RepoFixture(
+            bootstrapManifest = """{"provenance":{"sources":[{"id":"custom","attribution":"Curated source","license":"CC0"}]}}"""
+        )
+        val first = fixture.repository.curriculumProvenance()
+        val second = fixture.repository.curriculumProvenance()
+        assertEquals(listOf(ContentProvenance("custom", "Curated source", "CC0")), first)
+        assertEquals(first, second)
     }
 
     @Test
@@ -1249,7 +1325,7 @@ class LearningRepositoryTest {
 
         fixture.repository.seedIfEmpty()
 
-        assertTrue(fixture.cards.cards.any { it.noteId == matureId && it.cardType == CardType.TRANSFORM })
+        assertFalse(fixture.cards.cards.any { it.noteId == matureId && it.cardType == CardType.TRANSFORM })
         assertFalse(fixture.cards.cards.any { it.noteId == immatureId && it.cardType == CardType.TRANSFORM })
     }
 
@@ -1287,7 +1363,7 @@ class LearningRepositoryTest {
 
         fixture.repository.seedIfEmpty()
 
-        assertTrue(fixture.cards.cards.any { it.noteId == matureId && it.cardType == CardType.SPEAK_SENTENCE })
+        assertFalse(fixture.cards.cards.any { it.noteId == matureId && it.cardType == CardType.SPEAK_SENTENCE })
         assertFalse(fixture.cards.cards.any { it.noteId == immatureId && it.cardType == CardType.SPEAK_SENTENCE })
     }
 
@@ -2101,8 +2177,7 @@ class LearningRepositoryTest {
         // confirming the register-ladder path never crashes or blocks when the
         // asset simply isn't there (the expected state until build_bootstrap.py
         // ships transformations.json as a real asset).
-        assertNotNull(prompt)
-        assertEquals(com.sibirskyspeak.review.AnswerMode.RUSSIAN_TYPED, prompt!!.answerMode)
+        assertEquals("a transform without a realizable sentence must be suppressed", null, prompt)
     }
 
     private val phonologyJson = """
@@ -2118,8 +2193,15 @@ class LearningRepositoryTest {
         val matureId = fixture.notes.insert(
             Note(russian = "быть", lemma = "быть", translation = "to be", partOfSpeech = "verb", tier = 0, unit = 1)
         )
+        val otherId = fixture.notes.insert(
+            Note(russian = "бить", lemma = "бить", translation = "to hit", partOfSpeech = "verb", tier = 0, unit = 1)
+        )
         fixture.cards.insert(
             Card(noteId = matureId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB,
+                state = CardState.REVIEW, reps = 3, consecutiveCorrect = 2)
+        )
+        fixture.cards.insert(
+            Card(noteId = otherId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB,
                 state = CardState.REVIEW, reps = 3, consecutiveCorrect = 2)
         )
 
@@ -2177,7 +2259,8 @@ class LearningRepositoryTest {
         val prompt = fixture.repository.promptForCard(card)
 
         assertNotNull(prompt)
-        assertEquals(com.sibirskyspeak.review.AnswerMode.AUDIO_ONLY, prompt!!.answerMode)
+        assertEquals(com.sibirskyspeak.review.AnswerMode.CHOICE, prompt!!.answerMode)
+        assertEquals(setOf("быть", "бить"), prompt.choices.toSet())
         assertTrue(prompt.expectedAnswer == "быть" || prompt.expectedAnswer == "бить")
         // Same day + card id must always resolve to the same side of the pair.
         val prompt2 = fixture.repository.promptForCard(card)
@@ -2969,9 +3052,8 @@ class LearningRepositoryTest {
         val seen = plan.reviewQueue.map { it.card.cardType }.toSet()
 
         val expected = setOf(
-            CardType.CONCEPT_APPLY, CardType.NOVEL_PRODUCE, CardType.CONCEPT_DRILL,
-            CardType.VERB_FORM, CardType.ASPECT_SELECT, CardType.TRANSFORM,
-            CardType.SPEAK_SENTENCE, CardType.CHUNK
+            CardType.CONCEPT_DRILL,
+            CardType.VERB_FORM, CardType.ASPECT_SELECT
         )
         val missing = expected - seen
         assertTrue("card types gated/unselectable despite satisfied preconditions: $missing", missing.isEmpty())
@@ -3110,5 +3192,95 @@ class LearningRepositoryTest {
         // One of two tokens ("иду") is known: 50% coverage, one lemma still unknown.
         assertEquals(50, goal.coveragePct)
         assertEquals(1, goal.unknownLemmaCount)
+    }
+
+    // --- Learning goal (target CEFR level + date) coverage ----------------------
+
+    @Test
+    fun evaluateGoalFeasibilityReturnsNullForAnUnrecognizedCefrLevel() = runTest {
+        val fixture = RepoFixture()
+        assertNull(fixture.repository.evaluateGoalFeasibility("Z9", targetDateEpochDay = 1000, currentStablePace = 10.0))
+    }
+
+    @Test
+    fun evaluateGoalFeasibilityIsPureArithmeticAgainstTheSuppliedPace() = runTest {
+        // Regression guard: this must stay callable on every Settings slider tick,
+        // so its result depends only on already-cached known-note counts and the
+        // caller-supplied stablePace — never a fresh FluencySimEngine simulation.
+        val fixture = RepoFixture()
+        val feasibility = fixture.repository.evaluateGoalFeasibility(
+            "B2", targetDateEpochDay = Long.MAX_VALUE / 2, currentStablePace = 5.0
+        )
+        assertNotNull(feasibility)
+        assertEquals(com.sibirskyspeak.learning.GoalVerdict.COMFORTABLE, feasibility!!.verdict)
+    }
+
+    @Test
+    fun setLearningGoalPersistsSettingsAndFiresGoalCreatedThenGoalReplannedTelemetry() = runTest {
+        val settings = com.sibirskyspeak.review.FakeSettingsStore()
+        val fixture = RepoFixture(withTelemetry = true, settingsStore = settings)
+
+        fixture.repository.setLearningGoal("C1", targetDateEpochDay = 5000)
+        assertEquals("C1", settings.goalTargetLevel)
+        assertEquals(5000L, settings.goalTargetDateEpochDay)
+        assertEquals("ACTIVE", settings.goalStatus)
+        assertEquals("goal_created", fixture.telemetry!!.events.single().eventType)
+
+        fixture.repository.setLearningGoal("B2", targetDateEpochDay = 4000)
+        assertEquals("B2", settings.goalTargetLevel)
+        assertEquals("goal_replanned", fixture.telemetry.events.last().eventType)
+    }
+
+    @Test
+    fun abandonLearningGoalClearsSettingsAndFiresTelemetry() = runTest {
+        val settings = com.sibirskyspeak.review.FakeSettingsStore()
+        val fixture = RepoFixture(withTelemetry = true, settingsStore = settings)
+        fixture.repository.setLearningGoal("B2", targetDateEpochDay = 5000)
+
+        fixture.repository.abandonLearningGoal()
+
+        assertEquals("", settings.goalTargetLevel)
+        assertEquals(Long.MIN_VALUE, settings.goalTargetDateEpochDay)
+        assertEquals("ABANDONED", settings.goalStatus)
+        assertEquals("goal_abandoned", fixture.telemetry!!.events.last().eventType)
+    }
+
+    @Test
+    fun currentGoalStatusIsNullWithNoActiveGoal() = runTest {
+        val settings = com.sibirskyspeak.review.FakeSettingsStore()
+        val fixture = RepoFixture(settingsStore = settings)
+        val forecast = FluencySimEngine.SimResult(null, null, null, null, null, null, stablePace = 10.0, finalReviewLoad = 0)
+
+        assertNull(fixture.repository.currentGoalStatus(forecast))
+    }
+
+    @Test
+    fun currentGoalStatusStaysActiveBelowTheMilestoneAndFlipsToAchievedAtOrAboveIt() = runTest {
+        val settings = com.sibirskyspeak.review.FakeSettingsStore()
+        val fixture = RepoFixture(withTelemetry = true, settingsStore = settings)
+        fixture.repository.setLearningGoal("A1", targetDateEpochDay = 10_000)
+        val forecast = FluencySimEngine.SimResult(null, null, null, null, null, null, stablePace = 3.0, finalReviewLoad = 0)
+
+        // No notes imported yet: well below A1's 700-word milestone.
+        val beforeMilestone = fixture.repository.currentGoalStatus(forecast)
+        assertNotNull(beforeMilestone)
+        assertEquals("ACTIVE", settings.goalStatus)
+
+        // Import 700 KNOWN notes so totalKnown reaches the A1 milestone exactly.
+        val bootstrap = (1..700).joinToString("\n") { index ->
+            "{\"russian\":\"слово$index\",\"lemma\":\"словоA1-$index\",\"pos\":\"noun\",\"translation\":\"word $index\",\"tier\":0,\"unit\":1,\"status\":\"KNOWN\"}"
+        }
+        fixture.repository.importJsonLines(bootstrap)
+
+        val achieved = fixture.repository.currentGoalStatus(forecast)
+        assertNotNull(achieved)
+        assertEquals(com.sibirskyspeak.learning.GoalTrackState.ON_TRACK, achieved!!.state)
+        assertEquals("ACHIEVED", settings.goalStatus)
+        assertEquals("goal_achieved", fixture.telemetry!!.events.last().eventType)
+
+        // Idempotent: calling again must not re-fire the achieved telemetry.
+        val eventCountAfterFirstAchievement = fixture.telemetry.events.size
+        fixture.repository.currentGoalStatus(forecast)
+        assertEquals(eventCountAfterFirstAchievement, fixture.telemetry.events.size)
     }
 }

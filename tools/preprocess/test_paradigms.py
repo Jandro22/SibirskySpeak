@@ -38,20 +38,23 @@ def test_future_tense_keys_are_captured():
 
 
 def test_lemmas_containing_soft_j_still_parse_correctly():
-    """Regression: norm() NFD-decomposes 'й' into 'и'+combining breve, which
-    pymorphy3 cannot recognize as input — every -ый/-ий/-ой adjective (and
-    many verbs) silently fell back to a garbage first-guess parse. Parsing
-    must run on the original spelling; only storage keys are normalized."""
+    """Regression: norm() used to NFD-decompose 'й' into 'и'+combining breve
+    and never recompose, so pymorphy3 (which indexes precomposed text)
+    couldn't recognize norm()'s own output — every -ый/-ий/-ой adjective
+    (and many verbs) fed through norm() before parsing silently fell back
+    to a garbage first-guess parse. norm() now recomposes to NFC before
+    returning, so its output is safe to parse directly, not just the
+    original spelling."""
     import pymorphy3
     morph = pymorphy3.MorphAnalyzer()
     for lemma in ("большой", "хороший", "красивый"):
         parses = [p for p in morph.parse(lemma) if norm(p.normal_form) == norm(lemma)]
         assert parses, f"{lemma} should parse when given the original (non-decomposed) spelling"
         assert parses[0].tag.POS == "ADJF"
-        # The bug: parsing the decomposed form directly does not find the real ADJF reading
-        # (pymorphy3's UnknAnalyzer fallback echoes the input back as its own "normal form").
-        decomposed_parses = [p for p in morph.parse(norm(lemma)) if p.tag.POS == "ADJF"]
-        assert not decomposed_parses
+        # norm()'s output is now precomposed, so parsing it directly must
+        # also find the real ADJF reading (this used to be the buggy path).
+        normalized_parses = [p for p in morph.parse(norm(lemma)) if p.tag.POS == "ADJF"]
+        assert normalized_parses, f"{lemma} should also parse when given norm()'s recomposed output"
 
 
 def test_bundled_paradigm_gold_has_at_least_sixty_verified_rows():

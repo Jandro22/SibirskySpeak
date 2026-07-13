@@ -1,3 +1,13 @@
+param(
+    # Pass -Serial when a phone and emulator are connected at the same time.
+    # The previous script silently assumed exactly one device, which made the
+    # normal "push to phone" workflow fail as soon as an emulator was running.
+    [string]$Serial,
+    # Use only for a known-empty/new device. Existing learner data is still
+    # protected by the default fail-closed snapshot check.
+    [switch]$AllowWithoutBackup
+)
+
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $PSScriptRoot
@@ -24,11 +34,14 @@ if ($DeviceList -match "\soffline\s") {
 }
 $Devices = @($DeviceList -split "`r?`n" | Where-Object { $_ -match "\sdevice\s" })
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-if ($Devices.Count -ne 1) {
-    throw "Expected exactly one authorized Android device; found $($Devices.Count)."
+if ([string]::IsNullOrWhiteSpace($Serial)) {
+    if ($Devices.Count -ne 1) {
+        throw "Expected exactly one authorized Android device, or pass -Serial; found $($Devices.Count)."
+    }
+    $Serial = ($Devices[0] -split "\s+")[0]
+} elseif (-not ($Devices | Where-Object { ($_ -split "\s+")[0] -eq $Serial })) {
+    throw "Requested device '$Serial' is not an authorized online Android device."
 }
-
-$Serial = ($Devices[0] -split "\s+")[0]
 # "Stay awake while charging" is a real, persistent device setting (Settings >
 # Developer options), not something scoped to this script or this app — leaving
 # it changed after the script exits silently overrides the phone's own sleep
@@ -54,18 +67,22 @@ try {
         $BackupPath = Join-Path $BackupRoot "full_state_$Stamp.jsonl"
         $BackupContent = & $Adb -s $Serial exec-out run-as com.sibirskyspeak cat files/backups/full_state_latest.jsonl 2>$null | Out-String
         if ([string]::IsNullOrWhiteSpace($BackupContent) -or $BackupContent -notmatch '"russian"\s*:') {
-            throw "Existing SibirskySpeak install has no readable full-state snapshot. Open the app and use Full Backup before installing; refusing to risk learner data."
+            if (-not $AllowWithoutBackup) {
+                throw "Existing SibirskySpeak install has no readable full-state snapshot. Open the app and use Full Backup before installing, or pass -AllowWithoutBackup only for a known-empty device."
+            }
+            Write-Warning "No readable learner snapshot found; continuing because -AllowWithoutBackup was explicitly supplied."
+        } else {
+            $HasNote = $false
+            foreach ($Line in ($BackupContent -split "`r?`n")) {
+                if ([string]::IsNullOrWhiteSpace($Line)) { continue }
+                try { $Row = $Line | ConvertFrom-Json -ErrorAction Stop }
+                catch { throw "The device snapshot is truncated or invalid JSONL; refusing to install." }
+                if ($null -ne $Row.russian -and $null -ne $Row.lemma) { $HasNote = $true }
+            }
+            if (!$HasNote) { throw "The device snapshot contains no learner notes; refusing to install." }
+            [System.IO.File]::WriteAllText($BackupPath, $BackupContent, [System.Text.UTF8Encoding]::new($false))
+            Write-Host "Saved device recovery snapshot: $BackupPath"
         }
-        $HasNote = $false
-        foreach ($Line in ($BackupContent -split "`r?`n")) {
-            if ([string]::IsNullOrWhiteSpace($Line)) { continue }
-            try { $Row = $Line | ConvertFrom-Json -ErrorAction Stop }
-            catch { throw "The device snapshot is truncated or invalid JSONL; refusing to install." }
-            if ($null -ne $Row.russian -and $null -ne $Row.lemma) { $HasNote = $true }
-        }
-        if (!$HasNote) { throw "The device snapshot contains no learner notes; refusing to install." }
-        [System.IO.File]::WriteAllText($BackupPath, $BackupContent, [System.Text.UTF8Encoding]::new($false))
-        Write-Host "Saved device recovery snapshot: $BackupPath"
     }
 
     & $Adb -s $Serial install -r $Apk
