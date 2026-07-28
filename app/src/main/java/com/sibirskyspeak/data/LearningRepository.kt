@@ -288,6 +288,7 @@ class LearningRepository(
     @Volatile private var formIndexCache: Map<String, Note>? = null
     @Volatile private var knownIdsCache: Set<Long>? = null
     @Volatile private var frameInventoryCache: FrameInventory? = null
+    @Volatile private var noteQualityCountsCache: NoteQualityCounts? = null
     @Volatile private var unitCanDoCache: Map<String, String>? = null
     @Volatile private var registerPairsCache: List<com.sibirskyspeak.transform.RegisterPair>? = null
     /** Serializes review/undo so two UI events cannot overwrite each other's snapshot. */
@@ -311,6 +312,7 @@ class LearningRepository(
         formIndexCache = null
         knownIdsCache = null
         frameInventoryCache = null
+        noteQualityCountsCache = null
         lastGraduationReviewCount = null
         accuracyCacheReviewCount = null
         accuracyCache = null
@@ -324,6 +326,7 @@ class LearningRepository(
 
     private fun invalidateNoteContent() {
         notesCache = null
+        noteQualityCountsCache = null
         // This index stores whole Note values, so edits to translations/examples
         // require rebuilding it even though the surface-form keys did not change.
         formIndexCache = null
@@ -331,6 +334,9 @@ class LearningRepository(
 
     private suspend fun allNotesCached(): List<Note> =
         notesCache ?: noteDao.getAll().also { notesCache = it }
+
+    private suspend fun noteQualityCountsCached(): NoteQualityCounts =
+        noteQualityCountsCache ?: noteDao.qualityCounts().also { noteQualityCountsCache = it }
 
     private suspend fun previouslyReviewedNoteIds(): Set<Long> =
         previouslyReviewedNoteIdsCache
@@ -346,7 +352,7 @@ class LearningRepository(
 
     /** Known-inventory fillers for FrameRealizer (P4.3), pre-partitioned by POS. */
     private suspend fun frameInventory(): FrameInventory = frameInventoryCache ?: run {
-        val notes = allNotesCached().filter { it.tier == 0 }
+        val notes = noteDao.getFrameLexemes()
         FrameInventory(
             nouns = notes.filter { it.partOfSpeech == "noun" },
             verbs = notes.filter { it.partOfSpeech == "verb" },
@@ -640,35 +646,57 @@ class LearningRepository(
     /** Repairs and additive content syncs are useful, but none is required to draw
      * the first screen. Keep this work off the UI/startup critical path. */
     suspend fun performLaunchMaintenance() = withContext(computeDispatcher) {
+        val maintenanceToken = bootstrapManifest?.invoke()
+            ?.takeIf(String::isNotBlank)
+            ?.let { payload -> runCatching { JSONObject(payload).optString("contentChecksum") }.getOrNull() }
+            ?.takeIf(String::isNotBlank)
+            ?.let { checksum -> "$LAUNCH_MAINTENANCE_REVISION:$checksum" }
+        if (maintenanceToken != null && settingsStore?.launchMaintenanceToken == maintenanceToken) {
+            // The only genuinely recurring operation in this pipeline is the daily
+            // micro-reading insert. Full note/card reconciliation is tied to shipped
+            // content and should not rescan a 53k-card deck on every process start.
+            runMaintenanceStep("ensure_daily_micro_reading") {
+                ensureDailyMicroReading(System.currentTimeMillis())
+            }
+            return@withContext
+        }
+
+        var allStepsSucceeded = true
+        suspend fun step(name: String, block: suspend () -> Unit) {
+            if (!runMaintenanceStep(name, block)) allStepsSucceeded = false
+        }
         launchBootstrapNotesPayload = null
         try {
             // Correctness- and learner-safety repairs go first. Enrichment passes
             // below can take tens of seconds on a 53k-card physical-device DB; they
             // must not delay retiring invalid cards or repairing derived evidence.
-            runMaintenanceStep("suspend_deprecated_aspect_cue_cards") { cardDao.suspendDeprecatedAspectCueCards() }
-            runMaintenanceStep("suspend_existential_homograph_morphology") { cardDao.suspendExistentialHomographMorphologyCards() }
-            runMaintenanceStep("retire_unglossed_chunk_cards") { cardDao.suspendUnglossedChunkCards() }
-            runMaintenanceStep("repair_learner_content") { repairLearnerContent() }
-            runMaintenanceStep("retire_pedagogical_metalanguage") { retirePedagogicalMetalanguage() }
-            runMaintenanceStep("purge_invalid_root_mastery") { purgeInvalidRootMastery() }
-            runMaintenanceStep("repair_historical_matcher_disputes") { repairHistoricalMatcherDisputes() }
-            runMaintenanceStep("sync_bootstrap_textbook_notes") { syncBootstrapTextbookNotes() }
-            runMaintenanceStep("retire_rejected_bootstrap_notes") { retireRejectedBootstrapNotes() }
+            step("suspend_deprecated_aspect_cue_cards") { cardDao.suspendDeprecatedAspectCueCards() }
+            step("suspend_existential_homograph_morphology") { cardDao.suspendExistentialHomographMorphologyCards() }
+            step("retire_unglossed_chunk_cards") { cardDao.suspendUnglossedChunkCards() }
+            step("repair_learner_content") { repairLearnerContent() }
+            step("retire_pedagogical_metalanguage") { retirePedagogicalMetalanguage() }
+            step("purge_invalid_root_mastery") { purgeInvalidRootMastery() }
+            step("repair_historical_matcher_disputes") { repairHistoricalMatcherDisputes() }
+            step("sync_bootstrap_textbook_notes") { syncBootstrapTextbookNotes() }
+            step("retire_rejected_bootstrap_notes") { retireRejectedBootstrapNotes() }
 
             // Additive enrichment and derived-card generation can follow once the
             // persisted learner state is known to be safe.
-            runMaintenanceStep("sync_pedagogical_facets") { syncPedagogicalFacets() }
-            runMaintenanceStep("sync_missing_concept_drill_cards") { syncMissingConceptDrillCards() }
-            runMaintenanceStep("sync_missing_concept_apply_cards") { syncMissingConceptApplyCards() }
-            runMaintenanceStep("sync_missing_novel_produce_cards") { syncMissingNovelProduceCards() }
-            runMaintenanceStep("sync_missing_transform_cards") { syncMissingTransformCards() }
-            runMaintenanceStep("sync_missing_speak_sentence_cards") { syncMissingSpeakSentenceCards() }
-            runMaintenanceStep("sync_missing_phonology_cards") { syncMissingPhonologyCards() }
-            runMaintenanceStep("repair_concatenated_examples") { repairConcatenatedExamples() }
-            runMaintenanceStep("sync_bootstrap_reader_texts") { syncBootstrapReaderTexts() }
-            runMaintenanceStep("perform_data_maintenance") { performDataMaintenance() }
-            runMaintenanceStep("mine_example_gaps") { mineExampleGaps(limit = 48) }
-            runMaintenanceStep("ensure_daily_micro_reading") { ensureDailyMicroReading(System.currentTimeMillis()) }
+            step("sync_pedagogical_facets") { syncPedagogicalFacets() }
+            step("sync_missing_concept_drill_cards") { syncMissingConceptDrillCards() }
+            step("sync_missing_concept_apply_cards") { syncMissingConceptApplyCards() }
+            step("sync_missing_novel_produce_cards") { syncMissingNovelProduceCards() }
+            step("sync_missing_transform_cards") { syncMissingTransformCards() }
+            step("sync_missing_speak_sentence_cards") { syncMissingSpeakSentenceCards() }
+            step("sync_missing_phonology_cards") { syncMissingPhonologyCards() }
+            step("repair_concatenated_examples") { repairConcatenatedExamples() }
+            step("sync_bootstrap_reader_texts") { syncBootstrapReaderTexts() }
+            step("perform_data_maintenance") { performDataMaintenance() }
+            step("mine_example_gaps") { mineExampleGaps(limit = 48) }
+            step("ensure_daily_micro_reading") { ensureDailyMicroReading(System.currentTimeMillis()) }
+            if (allStepsSucceeded && maintenanceToken != null) {
+                settingsStore?.launchMaintenanceToken = maintenanceToken
+            }
         } finally {
             launchBootstrapNotesPayload = null
         }
@@ -677,9 +705,9 @@ class LearningRepository(
     /** Runs one launch-maintenance step, recording both successful duration and a
      * privacy-safe failure category. The raw exception text is intentionally omitted:
      * it can contain file paths, SQL, or learner-provided content. */
-    private suspend fun runMaintenanceStep(name: String, block: suspend () -> Unit) {
+    private suspend fun runMaintenanceStep(name: String, block: suspend () -> Unit): Boolean {
         val startedAt = System.nanoTime()
-        runCatching { block() }
+        return runCatching { block() }
             .onSuccess {
                 runCatching {
                     recordTelemetry(TelemetryEvent(
@@ -705,6 +733,7 @@ class LearningRepository(
                     ))
                 }
             }
+            .isSuccess
     }
 
     /** Add newly engineered facets to an existing installation without resetting or
@@ -3075,34 +3104,82 @@ class LearningRepository(
     ): DashboardStats = dashboardStatsFrom(now, recommendations ?: readerTexts())
 
     private suspend fun dashboardStatsFrom(now: Long, recommendations: List<ReaderRecommendation>): DashboardStats {
+        val dashboardStartedAt = System.nanoTime()
+        val dashboardTimings = linkedMapOf<String, Long>()
+        suspend fun <T> timedDashboard(name: String, block: suspend () -> T): T {
+            val startedAt = System.nanoTime()
+            return try {
+                block()
+            } finally {
+                dashboardTimings[name] =
+                    ((System.nanoTime() - startedAt) / 1_000_000L).coerceAtLeast(0L)
+            }
+        }
         val notes = allNotesCached()
         val targetCoverages = recommendations.filter { it.text.source.startsWith("target:", ignoreCase = true) }.map { it.coverage }
-        val qualityReport = ImportQualityReporter.report(notes, recommendations, AUTHENTIC_READY_COVERAGE)
+        val qualityStartedAt = System.nanoTime()
+        val qualityReport = ImportQualityReporter.report(
+            noteQualityCountsCached(),
+            recommendations,
+            AUTHENTIC_READY_COVERAGE
+        )
+        dashboardTimings["quality"] =
+            ((System.nanoTime() - qualityStartedAt) / 1_000_000L).coerceAtLeast(0L)
         val retentionWindowStart = now - RETENTION_WINDOW_DAYS * DAY_MILLIS
-        val matureReviews = reviewLogDao.matureReviewCount(retentionWindowStart)
-        val matureRetained = reviewLogDao.matureRetainedCount(retentionWindowStart)
-        val dueByDay = cardDao.countDueByDay(now, now + 7 * DAY_MILLIS, DAY_MILLIS)
-            .associate { it.day to it.count }
+        val matureReviews = timedDashboard("mature_total") { reviewLogDao.matureReviewCount(retentionWindowStart) }
+        val matureRetained = timedDashboard("mature_retained") { reviewLogDao.matureRetainedCount(retentionWindowStart) }
+        val dueByDay = timedDashboard("due_forecast") {
+            cardDao.countDueByDay(now, now + 7 * DAY_MILLIS, DAY_MILLIS).associate { it.day to it.count }
+        }
         val forecast = List(7) { day -> dueByDay[day] ?: 0 }
         val goal = recommendations.filter { it.text.source.startsWith("target:", true) }.maxByOrNull { it.coverage }
-        val cardCounts = cardDao.dashboardCounts(now)
-        return DashboardStats(
+        // The former all-card SUM(CASE...) aggregation joined every one of the
+        // learner's 53k cards to notes on each launch. Four index-friendly counts
+        // are substantially cheaper, and Room may execute them concurrently.
+        val cardCounts = timedDashboard("card_counts") { coroutineScope {
+            val vocabCards = async { cardDao.countByQueue(Queue.VOCAB) }
+            val grammarCards = async { cardDao.countByQueue(Queue.GRAMMAR) }
+            val dueVocab = async { cardDao.countDueByQueue(now, Queue.VOCAB) }
+            val dueGrammar = async { cardDao.countDueByQueue(now, Queue.GRAMMAR) }
+            CardDashboardCounts(
+                vocabCards = vocabCards.await(),
+                grammarCards = grammarCards.await(),
+                dueVocab = dueVocab.await(),
+                dueGrammar = dueGrammar.await()
+            )
+        } }
+        val reviewedToday = timedDashboard("reviewed_today") { reviewedToday(now) }
+        val leechCount = timedDashboard("leeches") { cardDao.getLeechCards(LEECH_LAPSES).size }
+        val result = DashboardStats(
             noteCount = notes.size,
             vocabCards = cardCounts.vocabCards,
             grammarCards = cardCounts.grammarCards,
             dueVocab = cardCounts.dueVocab,
             dueGrammar = cardCounts.dueGrammar,
-            reviewedToday = reviewedToday(now),
+            reviewedToday = reviewedToday,
             averageReaderCoverage = recommendations.map { it.coverage }.average().takeIf { !it.isNaN() } ?: 0.0,
             bestTargetCoverage = targetCoverages.maxOrNull(),
             authenticReady = targetCoverages.any { it >= AUTHENTIC_READY_COVERAGE },
             importQualityReport = qualityReport,
             matureRetention = if (matureReviews > 0) matureRetained.toDouble() / matureReviews else null,
             matureReviewSample = matureReviews,
-            leechCount = cardDao.getLeechCards(LEECH_LAPSES).size,
+            leechCount = leechCount,
             dueForecast = forecast,
             goalProgress = goal?.let { GoalProgress(it.text.id, it.text.title, (it.coverage * 100).toInt(), (it.totalTokens - it.knownTokens).coerceAtLeast(0)) }
         )
+        val totalMs = ((System.nanoTime() - dashboardStartedAt) / 1_000_000L).coerceAtLeast(0L)
+        if (totalMs >= 500L) {
+            recordTelemetry(TelemetryEvent(
+                eventType = "dashboard_build_timing",
+                metadataJson = JSONObject()
+                    .put("totalMs", totalMs)
+                    .put("stages", JSONObject().also { json ->
+                        dashboardTimings.forEach { (name, durationMs) -> json.put(name, durationMs) }
+                    })
+                    .toString()
+            ))
+        }
+        return result
     }
 
     suspend fun setReaderGoal(textId: Long): Boolean {
@@ -3276,7 +3353,11 @@ class LearningRepository(
         val notesById = allNotesCached().associateBy { it.id }
         val categories = accuracyCategoriesCached()
         val daily = dailyPlanFromCategories(now, categories)
-        val blocked = blockedGrammarPrompts(daily, now, notesById)
+        // One immutable gate snapshot is enough for a plan. Re-querying and reducing
+        // thousands of grammar siblings in blocked/new/share/interleaved phases made
+        // a single build pay for the same derived state up to four times.
+        val conceptGate = conceptGate()
+        val blocked = blockedGrammarPrompts(daily, now, notesById, conceptGate)
         markStage("prepare")
         // Compute once; reuse for both readerRecommendation and dashboardStats.
         // Reader coverage requires a morphology index over the whole deck and a scan
@@ -3340,7 +3421,8 @@ class LearningRepository(
             targetRetention = generatedRetention
         )
         markStage("model_and_pace")
-        val primaryCards = sessionCards(now, generatedCapacity, daily, mastery, generatedNewBudget)
+        val cardSelectionStartedAt = System.nanoTime()
+        val primaryCards = sessionCards(now, generatedCapacity, daily, mastery, generatedNewBudget, conceptGate)
         // A conservative adaptive proposal must not turn a clean day into a dead
         // end while the learner's selected Balanced-or-higher policy still has an
         // unused new-card allowance. This happened on-device after a few tiny QUICK
@@ -3361,13 +3443,23 @@ class LearningRepository(
                 limit = progressFloor,
                 plan = daily,
                 mastery = mastery,
-                generatedNewBudget = minOf(config().newCardsPerDay, MINIMUM_PROGRESS_SESSION)
+                generatedNewBudget = minOf(config().newCardsPerDay, MINIMUM_PROGRESS_SESSION),
+                gate = conceptGate
             )
         } else primaryCards
+        val cardSelectionMs = ((System.nanoTime() - cardSelectionStartedAt) / 1_000_000L).coerceAtLeast(0L)
+        val selectionPostprocessStartedAt = System.nanoTime()
         val cards = applyInterferenceSeeding(
             applyContrastivePairing(selectedCards, now)
         )
-        markStage("selection")
+        val selectionPostprocessMs =
+            ((System.nanoTime() - selectionPostprocessStartedAt) / 1_000_000L).coerceAtLeast(0L)
+        stageDurations["card_selection"] = cardSelectionMs
+        stageDurations["selection_postprocess"] = selectionPostprocessMs
+        // Preserve the original aggregate key so existing telemetry comparisons
+        // remain valid while exposing which half still needs attention.
+        stageDurations["selection"] = cardSelectionMs + selectionPostprocessMs
+        stageStartedAt = System.nanoTime()
         // Difficulty is only consumed for cards in today's bounded plan. Loading the
         // entire historical table made startup scale with lifetime deck size.
         val itemDifficultyMap = if (cards.isEmpty()) emptyMap() else {
@@ -3431,17 +3523,35 @@ class LearningRepository(
         )
         val prompts = orderedPrompts
         markStage("ranking")
+        val assemblyTimings = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        suspend fun <T> timedAssemblyRead(name: String, block: suspend () -> T): T {
+            val startedAt = System.nanoTime()
+            return try {
+                block()
+            } finally {
+                assemblyTimings[name] =
+                    ((System.nanoTime() - startedAt) / 1_000_000L).coerceAtLeast(0L)
+            }
+        }
         val assemblyReads = coroutineScope {
             val readingAssignment = async {
-                dueReadingAssignment(allTexts, consolidationReader, prompts.size, now, executedPace.readingInserts.firstOrNull())
+                timedAssemblyRead("reading") {
+                    dueReadingAssignment(allTexts, consolidationReader, prompts.size, now, executedPace.readingInserts.firstOrNull())
+                }
             }
-            val introducedToday = async { reviewLogDao.countNewIntroducedSince(startOfLocalDay(now)) }
+            val introducedToday = async {
+                timedAssemblyRead("introduced") {
+                    reviewLogDao.countNewIntroducedSince(startOfLocalDay(now))
+                }
+            }
             val interleavedGrammar = async {
-                interleavedGrammarPrompts(blocked.map { it.card.id }.toSet(), now, notesById)
+                timedAssemblyRead("grammar") {
+                    interleavedGrammarPrompts(blocked.map { it.card.id }.toSet(), now, notesById, conceptGate)
+                }
             }
-            val dashboard = async { dashboardStatsFrom(now, allTexts) }
-            val problemCards = async { problemCardAudit(notesById) }
-            val levelConstraint = async { effectiveLevelConstraint() }
+            val dashboard = async { timedAssemblyRead("dashboard") { dashboardStatsFrom(now, allTexts) } }
+            val problemCards = async { timedAssemblyRead("problems") { problemCardAudit(notesById) } }
+            val levelConstraint = async { timedAssemblyRead("level") { effectiveLevelConstraint() } }
             PlanAssemblyReads(
                 readingAssignment.await(),
                 introducedToday.await(),
@@ -3491,6 +3601,9 @@ class LearningRepository(
             adaptiveReason = adoptedPace.trustReason
         )
         markStage("assembly")
+        assemblyTimings.forEach { (name, durationMs) ->
+            stageDurations["assembly_$name"] = durationMs
+        }
         val timing = JSONObject()
         stageDurations.forEach { (name, durationMs) -> timing.put(name, durationMs) }
         recordTelemetry(TelemetryEvent(
@@ -3513,12 +3626,19 @@ class LearningRepository(
         val cache = minedExampleDao ?: return
         val offset = java.util.TimeZone.getDefault().getOffset(now).toLong()
         val day = (now + offset) / DAY_MILLIS
+        if (settingsStore?.lastMicroReadingAttemptDay == day) return
         val source = "generated:micro:$day"
-        if (readerTextDao.getAll().any { it.source == source }) return
+        if (readerTextDao.countBySource(source) > 0) {
+            settingsStore?.lastMicroReadingAttemptDay = day
+            return
+        }
         if (cache.getAll().size < 3) mineExampleGaps(limit = 96, now = now)
         val candidates = cache.getAll().filter { it.unknownCount <= 1 }.take(80)
         val chain = NarrowReadingGenerator.chain(candidates, 5)
-        if (chain.size < 3) return
+        if (chain.size < 3) {
+            settingsStore?.lastMicroReadingAttemptDay = day
+            return
+        }
         val text = ReaderText(
             title = "Two-minute i+1 read",
             body = chain.joinToString("\n") { it.ru },
@@ -3531,6 +3651,7 @@ class LearningRepository(
             timestamp = now, eventType = "narrow_read",
             metadataJson = JSONObject().put("readerTextId", id).put("sentences", chain.size).toString()
         ))
+        settingsStore?.lastMicroReadingAttemptDay = day
     }
 
     private fun orderPrompts(
@@ -3713,7 +3834,7 @@ class LearningRepository(
         texts: List<ReaderRecommendation>,
         reviewedNoteIds: Set<Long>
     ): ReaderRecommendation? {
-        if (reviewedNoteIds.isEmpty()) return null
+        if (texts.isEmpty() || reviewedNoteIds.isEmpty()) return null
         val index = formIndex()
         return texts.map { recommendation ->
             val overlap = readerWordOccurrences(recommendation.text.body).count { occurrence ->
@@ -4080,19 +4201,12 @@ class LearningRepository(
     }
 
     private suspend fun spineMasteryCefrOrdinal(): Int {
-        val tier0Notes = allNotesCached().filter { it.tier == 0 && it.cefrLevel != null && it.status != WordStatus.IGNORED }
-        val byLevel = tier0Notes.groupBy { it.cefrLevel!! }
-        val vocabByNote = cardDao.getAllVocabCards()
-            .filter { it.cardType == CardType.RU_TO_MEANING && !it.suspended }
-            .associateBy { it.noteId }
+        val byLevel = cardDao.cefrVocabProgress().associateBy { it.band }
         for ((ordinal, level) in CEFR_LEVELS.withIndex()) {
-            val levelNotes = byLevel[level].orEmpty()
-            if (levelNotes.isEmpty()) continue
-            val mastered = levelNotes.count { note ->
-                val card = vocabByNote[note.id]
-                card != null && (card.state == CardState.GRADUATED || (card.reps >= 2 && card.consecutiveCorrect >= 2))
-            }
-            if (mastered.toDouble() / levelNotes.size < CEFR_GATE_MASTERY_THRESHOLD) {
+            val progress = byLevel[level] ?: continue
+            if (progress.total > 0 &&
+                progress.mastered.toDouble() / progress.total < CEFR_GATE_MASTERY_THRESHOLD
+            ) {
                 return (ordinal + CEFR_STRETCH_LEVELS).coerceAtMost(CEFR_LEVELS.lastIndex)
             }
         }
@@ -4536,7 +4650,10 @@ class LearningRepository(
     }
 
     suspend fun promptsForCardIds(cardIds: List<Long>, now: Long = System.currentTimeMillis()): List<ReviewPrompt> {
+        val batchStartedAt = System.nanoTime()
+        val cardReadStartedAt = System.nanoTime()
         val cards = cardDao.getByIds(cardIds)
+        val cardReadMs = ((System.nanoTime() - cardReadStartedAt) / 1_000_000L).coerceAtLeast(0L)
         // Launch skeletons and process-restored queues are both small. Loading the
         // entire note deck just to paint them defeats the purpose of the fast path
         // on a cold process, so use targeted note reads through a normal resumable
@@ -4545,10 +4662,49 @@ class LearningRepository(
         if (cards.size <= 64) {
             // One IN query is materially faster than dozens of sequential Room
             // round-trips on the learner's 53k-card physical-device database.
+            val noteReadStartedAt = System.nanoTime()
             val notesById = noteDao.getByIds(cards.map { it.noteId }.distinct()).associateBy { it.id }
-            return withContext(computeDispatcher) {
-                cards.mapNotNull { card -> promptFor(card, now, notesById) }
+            val noteReadMs = ((System.nanoTime() - noteReadStartedAt) / 1_000_000L).coerceAtLeast(0L)
+            val byType = linkedMapOf<CardType, Long>()
+            var slowestCard: Card? = null
+            var slowestMs = 0L
+            val buildStartedAt = System.nanoTime()
+            val prompts = withContext(computeDispatcher) {
+                cards.mapNotNull { card ->
+                    val promptStartedAt = System.nanoTime()
+                    val prompt = promptFor(card, now, notesById)
+                    val elapsedMs =
+                        ((System.nanoTime() - promptStartedAt) / 1_000_000L).coerceAtLeast(0L)
+                    byType[card.cardType] = (byType[card.cardType] ?: 0L) + elapsedMs
+                    if (elapsedMs > slowestMs) {
+                        slowestMs = elapsedMs
+                        slowestCard = card
+                    }
+                    prompt
+                }
             }
+            val buildMs = ((System.nanoTime() - buildStartedAt) / 1_000_000L).coerceAtLeast(0L)
+            val totalMs = ((System.nanoTime() - batchStartedAt) / 1_000_000L).coerceAtLeast(0L)
+            if (totalMs >= 500L) {
+                recordTelemetry(TelemetryEvent(
+                    eventType = "prompt_batch_timing",
+                    metadataJson = JSONObject()
+                        .put("cards", cards.size)
+                        .put("prompts", prompts.size)
+                        .put("totalMs", totalMs)
+                        .put("cardReadMs", cardReadMs)
+                        .put("noteReadMs", noteReadMs)
+                        .put("buildMs", buildMs)
+                        .put("byTypeMs", JSONObject().also { json ->
+                            byType.forEach { (type, durationMs) -> json.put(type.name, durationMs) }
+                        })
+                        .put("slowestCardId", slowestCard?.id)
+                        .put("slowestCardType", slowestCard?.cardType?.name)
+                        .put("slowestMs", slowestMs)
+                        .toString()
+                ))
+            }
+            return prompts
         }
         return promptsForCards(cards, now)
     }
@@ -4557,10 +4713,64 @@ class LearningRepository(
      * Reconstruct a process-restored queue without replaying cards whose durable
      * review already moved them into the future before the process died.
      */
-    suspend fun recoverablePromptsForCardIds(cardIds: List<Long>, now: Long = System.currentTimeMillis()): List<ReviewPrompt> =
-        promptsForCards(cardDao.getByIds(cardIds), now).filter { prompt ->
-            prompt.card.state == CardState.NEW || prompt.card.due <= now
+    suspend fun recoverablePromptsForCardIds(
+        cardIds: List<Long>,
+        now: Long = System.currentTimeMillis()
+    ): List<ReviewPrompt> {
+        val restoreStartedAt = System.nanoTime()
+        if (cardIds.isEmpty()) return emptyList()
+        val cardReadStartedAt = System.nanoTime()
+        val cardsById = cardDao.getByIds(cardIds).associateBy { it.id }
+        val cardReadMs = ((System.nanoTime() - cardReadStartedAt) / 1_000_000L).coerceAtLeast(0L)
+        val cards = cardIds.mapNotNull(cardsById::get).filter { card ->
+            !card.suspended && card.state != CardState.GRADUATED &&
+                (card.state == CardState.NEW || card.due <= now)
         }
+        if (cards.isEmpty()) return emptyList()
+        val noteReadStartedAt = System.nanoTime()
+        val notesById = noteDao.getByIds(cards.map { it.noteId }.distinct()).associateBy { it.id }
+        val noteReadMs = ((System.nanoTime() - noteReadStartedAt) / 1_000_000L).coerceAtLeast(0L)
+        val byType = linkedMapOf<String, Long>()
+        val prompts = withContext(computeDispatcher) {
+            cards.mapIndexedNotNull { index, card ->
+                val note = notesById[card.noteId] ?: return@mapIndexedNotNull null
+                val deferred = index > 0 && card.cardType in RESTORE_DEFERRED_CARD_TYPES
+                val promptStartedAt = System.nanoTime()
+                val prompt = if (deferred) {
+                    // Future dynamic prompts can open the 100MB content database and
+                    // perform several morphology queries. The restored session needs
+                    // only its current card now; loadSession refreshes the next durable
+                    // prompt immediately after every queue mutation.
+                    val partner = note.aspectPartner?.let(notesById::get)
+                    buildPrompt(card, note, scheduler.preview(card, now), partner)
+                } else {
+                    promptFor(card, now, notesById)
+                }
+                val elapsedMs =
+                    ((System.nanoTime() - promptStartedAt) / 1_000_000L).coerceAtLeast(0L)
+                val key = if (deferred) "DEFERRED_${card.cardType.name}" else card.cardType.name
+                byType[key] = (byType[key] ?: 0L) + elapsedMs
+                prompt
+            }
+        }
+        val totalMs = ((System.nanoTime() - restoreStartedAt) / 1_000_000L).coerceAtLeast(0L)
+        if (totalMs >= 500L) {
+            recordTelemetry(TelemetryEvent(
+                eventType = "restore_prompt_timing",
+                metadataJson = JSONObject()
+                    .put("cards", cards.size)
+                    .put("prompts", prompts.size)
+                    .put("totalMs", totalMs)
+                    .put("cardReadMs", cardReadMs)
+                    .put("noteReadMs", noteReadMs)
+                    .put("byTypeMs", JSONObject().also { json ->
+                        byType.forEach { (type, durationMs) -> json.put(type, durationMs) }
+                    })
+                    .toString()
+            ))
+        }
+        return prompts
+    }
 
     /** Build a non-scheduling acquisition recall while rotating through examples. */
     suspend fun practicePromptFor(card: Card, round: Int, now: Long = System.currentTimeMillis()): ReviewPrompt? {
@@ -5622,7 +5832,14 @@ class LearningRepository(
         return true
     }
 
-    private suspend fun sessionCards(now: Long, limit: Int, plan: DailyPlan, mastery: List<UnitMastery>, generatedNewBudget: Int? = null): List<Card> {
+    private suspend fun sessionCards(
+        now: Long,
+        limit: Int,
+        plan: DailyPlan,
+        mastery: List<UnitMastery>,
+        generatedNewBudget: Int?,
+        gate: ConceptGate
+    ): List<Card> {
         // Pull extra headroom so sibling-burying (one card per note per session) can
         // drop duplicates and still fill the session to [limit].
         // Capability collapse below can remove many grammar/item siblings that
@@ -5656,20 +5873,19 @@ class LearningRepository(
         // review-first, and every deferred due card stays scheduled for the next page.
         val reservedFreshSlots = (generatedNewBudget ?: 0).coerceIn(0, limit)
         val priorityDue = dueSession.take((limit - reservedFreshSlots).coerceAtLeast(0))
-        val fresh = newCardSession(now, limit - priorityDue.size, reviewedNotes, mastery, generatedNewBudget)
+        val fresh = newCardSession(now, limit - priorityDue.size, reviewedNotes, mastery, generatedNewBudget, gate)
         val dueBackfill = dueSession.drop(priorityDue.size).take((limit - priorityDue.size - fresh.size).coerceAtLeast(0))
         val mixed = interleaveDailyCards(priorityDue + dueBackfill, fresh, reviewedToday, now)
-        return finishWithConsolidation(ensureGrammarShare(mixed, now, limit)).take(limit)
+        return finishWithConsolidation(ensureGrammarShare(mixed, now, limit, gate)).take(limit)
     }
 
     /** Reserve roughly one card in six for already-unlocked grammar. This is a
      * floor, not a quota: due grammar can exceed it, and no locked concept leaks. */
-    private suspend fun ensureGrammarShare(cards: List<Card>, now: Long, limit: Int): List<Card> {
+    private suspend fun ensureGrammarShare(cards: List<Card>, now: Long, limit: Int, gate: ConceptGate): List<Card> {
         if (cards.size < 5) return cards
         val target = kotlin.math.ceil(minOf(cards.size, limit) * 0.16).toInt().coerceAtLeast(1)
         val existingGrammar = cards.count { it.queue == Queue.GRAMMAR }
         if (existingGrammar >= target) return cards
-        val gate = conceptGate()
         val notesById = allNotesCached().associateBy { it.id }
         val existingIds = cards.mapTo(HashSet()) { it.id }
         val grammarPool = cardDao.getGrammarDrillCards(250)
@@ -5842,7 +6058,14 @@ class LearningRepository(
      *  - **One vocab card per note per session**: you no longer re-type the same
      *    word back-to-back; its other facets surface on later days.
      */
-    private suspend fun newCardSession(now: Long, limit: Int, dayReviewedNotes: Set<Long> = emptySet(), mastery: List<UnitMastery>, generatedNewBudget: Int? = null): List<Card> {
+    private suspend fun newCardSession(
+        now: Long,
+        limit: Int,
+        dayReviewedNotes: Set<Long>,
+        mastery: List<UnitMastery>,
+        generatedNewBudget: Int?,
+        gate: ConceptGate
+    ): List<Card> {
         val introducedToday = reviewLogDao.countNewIntroducedSince(startOfLocalDay(now))
         val pacing = config()
         // generatedNewBudget is already the continuously-regulated number
@@ -5859,7 +6082,6 @@ class LearningRepository(
         // Pull a generous pool, already in curriculum order (A1 tier first, by unit,
         // then by frequency rank). Drop grammar drills whose teaching lesson the
         // learner hasn't seen yet — concept gating keeps "teach before test" true.
-        val gate = conceptGate()
         val notesById = allNotesCached().associateBy { it.id }
         // Curriculum order sorts every tier-0 unit before tier 1+ (the uncapped
         // reading-matrix layer), including units the learner hasn't unlocked yet. A
@@ -5876,7 +6098,16 @@ class LearningRepository(
         val pool = mutableListOf<Card>()
         val maxCefrOrdinal = effectiveCefrOrdinal()
         while (pool.size < targetPoolSize) {
-            val candidateCards = cardDao.getNewCardsOrderedPage(pageSize, offset, maxCefrOrdinal)
+            // When the adaptive budget is exhausted, unseen lexemes cannot be admitted
+            // by the loop below. Ask SQLite for reviewed-note depth facets and lessons
+            // only; paging through tens of thousands of impossible unseen candidates
+            // dominated cold-start selection on the connected mature learner deck.
+            val candidateCards = cardDao.getNewCardsOrderedPage(
+                limit = pageSize,
+                offset = offset,
+                maxCefrOrdinal = maxCefrOrdinal,
+                reviewedNotesOnly = remainingLexemeBudget == 0
+            )
             if (candidateCards.isEmpty()) break
             val cardsByNote = cardDao.getCardsForNotes(candidateCards.map { it.noteId }.distinct()).groupBy { it.noteId }
             for (card in candidateCards) {
@@ -6082,27 +6313,10 @@ class LearningRepository(
      * to succeed on the very first try, only eventually). Concepts already proven
      * (or with no drill history yet to judge) are simply absent from the result. */
     private suspend fun probationaryConceptCards(): Map<String, Long> {
-        val rows = cardDao.getGrammarDrillOutcomes()
-        if (rows.isEmpty()) return emptyMap()
-        val byConcept = rows.groupBy { row ->
-            GrammarConcepts.forCard(
-                Card(
-                    noteId = 0,
-                    cardType = row.cardType,
-                    queue = Queue.GRAMMAR,
-                    gramCase = row.gramCase,
-                    gramContextCue = row.gramContextCue,
-                    gramConcept = row.gramConcept
-                )
-            )?.id ?: row.gramConcept
-        }
-        return buildMap {
-            for ((concept, drills) in byConcept) {
-                if (concept == null) continue
-                val provenSuccess = drills.any { it.everSucceeded }
-                if (!provenSuccess) put(concept, drills.minOf { it.cardId })
-            }
-        }
+        return cardDao.getGrammarConceptOutcomes()
+            .asSequence()
+            .filterNot { it.everSucceeded }
+            .associate { it.concept to it.probationCardId }
     }
 
     /** True if [card] is a grammar drill whose teaching concept is still locked, or
@@ -6292,7 +6506,11 @@ class LearningRepository(
         // recognition card”. This guard also protects direct/debug prompt entry
         // points that do not pass through the normal due/new SQL selectors.
         if (rawNote.status == WordStatus.IGNORED) return null
-        val (note, mined) = promptNote(rawNote)
+        val (note, mined) = if (card.cardType in PROMPT_TYPES_WITHOUT_MINED_EXAMPLE) {
+            rawNote to null
+        } else {
+            promptNote(rawNote)
+        }
         val partner = rawNote.aspectPartner?.let { notesById?.get(it) ?: noteDao.getById(it) }
         var prompt = buildPrompt(card, note, scheduler.preview(card, now), partner, mined?.targetPos?.takeIf { it >= 0 })
         if (card.cardType in LISTENING_CARD_TYPES) {
@@ -6506,9 +6724,13 @@ class LearningRepository(
         )
     }
 
-    private suspend fun blockedGrammarPrompts(plan: DailyPlan, now: Long, notesById: Map<Long, Note>): List<ReviewPrompt> {
+    private suspend fun blockedGrammarPrompts(
+        plan: DailyPlan,
+        now: Long,
+        notesById: Map<Long, Note>,
+        gate: ConceptGate
+    ): List<ReviewPrompt> {
         val category = plan.openBlockedWith ?: return emptyList()
-        val gate = conceptGate()
         val cards = when (category.kind) {
             "case" -> cardDao.getCaseDrillCards(category.gramCase.orEmpty(), category.gramGender.orEmpty(), category.gramNumber.orEmpty(), 5)
             "verb_form" -> cardDao.getVerbFormCards(category.contextCue.orEmpty(), 5)
@@ -6520,8 +6742,12 @@ class LearningRepository(
         return cards.filterNot { isConceptLocked(it, gate) }.mapNotNull { promptFor(it, now, notesById) }
     }
 
-    private suspend fun interleavedGrammarPrompts(excludeIds: Set<Long>, now: Long, notesById: Map<Long, Note>): List<ReviewPrompt> {
-        val gate = conceptGate()
+    private suspend fun interleavedGrammarPrompts(
+        excludeIds: Set<Long>,
+        now: Long,
+        notesById: Map<Long, Note>,
+        gate: ConceptGate
+    ): List<ReviewPrompt> {
         return cardDao.getGrammarDrillCards(40)
             .filter { it.id !in excludeIds && it.cardType != CardType.LESSON }
             .filterNot { isConceptLocked(it, gate) }
@@ -6735,6 +6961,8 @@ class LearningRepository(
 
     companion object {
         private const val DAY_MILLIS = 86_400_000L
+        /** Increment when reconciliation logic changes without a content checksum change. */
+        private const val LAUNCH_MAINTENANCE_REVISION = 1
         // Adaptive estimators must be sampled by semantic event type before LIMIT.
         // Otherwise high-volume maintenance/UI instrumentation crowds actual
         // learning observations out of a fixed recent window.
@@ -6802,6 +7030,22 @@ class LearningRepository(
         private val LISTENING_CARD_TYPES = setOf(
             CardType.AUDIO_TO_RU,
             CardType.DICTATION,
+            CardType.PHONOLOGY_MINIMAL_PAIR,
+            CardType.SPEAK_SENTENCE
+        )
+        private val RESTORE_DEFERRED_CARD_TYPES = setOf(
+            CardType.CONCEPT_APPLY,
+            CardType.NOVEL_PRODUCE,
+            CardType.CHUNK,
+            CardType.TRANSFORM,
+            CardType.SPEAK_SENTENCE,
+            CardType.PHONOLOGY_MINIMAL_PAIR
+        )
+        private val PROMPT_TYPES_WITHOUT_MINED_EXAMPLE = setOf(
+            CardType.CONCEPT_DRILL,
+            CardType.CONCEPT_APPLY,
+            CardType.NOVEL_PRODUCE,
+            CardType.LESSON,
             CardType.PHONOLOGY_MINIMAL_PAIR,
             CardType.SPEAK_SENTENCE
         )

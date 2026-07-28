@@ -5,6 +5,7 @@ import com.sibirskyspeak.review.TemporarySessionMode
 import com.sibirskyspeak.review.TemporarySessionPolicy
 import com.sibirskyspeak.review.AnswerMode
 import com.sibirskyspeak.review.ChoiceArchetype
+import com.sibirskyspeak.review.FakeSettingsStore
 import com.sibirskyspeak.learning.EvidenceEvent
 import com.sibirskyspeak.learning.EvidenceStrength
 import com.sibirskyspeak.learning.FluencySimEngine
@@ -22,6 +23,34 @@ import java.time.Instant
 import java.util.TimeZone
 
 class LearningRepositoryTest {
+    @Test
+    fun launchMaintenanceReconcilesOncePerContentChecksum() = runTest {
+        val settings = FakeSettingsStore()
+        val fixture = RepoFixture(
+            bootstrapManifest = """{"curriculumVersion":"test","contentChecksum":"checksum-a"}""",
+            settingsStore = settings,
+            withTelemetry = true
+        )
+        fixture.notes.insert(
+            Note(russian = "дом", lemma = "дом", translation = "house", partOfSpeech = "noun")
+        )
+
+        fixture.repository.performLaunchMaintenance()
+        val firstSyncCount = fixture.telemetry!!.events.count {
+            it.eventType == "maintenance_step_completed" &&
+                it.metadataJson.contains("\"step\":\"sync_bootstrap_textbook_notes\"")
+        }
+        assertEquals(1, firstSyncCount)
+        assertTrue(settings.launchMaintenanceToken.endsWith(":checksum-a"))
+
+        fixture.repository.performLaunchMaintenance()
+        val secondSyncCount = fixture.telemetry.events.count {
+            it.eventType == "maintenance_step_completed" &&
+                it.metadataJson.contains("\"step\":\"sync_bootstrap_textbook_notes\"")
+        }
+        assertEquals("same content must not rescan the full deck", firstSyncCount, secondSyncCount)
+    }
+
     @Test
     fun calibrationEligibilityExcludesMatcherDisputesAndCapsRepeatedCards() {
         val repeated = (1L..7L).map { at ->
@@ -3829,5 +3858,28 @@ class LearningRepositoryTest {
         assertEquals(AnswerMode.ENGLISH, faded.answerMode)
         assertTrue(faded.choices.isEmpty())
         assertNull(faded.choiceArchetype)
+    }
+
+    @Test
+    fun restoredQueueKeepsOnlyNewOrCurrentlyDueCards() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """{"russian":"дом","lemma":"restore-house","pos":"noun","translation":"house","tier":0,"unit":1,"exampleSentence":"Это дом.","exampleTranslation":"This is a house."}"""
+        )
+        val note = fixture.notes.getByLemma("restore-house")!!
+        val cards = fixture.cards.cards.filter { it.noteId == note.id }.take(3)
+        val newCard = cards[0].copy(state = CardState.NEW, due = 99_000L)
+        val dueCard = cards[1].copy(state = CardState.REVIEW, reps = 3, due = 1_000L)
+        val futureCard = cards[2].copy(state = CardState.REVIEW, reps = 3, due = 99_000L)
+        for (card in listOf(newCard, dueCard, futureCard)) {
+            fixture.cards.update(card)
+        }
+
+        val restored = fixture.repository.recoverablePromptsForCardIds(
+            listOf(newCard.id, dueCard.id, futureCard.id),
+            now = 2_000L
+        )
+
+        assertEquals(setOf(newCard.id, dueCard.id), restored.map { it.card.id }.toSet())
     }
 }

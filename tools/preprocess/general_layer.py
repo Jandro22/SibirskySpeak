@@ -119,6 +119,78 @@ TRANSLATION_OVERRIDES = {
     "легкомысленный": "flippant; thoughtless; light-minded",
     "мэтр": "maître",
     "пренебрегать": "to neglect; to treat without respect",
+    "спешить": "to hurry",
+    "общий": "common; shared; public",
+    "давно": "a long time ago; for a long time",
+    "пол": "floor",
+    "норма": "norm; standard",
+    "партийный": "party-related; partisan",
+    "вон": "there; over there; out",
+    "печать": "printing; the press; seal",
+    "тепло": "warm; warmly",
+    "пачка": "pack; packet",
+    "плёнка": "film; thin membrane",
+    "ванная": "bathroom",
+    "открыто": "openly; openly stated",
+    "воплощение": "embodiment; realization",
+    "октябрьский": "October; October-related",
+    "осколок": "shard; fragment; splinter",
+    "острота": "sharpness; wit",
+    "экспертный": "expert; expert-level",
+    "примитивный": "primitive; rudimentary",
+    "матушка": "mother; mum",
+    "зам": "deputy",
+    "речной": "river; river-related",
+    "классовый": "class-related",
+    "рёв": "roar",
+    "противодействие": "counteraction; resistance",
+    "оформлять": "to prepare or process documents; formalize",
+    "заметать": "to sweep; cover up",
+    "отрабатывать": "to practice; refine; work off",
+    "общечеловеческий": "universal; shared by all humanity",
+    "раскинуть": "to spread out; pitch",
+}
+
+# Minimal, human-reviewed repairs for source examples that are structurally
+# unusable and have no sense-aligned mined sentence. These deliberately stay
+# short: a plain correct sentence is better learning evidence than an elaborate
+# generated context whose case, agreement, or lexical selection may be wrong.
+FALLBACK_EXAMPLE_OVERRIDES = {
+    "давно": ("Мы давно знакомы.", "We have known each other for a long time."),
+    "пол": ("Книга лежит на полу.", "The book is lying on the floor."),
+    "партийный": ("Это партийное решение.", "This is a party decision."),
+    "вон": ("Вон наш дом.", "There is our house."),
+    "увы": ("Увы, поезд уже ушёл.", "Alas, the train has already left."),
+    "фактически": ("Фактически работа уже закончена.", "In fact, the work is already finished."),
+    "критика": ("Критика была полезной.", "The criticism was helpful."),
+    "плёнка": ("Камеру заряжают плёнкой.", "The camera is loaded with film."),
+    "открыто": ("Они открыто обсудили проблему.", "They discussed the problem openly."),
+    "острота": ("Он известен остротой ума.", "He is known for his sharp mind."),
+    "издали": ("Я увидел дом издали.", "I saw the house from a distance."),
+    "экспертный": ("Нам нужна экспертная оценка.", "We need an expert assessment."),
+    "зам": ("Зам директора подписал документ.", "The deputy director signed the document."),
+    "бережно": ("Он бережно хранил письмо.", "He kept the letter with care."),
+    "воробей": ("На ветке сидит воробей.", "A sparrow is sitting on the branch."),
+    "закупка": ("Компания начала закупку оборудования.", "The company began purchasing equipment."),
+    "райком": ("Райком обсудил новый план.", "The district committee discussed the new plan."),
+    "даром": ("Эту книгу отдали даром.", "This book was given away for free."),
+    "рёв": ("Мы услышали рёв мотора.", "We heard the roar of the engine."),
+    "профилактика": ("Профилактика помогает предотвратить болезнь.", "Prevention helps avert illness."),
+    "реорганизация": ("Компания начала реорганизацию.", "The company began a reorganization."),
+    "рудник": ("Рудник закрыли на ремонт.", "The mine was closed for repairs."),
+    "оформлять": ("Она помогает оформлять документы.", "She helps prepare the documents."),
+    "полпред": ("Полпред прибыл на встречу.", "The plenipotentiary arrived for the meeting."),
+    "фанерный": ("На окне стоял фанерный щит.", "A plywood panel covered the window."),
+    "беглый": ("Полиция ищет беглого заключённого.", "The police are looking for the escaped prisoner."),
+    "синева": ("Синева неба отражалась в воде.", "The blue of the sky was reflected in the water."),
+    "отрабатывать": ("Мы отрабатываем новый навык.", "We are practicing a new skill."),
+    "присвоение": ("Суд рассмотрел дело о присвоении денег.", "The court considered a case of misappropriated funds."),
+    "общечеловеческий": ("Это общечеловеческая ценность.", "This is a universal human value."),
+    "духовность": ("Для него духовность важна.", "Spirituality is important to him."),
+    "раскинуть": ("Они раскинули палатку у реки.", "They pitched a tent by the river."),
+    "подворотня": ("Они встретились в подворотне.", "They met in the passageway."),
+    "навеки": ("Он навеки запомнил этот день.", "He remembered that day forever."),
+    "вибрация": ("Вибрация двигателя стала сильнее.", "The engine vibration became stronger."),
 }
 GENDER_MAP = {"masc": "M", "femn": "F", "neut": "N"}
 
@@ -596,7 +668,11 @@ def general_rows(domain_lemmas: set[str]) -> list[dict]:
         # than silently teaching the corrupted source sentence or dropping a
         # high-frequency note altogether.
         if needs_quality_fallback:
-            if pos == "noun" and table:
+            curated_fallback = FALLBACK_EXAMPLE_OVERRIDES.get(lemma)
+            if curated_fallback:
+                fallback_ru, fallback_en = curated_fallback
+                note["exampleSource"] = "human-reviewed quality repair"
+            elif pos == "noun" and table:
                 fallback_ru, fallback_en = noun_example_gen(
                     table, strip_stress(word), translation,
                     _seems_animate(gender_raw, translation), len(rows))
@@ -611,7 +687,7 @@ def general_rows(domain_lemmas: set[str]) -> list[dict]:
                 fallback_en = f"We are studying the word “{term_en(translation)}”."
             note["exampleSentence"] = fallback_ru
             note["exampleTranslation"] = fallback_en
-            note["exampleSource"] = "generated-quality-fallback"
+            note.setdefault("exampleSource", "generated-quality-fallback")
 
         # NOTE: we intentionally do NOT synthesize 2nd/3rd examples here. The
         # templated generators (noun_example_gen, etc.) produce formulaic, low-quality

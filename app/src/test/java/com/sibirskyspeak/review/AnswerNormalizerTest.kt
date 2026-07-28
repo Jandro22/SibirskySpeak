@@ -1,11 +1,37 @@
 package com.sibirskyspeak.review
 
+import com.sibirskyspeak.data.CardType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AnswerNormalizerTest {
+    @Test
+    fun onlyOpenSentenceCompositionIgnoresRussianWordOrder() {
+        assertTrue(usesWordOrderFreeGrading(CardType.NOVEL_PRODUCE))
+        assertTrue(usesWordOrderFreeGrading(CardType.SENTENCE_BUILD))
+        assertFalse(usesWordOrderFreeGrading(CardType.DICTATION))
+        assertFalse(usesWordOrderFreeGrading(CardType.SPEAK_SENTENCE))
+        assertTrue(usesElicitedImitationGrading(CardType.SPEAK_SENTENCE))
+        assertFalse(usesElicitedImitationGrading(CardType.SPEAK))
+
+        assertEquals(
+            AnswerMatch.EXACT,
+            evaluateWordOrderFreeRussianAnswer(
+                "вчера я читал книгу",
+                "я книгу читал вчера"
+            ).match
+        )
+        assertEquals(
+            AnswerMatch.WRONG,
+            evaluateRussianAnswer(
+                "вчера я читал книгу",
+                "я книгу читал вчера"
+            ).match
+        )
+    }
+
     @Test
     fun speechHypothesisSelectionUsesPromptFitBeforeRecognizerOrder() {
         val selected = selectBestSpeechHypothesis(

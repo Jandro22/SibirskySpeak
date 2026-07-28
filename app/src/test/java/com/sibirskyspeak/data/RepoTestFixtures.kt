@@ -132,6 +132,38 @@ internal class FakeNoteDao : NoteDao {
     override suspend fun count(): Int = notes.size
     override fun observeAll(): Flow<List<Note>> = flowOf(notes)
     override suspend fun getAll(): List<Note> = notes.toList()
+    override suspend fun getFrameLexemes(): List<com.sibirskyspeak.generation.FrameLexeme> =
+        notes.filter { it.tier == 0 && it.partOfSpeech in setOf("noun", "verb", "adjective") }
+            .map {
+                com.sibirskyspeak.generation.FrameLexeme(
+                    lemma = it.lemma,
+                    translation = it.translation,
+                    gender = it.gender,
+                    aspect = it.aspect,
+                    partOfSpeech = it.partOfSpeech
+                )
+            }
+    override suspend fun qualityCounts(): NoteQualityCounts {
+        fun readable(note: Note): Boolean = CardFactory.hasReadableExample(note)
+        fun nominal(note: Note): Boolean =
+            note.partOfSpeech.lowercase() in setOf("noun", "adjective") &&
+                !note.declensionJson.isNullOrBlank() && !note.gender.isNullOrBlank() &&
+                note.domainFreqRank != null && readable(note)
+        fun aspectVerb(note: Note): Boolean =
+            note.partOfSpeech.equals("verb", true) && note.aspectPartner != null &&
+                !note.aspect.isNullOrBlank() && !note.aktionsart.isNullOrBlank() &&
+                note.domainFreqRank != null && readable(note)
+        return NoteQualityCounts(
+            totalNotes = notes.size,
+            readyNominalRows = notes.count(::nominal),
+            aspectReadyVerbRows = notes.count(::aspectVerb),
+            verifiedAktionsartVerbRows = notes.count {
+                aspectVerb(it) && it.aktionsartConfidence?.lowercase() in setOf("high", "manual", "verified")
+            },
+            domainRankedRows = notes.count { it.domainFreqRank != null },
+            exampleRows = notes.count(::readable)
+        )
+    }
     override suspend fun examplesNeedingSplit(): List<Note> = notes.filter { n ->
         val es = n.exampleSentence
         n.exampleTranslation.isNullOrBlank() && es != null &&
@@ -220,18 +252,21 @@ internal class FakeCardDao(
         cards.filter { it.state == CardState.NEW && !it.suspended }.sortedWith(compareBy<Card> { it.due }.thenBy { it.id }).take(limit)
     override suspend fun getSampleCardsOfType(cardType: CardType, limit: Int): List<Card> =
         cards.filter { it.cardType == cardType && !it.suspended }.sortedWith(compareByDescending<Card> { it.reps }.thenBy { it.id }).take(limit)
-    override suspend fun getGrammarDrillOutcomes(): List<GrammarDrillOutcome> =
+    override suspend fun getGrammarConceptOutcomes(): List<GrammarConceptOutcome> =
         cards.filter { it.queue == Queue.GRAMMAR && it.cardType != CardType.LESSON && !it.suspended }
-            .map { card ->
-                val everSucceeded = reviewLogs?.logs
-                    ?.any { it.cardId == card.id && it.rating != Rating.AGAIN } ?: false
-                GrammarDrillOutcome(
-                    cardId = card.id,
-                    cardType = card.cardType,
-                    gramCase = card.gramCase,
-                    gramContextCue = card.gramContextCue,
-                    gramConcept = card.gramConcept,
-                    everSucceeded = everSucceeded
+            .mapNotNull { card ->
+                GrammarConcepts.forCard(card)?.id?.let { concept -> concept to card }
+            }
+            .groupBy({ it.first }, { it.second })
+            .map { (concept, conceptCards) ->
+                GrammarConceptOutcome(
+                    concept = concept,
+                    probationCardId = conceptCards.minOf { it.id },
+                    everSucceeded = conceptCards.any { card ->
+                        reviewLogs?.logs?.any {
+                            it.cardId == card.id && it.rating != Rating.AGAIN
+                        } ?: false
+                    }
                 )
             }
     override suspend fun getNewCardsOrdered(limit: Int, maxCefrOrdinal: Int): List<Card> {
@@ -267,8 +302,20 @@ internal class FakeCardDao(
             )
             .take(limit)
     }
-    override suspend fun getNewCardsOrderedPage(limit: Int, offset: Int, maxCefrOrdinal: Int): List<Card> =
-        getNewCardsOrdered(Int.MAX_VALUE, maxCefrOrdinal).drop(offset).take(limit)
+    override suspend fun getNewCardsOrderedPage(
+        limit: Int,
+        offset: Int,
+        maxCefrOrdinal: Int,
+        reviewedNotesOnly: Boolean
+    ): List<Card> {
+        val reviewedNoteIds = reviewLogs?.logs.orEmpty()
+            .mapNotNull { log -> cards.firstOrNull { it.id == log.cardId }?.noteId }
+            .toHashSet()
+        return getNewCardsOrdered(Int.MAX_VALUE, maxCefrOrdinal)
+            .filter { !reviewedNotesOnly || it.cardType == CardType.LESSON || it.noteId in reviewedNoteIds }
+            .drop(offset)
+            .take(limit)
+    }
     override suspend fun graduateVocabForNote(
         noteId: Long,
         due: Long,
@@ -417,6 +464,24 @@ internal class FakeCardDao(
     override suspend fun countEstablishedCards(): Int =
         cards.count { it.state == CardState.GRADUATED || it.reps >= 2 }
     override suspend fun getAllVocabCards(): List<Card> = cards.filter { it.queue == Queue.VOCAB }
+    override suspend fun cefrVocabProgress(): List<CefrVocabProgressRow> =
+        notes.notes.asSequence()
+            .filter { it.tier == 0 && it.cefrLevel != null && it.status != WordStatus.IGNORED }
+            .groupBy { it.cefrLevel!! }
+            .map { (band, levelNotes) ->
+                CefrVocabProgressRow(
+                    band = band,
+                    total = levelNotes.size,
+                    mastered = levelNotes.count { note ->
+                        cards.filter {
+                            it.noteId == note.id && it.cardType == CardType.RU_TO_MEANING && !it.suspended
+                        }.any {
+                            it.state == CardState.GRADUATED ||
+                                (it.reps >= 2 && it.consecutiveCorrect >= 2)
+                        }
+                    }
+                )
+            }
     override suspend fun unitVocabProgress(): List<UnitVocabProgressRow> =
         cards.asSequence()
             .filter { card ->
@@ -719,6 +784,7 @@ internal class FakeReaderTextDao : ReaderTextDao {
     }
     override suspend fun insertAll(texts: List<ReaderText>): List<Long> = texts.map { insert(it) }
     override suspend fun count(): Int = texts.size
+    override suspend fun countBySource(source: String): Int = texts.count { it.source == source }
     override suspend fun getAll(): List<ReaderText> = texts
     override suspend fun getById(id: Long): ReaderText? = texts.firstOrNull { it.id == id }
     override suspend fun deleteById(id: Long) { texts.removeAll { it.id == id } }

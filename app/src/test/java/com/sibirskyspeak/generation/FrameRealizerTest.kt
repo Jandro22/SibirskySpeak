@@ -3,7 +3,6 @@ package com.sibirskyspeak.generation
 import com.sibirskyspeak.data.ContentDao
 import com.sibirskyspeak.data.ContentFrame
 import com.sibirskyspeak.data.MorphAnalysisRow
-import com.sibirskyspeak.data.Note
 import com.sibirskyspeak.data.ParadigmForm
 import com.sibirskyspeak.morph.MorphologyEngine
 import org.json.JSONObject
@@ -73,13 +72,13 @@ class FrameRealizerTest {
     }.getOrThrow()
 
     private fun loadInventory(): FrameInventory {
-        val nouns = mutableListOf<Note>(); val verbs = mutableListOf<Note>(); val adjectives = mutableListOf<Note>()
+        val nouns = mutableListOf<FrameLexeme>(); val verbs = mutableListOf<FrameLexeme>(); val adjectives = mutableListOf<FrameLexeme>()
         notesFile().useLines { lines ->
             lines.forEach { line ->
                 val row = JSONObject(line)
                 if (row.optInt("tier", -1) != 0) return@forEach
-                val note = Note(
-                    russian = row.optString("russian"), translation = row.optString("translation"),
+                val note = FrameLexeme(
+                    translation = row.optString("translation"),
                     partOfSpeech = row.optString("pos"), lemma = row.optString("lemma"),
                     gender = row.optString("gender", null), aspect = row.optString("aspect", null)
                 )
@@ -157,8 +156,8 @@ class FrameRealizerTest {
                 enFrame = "{subj} {verb} here."
             )
             val inventory = FrameInventory(
-                nouns = listOf(Note(russian = "студе́нт", translation = "student", partOfSpeech = "noun", lemma = "студент", gender = "M")),
-                verbs = listOf(Note(russian = "рабо́тать", translation = "to work", partOfSpeech = "verb", lemma = "работать", aspect = "IPF")),
+                nouns = listOf(FrameLexeme(translation = "student", partOfSpeech = "noun", lemma = "студент", gender = "M", aspect = null)),
+                verbs = listOf(FrameLexeme(translation = "to work", partOfSpeech = "verb", lemma = "работать", aspect = "IPF", gender = null)),
                 adjectives = emptyList()
             )
 

@@ -1,7 +1,6 @@
 package com.sibirskyspeak.generation
 
 import com.sibirskyspeak.data.ContentFrame
-import com.sibirskyspeak.data.Note
 import com.sibirskyspeak.morph.MorphologyEngine
 import org.json.JSONArray
 import kotlin.random.Random
@@ -27,8 +26,21 @@ data class FrameSlot(
     val target: Boolean = false
 )
 
+/** Minimal lexical projection needed for frame filling; large note JSON is irrelevant here. */
+data class FrameLexeme(
+    val lemma: String,
+    val translation: String,
+    val gender: String?,
+    val aspect: String?,
+    val partOfSpeech: String
+)
+
 /** Known-inventory fillers the realizer may draw from, pre-filtered by POS. */
-data class FrameInventory(val nouns: List<Note>, val verbs: List<Note>, val adjectives: List<Note>)
+data class FrameInventory(
+    val nouns: List<FrameLexeme>,
+    val verbs: List<FrameLexeme>,
+    val adjectives: List<FrameLexeme>
+)
 
 data class RealizedFrame(
     val ru: String,

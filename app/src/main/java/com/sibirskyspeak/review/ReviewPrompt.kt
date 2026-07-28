@@ -111,7 +111,9 @@ fun buildPrompt(
     val cloze = if (minedTargetPos != null) example.sentence?.clozeAtRussianToken(minedTargetPos)
         else example.sentence?.clozeVocabularyAnswer(note)
     val russianContextCloze = cloze?.takeIf { note.prefersRussianContext(card) && it.prompt.hasRussianText() }
-    val caseDrill = note.declensionJson?.let { caseDrillFromJson(card, note, it, example.sentence) }
+    val caseDrill = if (card.cardType == CardType.CASE_FILL) {
+        note.declensionJson?.let { caseDrillFromJson(card, note, it, example.sentence) }
+    } else null
     return when (card.cardType) {
         CardType.RU_TO_MEANING -> {
             val meaning = note.contextualMeaning()

@@ -123,8 +123,8 @@ fun evaluateRussianAnswer(
 }
 
 /**
- * Word-order-free grading for CardType.NOVEL_PRODUCE (P4.4 L3): the learner
- * produces a novel sentence from an English cue, and Russian word order is
+ * Word-order-free grading for CardType.NOVEL_PRODUCE and SENTENCE_BUILD: the
+ * learner produces a sentence from an English cue, and Russian word order is
  * genuinely freer than English, so scoring must not penalize a legitimate
  * reordering. Each expected word is matched against the answer (exact first,
  * then within typo tolerance) regardless of position; at most one unmatched

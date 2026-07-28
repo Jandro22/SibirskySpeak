@@ -46,6 +46,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,6 +73,9 @@ private const val SLOW_LOAD_MS = 300L
 /** Competitive ratings need a block, not a coin flip disguised as a match. */
 private const val MIN_RANKED_MATCH_CARDS = 5
 
+/** A launch skeleton is only valuable if it beats the real plan to the screen. */
+private const val SKELETON_PROMPT_BUDGET_MS = 750L
+
 /** Reorders one priority item without shrinking or replacing the assigned queue. */
 internal fun <T> MutableList<T>.moveFirstMatchToFront(matches: (T) -> Boolean): Boolean {
     val index = indexOfFirst(matches)
@@ -93,6 +97,14 @@ private val STRICT_FORM_CARD_TYPES = setOf(
     CardType.VERB_FORM,
     CardType.CONCEPT_DRILL
 )
+
+/** Sentence-composition tasks test syntax and vocabulary, not one canonical Russian order. */
+internal fun usesWordOrderFreeGrading(cardType: CardType): Boolean =
+    cardType == CardType.NOVEL_PRODUCE || cardType == CardType.SENTENCE_BUILD
+
+/** Full-sentence speech cards test ordered elicited imitation; single-word speech does not. */
+internal fun usesElicitedImitationGrading(cardType: CardType): Boolean =
+    cardType == CardType.SPEAK_SENTENCE
 
 /** Objective responses must not silently become self-rated successes after a miss.
  * Recognition cards and ASR pronunciation practice remain self-rated; typed/choice
@@ -440,7 +452,9 @@ class ReviewViewModel @javax.inject.Inject constructor(
                 val skeletonIds = settings.planSkeletonCardIds.split(',').mapNotNull(String::toLongOrNull)
                 var skeleton = emptyList<ReviewPrompt>()
                 startupPhase("skeleton_prompts") {
-                    skeleton = repository.promptsForCardIds(skeletonIds)
+                    skeleton = withTimeoutOrNull(SKELETON_PROMPT_BUDGET_MS) {
+                        repository.promptsForCardIds(skeletonIds)
+                    }.orEmpty()
                 }
                 if (skeleton.isNotEmpty()) {
                     // Paint a card immediately so the Study screen never opens to a
@@ -1411,9 +1425,9 @@ class ReviewViewModel @javax.inject.Inject constructor(
             // order must not be penalized — grade word-order-free instead of the
             // normal fixed-string comparison.
             AnswerMode.RUSSIAN_TYPED, AnswerMode.AUDIO_ONLY ->
-                if (prompt.card.cardType == CardType.NOVEL_PRODUCE) {
+                if (usesWordOrderFreeGrading(prompt.card.cardType)) {
                     evaluateWordOrderFreeRussianAnswer(prompt.expectedAnswer, actual)
-                } else if (prompt.card.cardType == CardType.SPEAK_SENTENCE) {
+                } else if (usesElicitedImitationGrading(prompt.card.cardType)) {
                     // Elicited imitation (P6.1): order-aware, per-token, ASR-tolerant —
                     // distinct from both the free-order NOVEL_PRODUCE grading above and
                     // the fixed-string comparison below (single-word SPEAK cards).
@@ -1425,12 +1439,17 @@ class ReviewViewModel @javax.inject.Inject constructor(
                         allowTypos = prompt.card.cardType !in STRICT_FORM_CARD_TYPES
                     )
                 }
-            AnswerMode.SPEAK -> evaluateRussianAnswer(
-                expected = prompt.expectedAnswer,
-                actual = actual,
-                allowTypos = prompt.card.cardType !in STRICT_FORM_CARD_TYPES,
-                allowTransliteration = true
-            )
+            AnswerMode.SPEAK ->
+                if (usesElicitedImitationGrading(prompt.card.cardType)) {
+                    evaluateElicitedImitation(prompt.expectedAnswer, actual)
+                } else {
+                    evaluateRussianAnswer(
+                        expected = prompt.expectedAnswer,
+                        actual = actual,
+                        allowTypos = prompt.card.cardType !in STRICT_FORM_CARD_TYPES,
+                        allowTransliteration = true
+                    )
+                }
             AnswerMode.RUSSIAN_STRESS_TYPED -> evaluateRussianAnswer(
                 prompt.expectedAnswer,
                 actual,
@@ -2635,15 +2654,21 @@ class ReviewViewModel @javax.inject.Inject constructor(
             if (sessionOriginCardIds.isEmpty()) sessionOriginCardIds += activeStudyQueue.map { it.card.id }
         }
         if (canReusePlan) {
-            val scheduled = activeStudyQueue.filterNot { it.supportOnly || it.practiceOnly }
-            val refreshedById = repository.promptsForCards(scheduled.map { it.card })
-                .associateBy { it.card.id }
-            val refreshed = activeStudyQueue.mapNotNull { queued ->
-                if (queued.supportOnly || queued.practiceOnly) queued
-                else refreshedById[queued.card.id]?.copy(queueReason = queued.queueReason)
+            // Only the next durable card needs a current realization and interval
+            // preview. Eagerly rebuilding every future prompt made one dynamic frame
+            // open the large content DB at startup and after every rating.
+            while (true) {
+                val index = activeStudyQueue.indexOfFirst { !it.supportOnly && !it.practiceOnly }
+                if (index < 0) break
+                val queued = activeStudyQueue[index]
+                val refreshed = repository.promptsForCards(listOf(queued.card)).firstOrNull()
+                if (refreshed == null) {
+                    activeStudyQueue.removeAt(index)
+                    continue
+                }
+                activeStudyQueue[index] = refreshed.copy(queueReason = queued.queueReason)
+                break
             }
-            activeStudyQueue.clear()
-            activeStudyQueue += refreshed
         }
         // A session is the bounded queue the learner agreed to at Start. Do not
         // silently refill it from a newly-built plan when the final card is rated.

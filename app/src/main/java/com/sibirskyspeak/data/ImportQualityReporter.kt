@@ -14,11 +14,21 @@ object ImportQualityReporter {
     private const val DESIGN_DOC_MIN_VERB_ROWS = 100
 
     fun report(notes: List<Note>, recommendations: List<ReaderRecommendation>, authenticReadyCoverage: Double): ImportQualityReport {
-        val readyNominals = notes.count { it.isNominalReady() }
-        val aspectReadyVerbs = notes.count { it.isAspectReadyVerb() }
-        val verifiedAktionsartVerbs = notes.count { it.isAspectReadyVerb() && it.hasVerifiedAktionsart() }
-        val domainRanked = notes.count { it.domainFreqRank != null }
-        val examples = notes.count { CardFactory.hasReadableExample(it) }
+        val counts = NoteQualityCounts(
+            totalNotes = notes.size,
+            readyNominalRows = notes.count { it.isNominalReady() },
+            aspectReadyVerbRows = notes.count { it.isAspectReadyVerb() },
+            verifiedAktionsartVerbRows = notes.count { it.isAspectReadyVerb() && it.hasVerifiedAktionsart() },
+            domainRankedRows = notes.count { it.domainFreqRank != null },
+            exampleRows = notes.count { CardFactory.hasReadableExample(it) }
+        )
+        return report(counts, recommendations, authenticReadyCoverage)
+    }
+
+    fun report(counts: NoteQualityCounts, recommendations: List<ReaderRecommendation>, authenticReadyCoverage: Double): ImportQualityReport {
+        val readyNominals = counts.readyNominalRows
+        val aspectReadyVerbs = counts.aspectReadyVerbRows
+        val verifiedAktionsartVerbs = counts.verifiedAktionsartVerbRows
         val targetReady = recommendations.count { it.text.source.startsWith("target:", ignoreCase = true) && it.coverage >= authenticReadyCoverage }
         val warnings = buildList {
             if (readyNominals < DESIGN_DOC_MIN_NOMINAL_ROWS) add("Need $DESIGN_DOC_MIN_NOMINAL_ROWS noun/adjective rows with declension, gender, domain rank, and example.")
@@ -27,12 +37,12 @@ object ImportQualityReporter {
             if (targetReady == 0) add("Need at least one target-source reader text at 90%+ coverage.")
         }
         return ImportQualityReport(
-            totalNotes = notes.size,
+            totalNotes = counts.totalNotes,
             readyNominalRows = readyNominals,
             aspectReadyVerbRows = aspectReadyVerbs,
             verifiedAktionsartVerbRows = verifiedAktionsartVerbs,
-            domainRankedRows = domainRanked,
-            exampleRows = examples,
+            domainRankedRows = counts.domainRankedRows,
+            exampleRows = counts.exampleRows,
             targetTextsAtOrAbove90 = targetReady,
             minNominalRows = DESIGN_DOC_MIN_NOMINAL_ROWS,
             minVerbRows = DESIGN_DOC_MIN_VERB_ROWS,

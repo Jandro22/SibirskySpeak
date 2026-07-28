@@ -41,6 +41,8 @@ internal class FakeSettingsStore : SettingsStore {
     override var lastStablePaceWordsPerDay: Double = 0.0
     override var sessionSnapshotJson: String = ""
     override var onboardingCompleted: Boolean = false
+    override var launchMaintenanceToken: String = ""
+    override var lastMicroReadingAttemptDay: Long = Long.MIN_VALUE
     override val learningExperimentVariant: String = "A"
     override var unlockedAchievementIds: Set<String> = emptySet()
 

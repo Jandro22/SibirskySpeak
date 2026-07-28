@@ -7912,7 +7912,7 @@
           "id": "c1_unit_214_dialogue:1",
           "speaker": "npc",
           "ru": "Как бы вы это сформулировали?",
-          "en": "Respond in Russian: We discussed the problem carefully.",
+          "en": "Respond in Russian: He kept the letter with care.",
           "nextIds": [
             "c1_unit_214_dialogue:2"
           ]
@@ -7920,11 +7920,11 @@
         {
           "id": "c1_unit_214_dialogue:2",
           "speaker": "learner",
-          "ru": "Мы бережно обсудили проблему.",
-          "en": "We discussed the problem carefully.",
+          "ru": "Он бережно хранил письмо.",
+          "en": "He kept the letter with care.",
           "acceptable": [
-            "Мы бережно обсудили проблему.",
-            "Мы бережно обсудили проблему."
+            "Он бережно хранил письмо.",
+            "Он бережно хранил письмо."
           ],
           "sourceUnit": 214,
           "sourceLemma": "бережно",
@@ -7960,7 +7960,7 @@
           "id": "c1_unit_214_dialogue:5",
           "speaker": "npc",
           "ru": "И в заключение?",
-          "en": "Respond in Russian: The experts spoke about the Deputy.",
+          "en": "Respond in Russian: The deputy director signed the document.",
           "nextIds": [
             "c1_unit_214_dialogue:6"
           ]
@@ -7968,11 +7968,11 @@
         {
           "id": "c1_unit_214_dialogue:6",
           "speaker": "learner",
-          "ru": "Эксперты высказались о заме.",
-          "en": "The experts spoke about the Deputy.",
+          "ru": "Зам директора подписал документ.",
+          "en": "The deputy director signed the document.",
           "acceptable": [
-            "Эксперты высказались о заме.",
-            "Эксперты высказались о заме."
+            "Зам директора подписал документ.",
+            "Зам директора подписал документ."
           ],
           "sourceUnit": 214,
           "sourceLemma": "зам",
@@ -8039,7 +8039,7 @@
           "id": "c1_unit_220_dialogue:5",
           "speaker": "npc",
           "ru": "И в заключение?",
-          "en": "Respond in Russian: Now let's do the plate. Maybe by hand.",
+          "en": "Respond in Russian: A sparrow is sitting on the branch.",
           "nextIds": [
             "c1_unit_220_dialogue:6"
           ]
@@ -8047,14 +8047,14 @@
         {
           "id": "c1_unit_220_dialogue:6",
           "speaker": "learner",
-          "ru": "Теперь измерь шип пальцами",
-          "en": "Now let's do the plate. Maybe by hand.",
+          "ru": "На ветке сидит воробей.",
+          "en": "A sparrow is sitting on the branch.",
           "acceptable": [
-            "Теперь измерь шип пальцами",
-            "Теперь измерь шип пальцами"
+            "На ветке сидит воробей.",
+            "На ветке сидит воробей."
           ],
           "sourceUnit": 218,
-          "sourceLemma": "шип",
+          "sourceLemma": "воробей",
           "nextIds": []
         }
       ]

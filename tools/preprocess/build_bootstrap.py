@@ -576,6 +576,22 @@ def _split_top_level(text: str, seps: str) -> list[str]:
     return parts
 
 
+# Generated source fallbacks for these lemmas have a verified, sense-aligned
+# candidate in mined_examples.json. Promote that sourced sentence to the primary
+# teaching example instead of keeping it only as optional context 2/3.
+MINED_PRIMARY_REPAIRS = {
+    "общий", "спать", "удар", "замок", "будущее", "очередной", "норма",
+    "спешить", "печать", "взрослый", "ведущий", "тепло", "цивилизация",
+    "пачка", "коэффициент", "яма", "владыка", "ванная", "рай", "воплощение",
+    "октябрьский", "балет", "скот", "осколок", "выпускник", "индекс",
+    "спичка", "примитивный", "матушка", "речной", "героический", "палач",
+    "приморский", "противодействие", "классовый", "дефект", "профессионализм",
+    "навещать", "воспроизводство", "открытость", "заметать", "княжна",
+    "незамеченный", "помещик", "сговор", "неравенство", "презумпция",
+    "племянница",
+}
+
+
 def apply_phase3_enrichment(notes):
     """Merge mined variety and derive morphology-backed compatibility fields."""
     mined_path = HERE / "mined_examples.json"
@@ -595,9 +611,20 @@ def apply_phase3_enrichment(notes):
         stored_lemma = note.get("lemma") or note.get("russian", "")
         morphology_lemma = stored_lemma[3:] if stored_lemma.startswith("tb_") else stored_lemma
         lemma = paradigm_norm(morphology_lemma)
+        candidates = mined.get(lemma, [])
+        if (
+            note.get("exampleSource") == "generated-quality-fallback"
+            and lemma in MINED_PRIMARY_REPAIRS
+            and candidates
+        ):
+            candidate = candidates[0]
+            note["exampleSentence"] = candidate["ru"]
+            note["exampleTranslation"] = candidate["en"]
+            note["exampleSource"] = "Tatoeba via bundled content database"
+            note["exampleReference"] = f"Tatoeba sentence {candidate['sentenceId']}"
         current = {normalize_text(note.get(k, "")) for k in ("exampleSentence", "exampleSentence2", "exampleSentence3") if note.get(k)}
         slots = [("exampleSentence2", "exampleTranslation2"), ("exampleSentence3", "exampleTranslation3")]
-        for candidate in mined.get(lemma, []):
+        for candidate in candidates:
             normalized = normalize_text(candidate["ru"])
             if normalized in current:
                 continue

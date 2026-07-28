@@ -74,6 +74,17 @@ interface SettingsStore {
     var onboardingCompleted: Boolean
         get() = false
         set(_) {}
+    /** Content checksum + maintenance revision last fully reconciled on this install.
+     * Whole-deck reconciliation is upgrade work, not launch work. */
+    var launchMaintenanceToken: String
+        get() = ""
+        set(_) {}
+    /** Local epoch day on which micro-reading generation was last attempted.
+     * A valid "no chain available" result must not trigger another corpus pass
+     * every time the process opens that day. */
+    var lastMicroReadingAttemptDay: Long
+        get() = Long.MIN_VALUE
+        set(_) {}
     val learningExperimentVariant: String
     var unlockedAchievementIds: Set<String>
     fun newlyUnlocked(currentUnlocked: Set<String>): Set<String>
@@ -292,6 +303,14 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         get() = prefs.getBoolean(KEY_ONBOARDING_COMPLETED, false)
         set(value) = prefs.edit().putBoolean(KEY_ONBOARDING_COMPLETED, value).apply()
 
+    override var launchMaintenanceToken: String
+        get() = prefs.getString(KEY_LAUNCH_MAINTENANCE_TOKEN, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_LAUNCH_MAINTENANCE_TOKEN, value).apply()
+
+    override var lastMicroReadingAttemptDay: Long
+        get() = prefs.getLong(KEY_LAST_MICRO_READING_ATTEMPT_DAY, Long.MIN_VALUE)
+        set(value) = prefs.edit().putLong(KEY_LAST_MICRO_READING_ATTEMPT_DAY, value).apply()
+
     /** Stable, installation-local learning experiment. Never changes mid-course. */
     override val learningExperimentVariant: String
         get() {
@@ -369,6 +388,8 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         private const val KEY_LAST_STABLE_PACE = "last_stable_pace_words_per_day"
         private const val KEY_SESSION_SNAPSHOT = "session_snapshot_v1"
         private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
+        private const val KEY_LAUNCH_MAINTENANCE_TOKEN = "launch_maintenance_token"
+        private const val KEY_LAST_MICRO_READING_ATTEMPT_DAY = "last_micro_reading_attempt_day"
         private const val MAX_SESSION_SNAPSHOT_CHARS = 32_000
     }
 }

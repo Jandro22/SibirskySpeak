@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import com.sibirskyspeak.generation.FrameLexeme
 import kotlinx.coroutines.flow.Flow
 
 data class CaseCategoryRow(
@@ -36,6 +37,15 @@ data class CardDashboardCounts(
     val dueGrammar: Int
 )
 
+data class NoteQualityCounts(
+    val totalNotes: Int,
+    val readyNominalRows: Int,
+    val aspectReadyVerbRows: Int,
+    val verifiedAktionsartVerbRows: Int,
+    val domainRankedRows: Int,
+    val exampleRows: Int
+)
+
 /** Compact curriculum-progress projections. Keeping this aggregation in SQLite
  * avoids materializing and filtering every card row during each plan build. */
 data class UnitVocabProgressRow(
@@ -44,6 +54,12 @@ data class UnitVocabProgressRow(
     val total: Int,
     val mastered: Int,
     val introduced: Int
+)
+
+data class CefrVocabProgressRow(
+    val band: String,
+    val total: Int,
+    val mastered: Int
 )
 
 data class UnitGrammarObjectiveProgressRow(
@@ -82,14 +98,11 @@ data class CardTypeRetention(
     val retained: Int
 )
 
-/** One grammar drill card plus whether it has ever recorded a non-miss review.
- *  See CardDao.getGrammarDrillOutcomes. */
-data class GrammarDrillOutcome(
-    val cardId: Long,
-    val cardType: CardType,
-    val gramCase: String?,
-    val gramContextCue: String?,
-    val gramConcept: String?,
+/** Compact per-concept probation state. SQLite performs the sibling-card reduction
+ * before Room allocates Kotlin objects for the session planner. */
+data class GrammarConceptOutcome(
+    val concept: String,
+    val probationCardId: Long,
     val everSucceeded: Boolean
 )
 
@@ -207,6 +220,16 @@ interface CardDao {
         WHERE c.state = 'NEW' AND c.suspended = 0
           AND n.status NOT IN ('KNOWN', 'IGNORED')
           AND n.translation != 'lookup pending'
+          AND (
+              :reviewedNotesOnly = 0
+              OR c.cardType = 'LESSON'
+              OR EXISTS (
+                  SELECT 1
+                  FROM review_logs reviewed
+                  JOIN cards reviewed_card ON reviewed_card.id = reviewed.cardId
+                  WHERE reviewed_card.noteId = c.noteId
+              )
+          )
           AND (c.queue != 'GRAMMAR' OR c.cardType = 'LESSON' OR n.encounterCount > 0)
           AND (
               CASE n.cefrLevel
@@ -236,7 +259,12 @@ interface CardDao {
             c.id ASC
         LIMIT :limit OFFSET :offset
     """)
-    suspend fun getNewCardsOrderedPage(limit: Int, offset: Int, maxCefrOrdinal: Int): List<Card>
+    suspend fun getNewCardsOrderedPage(
+        limit: Int,
+        offset: Int,
+        maxCefrOrdinal: Int,
+        reviewedNotesOnly: Boolean = false
+    ): List<Card>
 
     /** Mark a single note's VOCAB cards known (graduated, pushed far out) — used when
      *  the learner marks the word KNOWN/IGNORED in the reader, so practice stops
@@ -297,7 +325,12 @@ interface CardDao {
     suspend fun getTaperedConceptIds(): List<String>
 
     /**
-     * Every non-suspended grammar drill card, plus whether it has EVER recorded a
+     * One compact probation row per concept. SQLite reduces sibling grammar cards
+     * before Room materializes results. A concept succeeds once any admitted drill
+     * has ever recorded a non-miss review.
+     *
+     * Previous versions materialized every non-suspended grammar drill card plus
+     * whether it had EVER recorded a
      * non-miss review (not necessarily its first attempt — a card that missed once
      * and later succeeded on a retry still counts). Backs the "concept stays on
      * probation until its one admitted drill succeeds" gate in
@@ -306,15 +339,34 @@ interface CardDao {
      * any missed card in place until it's eventually gotten right.
      */
     @Query("""
-        SELECT c.id AS cardId, c.cardType AS cardType, c.gramCase AS gramCase,
-               c.gramContextCue AS gramContextCue, c.gramConcept AS gramConcept,
-               MAX(CASE WHEN rl.rating IS NOT NULL AND rl.rating != 'AGAIN' THEN 1 ELSE 0 END) AS everSucceeded
-        FROM cards c
-        LEFT JOIN review_logs rl ON rl.cardId = c.id
-        WHERE c.queue = 'GRAMMAR' AND c.cardType != 'LESSON' AND c.suspended = 0
-        GROUP BY c.id
+        SELECT concept,
+               MIN(cardId) AS probationCardId,
+               MAX(everSucceeded) AS everSucceeded
+        FROM (
+            SELECT c.id AS cardId,
+                   CASE
+                       WHEN c.gramConcept IS NOT NULL THEN c.gramConcept
+                       WHEN c.cardType = 'CASE_FILL' THEN c.gramCase
+                       WHEN c.cardType = 'GENDER_ID' THEN 'GENDER'
+                       WHEN c.cardType = 'ADJ_AGREE' THEN 'ADJ_AGREE'
+                       WHEN c.cardType = 'ASPECT_SELECT' THEN 'ASPECT'
+                       WHEN c.cardType = 'VERB_FORM' AND c.gramContextCue LIKE 'PRES_%' THEN 'PRESENT'
+                       WHEN c.cardType = 'VERB_FORM' THEN 'PAST'
+                       ELSE NULL
+                   END AS concept,
+                   CASE WHEN EXISTS (
+                       SELECT 1 FROM review_logs rl
+                       WHERE rl.cardId = c.id AND rl.rating != 'AGAIN'
+                   ) THEN 1 ELSE 0 END AS everSucceeded
+            FROM cards c
+            WHERE c.queue = 'GRAMMAR'
+              AND c.cardType != 'LESSON'
+              AND c.suspended = 0
+        )
+        WHERE concept IS NOT NULL
+        GROUP BY concept
     """)
-    suspend fun getGrammarDrillOutcomes(): List<GrammarDrillOutcome>
+    suspend fun getGrammarConceptOutcomes(): List<GrammarConceptOutcome>
 
     @Query("SELECT * FROM cards WHERE noteId = :noteId AND cardType = :cardType LIMIT 1")
     suspend fun getByNoteAndType(noteId: Long, cardType: CardType): Card?
@@ -449,6 +501,28 @@ interface CardDao {
 
     @Query("SELECT * FROM cards WHERE queue = 'VOCAB'")
     suspend fun getAllVocabCards(): List<Card>
+
+    /** CEFR spine gate computed in SQLite instead of materializing every vocab card. */
+    @Query("""
+        SELECT COALESCE(n.cefrLevel, 'A1') AS band,
+               COUNT(*) AS total,
+               COALESCE(SUM(CASE WHEN recognition.mastered = 1 THEN 1 ELSE 0 END), 0) AS mastered
+        FROM notes n
+        LEFT JOIN (
+            SELECT noteId,
+                   MAX(CASE WHEN state = 'GRADUATED'
+                                  OR (reps >= 2 AND consecutiveCorrect >= 2)
+                            THEN 1 ELSE 0 END) AS mastered
+            FROM cards
+            WHERE cardType = 'RU_TO_MEANING' AND suspended = 0
+            GROUP BY noteId
+        ) recognition ON recognition.noteId = n.id
+        WHERE n.tier = 0
+          AND n.cefrLevel IS NOT NULL
+          AND n.status != 'IGNORED'
+        GROUP BY COALESCE(n.cefrLevel, 'A1')
+    """)
+    suspend fun cefrVocabProgress(): List<CefrVocabProgressRow>
 
     @Query("""
         SELECT COALESCE(n.cefrLevel, 'A1') AS band,
@@ -607,6 +681,61 @@ interface NoteDao {
 
     @Query("SELECT * FROM notes")
     suspend fun getAll(): List<Note>
+
+    /** Lightweight inventory for dynamic grammar frames; excludes large note JSON fields. */
+    @Query("""
+        SELECT lemma, translation, gender, aspect, partOfSpeech
+        FROM notes
+        WHERE tier = 0
+          AND partOfSpeech IN ('noun', 'verb', 'adjective')
+    """)
+    suspend fun getFrameLexemes(): List<FrameLexeme>
+
+    @Query("""
+        SELECT COUNT(*) AS totalNotes,
+               COALESCE(SUM(CASE
+                   WHEN LOWER(partOfSpeech) IN ('noun', 'adjective')
+                    AND declensionJson IS NOT NULL AND TRIM(declensionJson) != ''
+                    AND gender IS NOT NULL AND TRIM(gender) != ''
+                    AND domainFreqRank IS NOT NULL
+                    AND exampleSentence IS NOT NULL AND TRIM(exampleSentence) != ''
+                    AND exampleTranslation IS NOT NULL AND TRIM(exampleTranslation) != ''
+                    AND LOWER(TRIM(exampleTranslation)) != LOWER(TRIM(translation))
+                    AND INSTR(TRIM(exampleTranslation), ' ') > 0
+                   THEN 1 ELSE 0 END), 0) AS readyNominalRows,
+               COALESCE(SUM(CASE
+                   WHEN LOWER(partOfSpeech) = 'verb'
+                    AND aspectPartner IS NOT NULL
+                    AND aspect IS NOT NULL AND TRIM(aspect) != ''
+                    AND aktionsart IS NOT NULL AND TRIM(aktionsart) != ''
+                    AND domainFreqRank IS NOT NULL
+                    AND exampleSentence IS NOT NULL AND TRIM(exampleSentence) != ''
+                    AND exampleTranslation IS NOT NULL AND TRIM(exampleTranslation) != ''
+                    AND LOWER(TRIM(exampleTranslation)) != LOWER(TRIM(translation))
+                    AND INSTR(TRIM(exampleTranslation), ' ') > 0
+                   THEN 1 ELSE 0 END), 0) AS aspectReadyVerbRows,
+               COALESCE(SUM(CASE
+                   WHEN LOWER(partOfSpeech) = 'verb'
+                    AND aspectPartner IS NOT NULL
+                    AND aspect IS NOT NULL AND TRIM(aspect) != ''
+                    AND aktionsart IS NOT NULL AND TRIM(aktionsart) != ''
+                    AND domainFreqRank IS NOT NULL
+                    AND exampleSentence IS NOT NULL AND TRIM(exampleSentence) != ''
+                    AND exampleTranslation IS NOT NULL AND TRIM(exampleTranslation) != ''
+                    AND LOWER(TRIM(exampleTranslation)) != LOWER(TRIM(translation))
+                    AND INSTR(TRIM(exampleTranslation), ' ') > 0
+                    AND LOWER(aktionsartConfidence) IN ('high', 'manual', 'verified')
+                   THEN 1 ELSE 0 END), 0) AS verifiedAktionsartVerbRows,
+               COALESCE(SUM(CASE WHEN domainFreqRank IS NOT NULL THEN 1 ELSE 0 END), 0) AS domainRankedRows,
+               COALESCE(SUM(CASE
+                   WHEN exampleSentence IS NOT NULL AND TRIM(exampleSentence) != ''
+                    AND exampleTranslation IS NOT NULL AND TRIM(exampleTranslation) != ''
+                    AND LOWER(TRIM(exampleTranslation)) != LOWER(TRIM(translation))
+                    AND INSTR(TRIM(exampleTranslation), ' ') > 0
+                   THEN 1 ELSE 0 END), 0) AS exampleRows
+        FROM notes
+    """)
+    suspend fun qualityCounts(): NoteQualityCounts
 
     /** Notes whose primary example looks like a "Русский - English" concatenation that
      *  was never split (translation blank, a spaced dash present, Latin letters in the
@@ -882,6 +1011,9 @@ interface ReaderTextDao {
 
     @Query("SELECT COUNT(*) FROM reader_texts")
     suspend fun count(): Int
+
+    @Query("SELECT COUNT(*) FROM reader_texts WHERE source = :source")
+    suspend fun countBySource(source: String): Int
 
     @Query("SELECT * FROM reader_texts ORDER BY createdAt ASC")
     suspend fun getAll(): List<ReaderText>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!--
+          Standalone Compose instrumentation tests render inside the test-manifest
+          ComponentActivity. Physical phones commonly auto-lock during the slower
+          database/migration portion of connectedQaAndroidTest; without these QA-only
+          attributes, every later Compose assertion sees no hierarchy. This does not
+          bypass authentication or affect the learner/debug/release application. It
+          only allows the isolated com.sibirskyspeak.qa host to render over keyguard.
+        -->
+        <activity
+            android:name="androidx.activity.ComponentActivity"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true" />
+    </application>
+</manifest>

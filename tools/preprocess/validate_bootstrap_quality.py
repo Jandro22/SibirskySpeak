@@ -107,6 +107,10 @@ def machine_problems(notes: list[dict]) -> list[str]:
             problems.append(f"{label}: placeholder text detected")
         if any(marker in lowered for marker in FOREIGN_GLOSS_MARKERS):
             problems.append(f"{label}: foreign-language gloss metadata detected")
+        if note.get("exampleSource") == "generated-quality-fallback":
+            problems.append(
+                f"{label}: unreviewed generated fallback reached shipped primary example"
+            )
         identity = (str(note.get("lemma", "")).lower(), str(note.get("pos", "")), str(note.get("translation", "")).lower())
         if identity in identities:
             problems.append(f"{label}: duplicate lemma/POS/meaning")

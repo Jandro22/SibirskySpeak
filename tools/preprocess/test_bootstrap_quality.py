@@ -16,6 +16,19 @@ def test_quality_gate_rejects_incomplete_note():
     assert any("missing exampleSentence" in problem for problem in problems)
 
 
+def test_quality_gate_rejects_unreviewed_generated_primary_examples():
+    note = {
+        "russian": "дом",
+        "lemma": "дом",
+        "pos": "noun",
+        "translation": "house",
+        "exampleSentence": "Это дом.",
+        "exampleTranslation": "This is a house.",
+        "exampleSource": "generated-quality-fallback",
+    }
+    assert any("generated fallback" in problem for problem in machine_problems([note]))
+
+
 def test_every_shipped_note_is_complete_and_evidence_verified():
     notes = load_notes()
     assert machine_problems(notes) == []
