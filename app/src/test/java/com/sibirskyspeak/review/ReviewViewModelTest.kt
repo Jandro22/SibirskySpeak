@@ -347,6 +347,27 @@ class ReviewViewModelTest {
         assertEquals("", viewModel.typedAnswer.value)
     }
 
+    @Test
+    fun fullBackupStreamsAValidatedSnapshotWithoutRenderingThePayload() = runTest(dispatcher) {
+        var writtenLines = 0
+        val fixture = RepoFixture(writeBackupLines = { lines -> lines.forEach { writtenLines++ } })
+        fixture.repository.addNote(Note(
+            russian = "дом",
+            lemma = "дом-backup",
+            translation = "house",
+            partOfSpeech = "noun"
+        ))
+        val viewModel = ReviewViewModel(fixture.repository, FakeSettingsStore(), Dispatchers.Unconfined)
+        advanceUntilIdle()
+
+        viewModel.exportFullState()
+        advanceUntilIdle()
+
+        assertTrue(writtenLines > 0)
+        assertTrue("the full-state payload must not be copied into Compose state", viewModel.state.value.exportText.isBlank())
+        assertEquals("Full backup saved and validated.", viewModel.state.value.statusMessage)
+    }
+
     private fun dayBucketTimestamp(now: Long, bucket: Long): Long {
         val dayMillis = 86_400_000L
         val tzOffset = java.util.TimeZone.getDefault().getOffset(now)

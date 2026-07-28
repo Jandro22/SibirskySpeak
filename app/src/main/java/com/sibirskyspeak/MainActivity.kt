@@ -42,6 +42,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.Card
@@ -74,6 +75,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
@@ -135,11 +137,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun configureSystemBars() {
-        val night = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
-            android.content.res.Configuration.UI_MODE_NIGHT_YES
         WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = !night
-            isAppearanceLightNavigationBars = !night
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
         }
     }
 
@@ -257,7 +257,8 @@ internal fun ReviewScreen(
     // One ordered back policy; destinations no longer compete through stacked handlers.
     BackHandler(enabled = studyActive || showReference || activeTab == SessionStep.READER) {
         when {
-            studyActive -> { viewModel.recordStudyScreenExit(); nav.pop() }
+            state.exitTicketSession != null -> viewModel.closeExitTicket()
+            studyActive -> { viewModel.recordStudyScreenExit(reason = "user_back"); nav.pop() }
             showReference -> nav.pop()
             state.selectedReaderTextId != null -> viewModel.closeReaderText()
             else -> { nav.replace(Dest.Practice); viewModel.setSessionStep(SessionStep.REVIEWS) }
@@ -291,8 +292,10 @@ internal fun ReviewScreen(
                     viewModel.recordAudioPlayed(p)
                     tts.speak(p.speechText(), p.audioRate, p.audioPitch, p.audioVoiceVariant)
                 },
+                onSpeechRecognition = viewModel::recordSpeechRecognition,
+                onSpeechRecognitionStatus = viewModel::recordSpeechRecognitionStatus,
                 onExit = {
-                    viewModel.recordStudyScreenExit()
+                    viewModel.recordStudyScreenExit(reason = "user_exit")
                     nav.pop()
                 },
                 onUndo = viewModel::undoLastReview,
@@ -301,6 +304,11 @@ internal fun ReviewScreen(
                 onKnowWord = viewModel::markCurrentWordKnown,
                 onStartSession = { viewModel.startRecommendedSession() },
                 onSaveEdit = viewModel::editCurrentCard,
+                onSubmitCapstoneAnswer = viewModel::submitExitTicketAnswer,
+                onContinueCapstone = viewModel::continueExitTicket,
+                onCloseCapstone = viewModel::closeExitTicket,
+                onSpeakRussian = tts::speak,
+                onSkipCyrillicFoundation = viewModel::skipCyrillicFoundation,
                 onReadNext = {
                     viewModel.startRecommendedSession()
                     nav.push(Dest.Study)
@@ -343,11 +351,6 @@ internal fun ReviewScreen(
                 onLoadLeeches = viewModel::loadLeeches,
                 onReleaseLeech = viewModel::releaseLeech,
                 onSaveLeechEdit = viewModel::editLeech,
-                onStartExitTicket = viewModel::startExitTicket,
-                onDismissExitTicketOffer = viewModel::dismissExitTicketOffer,
-                onSubmitExitTicketAnswer = viewModel::submitExitTicketAnswer,
-                onCloseExitTicket = viewModel::closeExitTicket,
-                onSpeakRussian = tts::speak,
                 onGoToBackupSettings = {
                     settingsArea = SettingsArea.DATA
                     nav.replace(Dest.Import)
@@ -425,6 +428,7 @@ internal fun ReviewScreen(
                     Reminders.schedule(context)
                 },
                 onFontScale = viewModel::setReaderFontScale,
+                onOnlineGlossLookup = viewModel::setOnlineGlossLookupEnabled,
                 onSearch = viewModel::setSearchQuery,
                 onSpeakRussian = tts::speak,
                 onDebugStartCardType = { cardType ->
@@ -469,13 +473,29 @@ internal fun ReviewScreen(
         topBar = {
             if (!readerTextOpen) CenterAlignedTopAppBar(
                 title = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("SibirskySpeak", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            "Russian review & reader",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.AutoAwesome,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
                         )
+                        Column(horizontalAlignment = Alignment.Start) {
+                            Text("SibirskySpeak", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                            Text(
+                                when {
+                                    studyActive -> if (state.inSessionReading) "Guided reading" else "Focused practice"
+                                    activeTab == SessionStep.DASHBOARD -> "Your learning path"
+                                    activeTab == SessionStep.LAB -> "Signals, not scores"
+                                    else -> "Russian, one step at a time"
+                                },
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -526,12 +546,19 @@ internal fun ReviewScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.035f),
+                                    MaterialTheme.colorScheme.background
+                                )
+                            )
+                        )
                 ) {
                     achievementOverlay()
-                    AnimatedMainTab(modifier = Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 12.dp))
+                    AnimatedMainTab(modifier = Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 8.dp))
                     state.statusMessage?.let {
-                        Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                             StatusBanner(it, onDismiss = viewModel::dismissStatusMessage)
                         }
                     }
@@ -545,7 +572,14 @@ internal fun ReviewScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.045f),
+                                    MaterialTheme.colorScheme.background
+                                )
+                            )
+                        )
                 ) {
                     achievementOverlay()
                     AnimatedMainTab(modifier = Modifier.weight(1f))
@@ -570,18 +604,25 @@ internal fun ReviewScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.background)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.035f),
+                                        MaterialTheme.colorScheme.background
+                                    )
+                                )
+                            )
                             .verticalScroll(mainScrollState)
                     ) {
                         achievementOverlay()
                         Column(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             AnimatedMainTab()
                             state.statusMessage?.let { StatusBanner(it, onDismiss = viewModel::dismissStatusMessage) }
                             // Leave room so the story doesn't hide behind the pinned word card.
-                            Spacer(Modifier.height(if (showWordCard) 300.dp else 8.dp))
+                            Spacer(Modifier.height(if (showWordCard) 280.dp else 4.dp))
                         }
                     }
                 }
@@ -598,6 +639,7 @@ internal fun ReviewScreen(
                             token = token,
                             state = state,
                             onSetStatus = viewModel::setReaderWordStatus,
+                            onSaveGloss = viewModel::saveReaderWordGloss,
                             onClearSelection = viewModel::clearSelectedToken,
                             onSpeakRussian = tts::speak,
                             onToggleBookmark = viewModel::toggleReaderBookmark,

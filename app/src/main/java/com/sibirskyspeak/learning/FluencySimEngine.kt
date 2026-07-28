@@ -47,7 +47,15 @@ object FluencySimEngine {
         val stablePace: Double,
         val finalReviewLoad: Int,
         val ranges: Map<String, DayRange> = emptyMap(),
-        val evidenceDays: Int = 0
+        val evidenceDays: Int = 0,
+        /** Clean-baseline capacity, independent of today's review backlog. */
+        val sustainablePace: Double = stablePace,
+        /** Number of mature cards present when the forecast started. */
+        val startingReviewLoad: Int = 0,
+        val startingKnownWords: Int = 0,
+        val sustainableMinutes: Double = 0.0,
+        val returnProbability: Double = 0.0,
+        val simulatedDays: Int = 0
     ) {
         val isEarlyEstimate: Boolean get() = evidenceDays < 14
         fun days(level: String): Int? = when (level) {
@@ -104,8 +112,20 @@ object FluencySimEngine {
         val paceSamples = ArrayDeque<Int>()
         val reviewSamples = ArrayDeque<Int>()
         var nextId = (cards.maxOfOrNull(Card::id) ?: 0L) + 1L
+        var simulatedDays = 0
+        val startingReviewLoad = cards.count { it.state != CardState.NEW && it.state != CardState.GRADUATED }
+        val baselineInputs = PaceInputs(
+            capacity = initialCapacity,
+            willingness = initialWillingness,
+            totalKnown = known,
+            recentAccuracy = accuracy,
+            medianReviewMinutes = 0.18
+        )
+        val sustainablePace = PaceController.sustainableNewItemRate(baselineInputs, start)
+        val startingReturnProbability = WillingnessModel.returnProbability(initialWillingness, ReturnContext())
 
         for (day in 1..MAX_DAYS) {
+            simulatedDays = day
             if (known >= MILESTONES.getValue("C2")) break
             val now = start + day * DAY_MILLIS
             val returnContext = ReturnContext(
@@ -193,8 +213,14 @@ object FluencySimEngine {
         return SimResult(
             daysToA1 = reached["A1"], daysToA2 = reached["A2"], daysToB1 = reached["B1"],
             daysToB2 = reached["B2"], daysToC1 = reached["C1"], daysToC2 = reached["C2"],
-            stablePace = paceSamples.average().takeIf(Double::isFinite) ?: 0.0,
-            finalReviewLoad = if (reviewSamples.isEmpty()) 0 else reviewSamples.average().toInt()
+            stablePace = maxOf(paceSamples.average().takeIf(Double::isFinite) ?: 0.0, sustainablePace),
+            finalReviewLoad = if (reviewSamples.isEmpty()) 0 else reviewSamples.average().toInt(),
+            sustainablePace = sustainablePace,
+            startingReviewLoad = startingReviewLoad,
+            startingKnownWords = knownStart.coerceAtLeast(0),
+            sustainableMinutes = initialCapacity.sustainableMinutes,
+            returnProbability = startingReturnProbability,
+            simulatedDays = simulatedDays
         )
     }
 

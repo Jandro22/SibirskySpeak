@@ -17,11 +17,26 @@ data class DialogueTurn(val nodeId: String, val speaker: String, val ru: String,
 
 class DialogueEngine(private val dialogue: ContentDialogue, nodes: List<ContentDialogueNode>) {
     private val byId = nodes.associateBy { it.id }
-    private var currentId: String = nodes.first().id
+    private val rootId: String = nodes.map { it.id }.first { candidate ->
+        nodes.none { candidate in nextIdsForNode(it) }
+    }
+    private var currentId: String = rootId
 
     val title: String get() = dialogue.title
 
     fun current(): DialogueTurn = turnFor(currentId)
+
+    /** Deterministic first branch, suitable for an assigned assessment. */
+    fun scriptedTurns(): List<DialogueTurn> {
+        val result = mutableListOf<DialogueTurn>()
+        val visited = mutableSetOf<String>()
+        var id: String? = rootId
+        while (id != null && visited.add(id)) {
+            result += turnFor(id)
+            id = nextIdsFor(id).firstOrNull()
+        }
+        return result
+    }
 
     /** True once the current node has no further turns (the dialogue is complete). */
     fun isComplete(): Boolean = nextIdsFor(currentId).isEmpty()
@@ -54,6 +69,10 @@ class DialogueEngine(private val dialogue: ContentDialogue, nodes: List<ContentD
 
     private fun nextIdsFor(nodeId: String): List<String> {
         val node = byId.getValue(nodeId)
+        return nextIdsForNode(node)
+    }
+
+    private fun nextIdsForNode(node: ContentDialogueNode): List<String> {
         val array = JSONArray(node.nextIdsJson)
         return (0 until array.length()).map { array.getString(it) }
     }

@@ -4,8 +4,10 @@ from pathlib import Path
 
 import pytest
 
+from build_bootstrap import apply_phase3_enrichment, finalize_notes
 from textbook_ingest import (
     TEXTBOOKS,
+    _vocab_note_from,
     extract_activities,
     vocab_notes_from_activities,
     reader_texts_from_activities,
@@ -17,6 +19,39 @@ LAT = re.compile(r"[A-Za-z]")
 
 def _missing_textbooks():
     return [str(meta["path"]) for meta in TEXTBOOKS if not Path(meta["path"]).exists()]
+
+
+@pytest.mark.parametrize("case_name", [
+    "именительный", "родительный", "дательный", "винительный",
+    "творительный", "предложный",
+])
+def test_case_labels_are_not_mined_as_vocabulary(case_name):
+    assert _vocab_note_from(case_name, "case label", unit=1) is None
+
+
+def test_learner_disputed_glosses_include_ordinary_answers():
+    assert _vocab_note_from("дёшево", "cheaply", unit=8)["translation"] == "cheap; cheaply"
+    assert _vocab_note_from("гид", "tour-guide", unit=3)["translation"] == "guide; tour guide"
+
+
+def test_textbook_namespace_never_leaks_into_generated_morphology():
+    note = _vocab_note_from("сдать", "turn in", unit=5)
+    enriched = apply_phase3_enrichment([note])[0]
+    forms = enriched["declensionJson"]["verbForms"]
+
+    assert forms["INF"] == "сдать"
+    assert all(not value.startswith("tb_") for value in forms.values())
+
+
+def test_vetted_textbook_example_replaces_an_unrelated_sense():
+    note = _vocab_note_from("попасть", "get to", unit=9)
+    note["exampleSentence"] = "куда́ попа́ло"
+    note["exampleTranslation"] = "wherever"
+
+    finalized = finalize_notes([note])
+
+    assert finalized[0]["exampleSentence"] == "Как мне попа́сть на другу́ю сто́рону?"
+    assert finalized[0]["exampleTranslation"] == "How do I get to the other side?"
 
 
 @pytest.mark.skipif(_missing_textbooks(), reason="local Между нами PDFs not present")

@@ -10,7 +10,7 @@ import kotlin.math.exp
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
-enum class StopPolicy { CLEAN_STOP, STRETCH_ARMED, EARLY_STOP }
+enum class StopPolicy { CLEAN_STOP, STRETCH_ARMED, RECOVERY_PACING }
 
 data class Pace(
     val targetMinutes: Double,
@@ -113,10 +113,14 @@ object PaceController {
         val capacity = blendCount(configuredSessionSize.coerceAtLeast(1), paceCapacity, trust)
         val configuredNewBudget = configuredNewCardsPerDay.coerceAtLeast(0)
         val blendedNewBudget = blendCount(configuredNewBudget, pace.newItemBudget.coerceAtLeast(0), trust)
-        val newBudget = if (hasAdaptiveSignal) {
-            blendedNewBudget
-        } else {
-            blendedNewBudget.coerceAtMost(configuredNewBudget)
+        // A zero learned budget is a safety decision (low accuracy, fatigue,
+        // review debt, return risk, or insufficient capacity), not an uncertain
+        // estimate to average with the old settings prior. The learner's telemetry
+        // showed recovery plans being blended back up to a large new-card dose.
+        val newBudget = when {
+            hasAdaptiveSignal && pace.newItemBudget <= 0 -> 0
+            hasAdaptiveSignal -> blendedNewBudget
+            else -> blendedNewBudget.coerceAtMost(configuredNewBudget)
         }.coerceAtMost(capacity)
         val retention = blendDouble(configuredRetention.coerceIn(0.80, 0.95), pace.targetRetention, trust).coerceIn(0.80, 0.95)
         return AdoptedPacePlan(capacity, newBudget, retention, trust, AdaptiveTrustPolicy.reason(evidence, trust))
@@ -176,8 +180,7 @@ object PaceController {
         // recovery gating, SAFETY_NEW_CAP, and safeNewBudget's debt/pReturn/capacity
         // zeroing below) still runs unmodified afterward, so goal pressure can only
         // raise what those guards already allowed, never bypass them.
-        val goalPressure = inputs.goalPaceRatio?.takeIf(Double::isFinite)
-            ?.let { ratio -> (1.0 / ratio.coerceAtLeast(0.05)).coerceIn(1.0, GoalMath.PRESSURE_CEILING) } ?: 1.0
+        val goalPressure = inputs.goalPaceRatio?.let(GoalMath::pressureFor) ?: 1.0
         val budgetScale = (tunedScale * goalPressure).coerceIn(0.5, 1.5 * GoalMath.PRESSURE_CEILING)
         val nMax = (maxNewItems(loadNow, debtPerNew, sustainable * sessionsPerDay, delta) * budgetScale).toInt().coerceAtLeast(0)
         val lookahead = SessionLookahead.choose(cap = nMax.coerceAtLeast(0), dueForecast = forecast, retention = targetRetention)
@@ -214,7 +217,7 @@ object PaceController {
             listOf(max(1, total / 2), total).distinct()
         } else emptyList()
         val stopPolicy = when {
-            fatigue > 0.65 || accuracy < 0.75 || capacityFit < 0.45 -> StopPolicy.EARLY_STOP
+            fatigue > 0.65 || accuracy < 0.75 || capacityFit < 0.45 -> StopPolicy.RECOVERY_PACING
             accuracy > 0.9 && fatigue < 0.5 && debtRatio < delta && pReturn >= TAU_RETURN && capacityFit >= 0.55 -> StopPolicy.STRETCH_ARMED
             else -> StopPolicy.CLEAN_STOP
         }
@@ -236,6 +239,22 @@ object PaceController {
         totalKnown < 400 -> 0.35
         totalKnown < 1500 -> 0.50
         else -> 0.70
+    }
+
+    /**
+     * Estimates the learner's sustainable new-word capacity without allowing the
+     * current review backlog to masquerade as a permanent capacity limit. The
+     * actual session still uses [generatePace] with its real cards and all safety
+     * guards; this is only the clean-baseline number shown in goal feasibility and
+     * long-range forecast explanations.
+     */
+    fun sustainableNewItemRate(inputs: PaceInputs, now: Long = System.currentTimeMillis()): Double {
+        val cleanInputs = inputs.copy(activeCards = emptyList(), goalPaceRatio = null)
+        val pace = generatePace(cleanInputs, now)
+        val healthyEnough = cleanInputs.recentAccuracy >= 0.75 &&
+            cleanInputs.fatigue <= 0.65 &&
+            cleanInputs.capacity.sustainableMinutes >= 5.0
+        return if (healthyEnough) pace.newItemBudget.toDouble().coerceAtLeast(1.0) else pace.newItemBudget.toDouble()
     }
 
     fun maxNewItems(loadNow: Double, debtNew: Double, sustainableMinutesPerDay: Double, delta: Double, horizon: Int = HORIZON_DAYS): Int {

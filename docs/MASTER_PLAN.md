@@ -1,5 +1,13 @@
 # SibirskySpeak Master Plan
 
+> **⚠ SUPERSEDED — the phased work below has shipped; see `docs/ADAPTIVE_TUTOR_FINAL_PLAN.md`
+> for the successor roadmap and `docs/PATCH_NOTES.md` for what's actually current.**
+> The "audit evidence" table further down (grammar concepts: 40, notes: 9,291, etc.)
+> is a 2026-07 snapshot that's now wrong on every row — re-measure from the live code
+> rather than trusting these numbers (the doc's own caveat already says this).
+> Kept as the historical record of the vision/decisions/rationale behind this app's
+> architecture (Parts I–II's principles still hold), not as a live status board.
+
 **Audience:** the agent(s) executing this plan. You were not part of the planning
 conversation. This document is your complete context: the vision, the evidence it
 rests on, the decisions already made (do not re-litigate them), the principles for

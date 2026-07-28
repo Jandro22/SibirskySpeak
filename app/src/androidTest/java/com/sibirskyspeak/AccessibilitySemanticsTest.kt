@@ -24,7 +24,7 @@ class AccessibilitySemanticsTest {
 
         compose.onNodeWithContentDescription("Practice").assertHasClickAction().assertIsSelected()
         compose.onNodeWithContentDescription("Progress").assertHasClickAction()
-        compose.onNodeWithContentDescription("Lab").assertHasClickAction()
+        compose.onNodeWithContentDescription("Insights").assertHasClickAction()
         compose.onNodeWithContentDescription("Settings").assertHasClickAction()
         compose.onNodeWithTag(TestTags.NAV_PRACTICE).assertHasClickAction()
     }

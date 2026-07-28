@@ -57,4 +57,34 @@ class FluencySimEngineTest {
         assertTrue(!mature.isEarlyEstimate)
         assertTrue(earlyRange.high - earlyRange.low > matureRange.high - matureRange.low)
     }
+
+    @Test
+    fun forecastExposesCleanCapacitySeparatelyFromStartingReviewBacklog() {
+        val cards = (1L..120L).map { id ->
+            com.sibirskyspeak.data.Card(
+                id = id,
+                noteId = id,
+                cardType = com.sibirskyspeak.data.CardType.RU_TO_MEANING,
+                queue = com.sibirskyspeak.data.Queue.VOCAB,
+                stability = 0.2,
+                difficulty = 5.0,
+                state = com.sibirskyspeak.data.CardState.REVIEW,
+                due = 0L,
+                lastReview = 0L
+            )
+        }
+        val result = FluencySimEngine.runSimulation(
+            currentCapacity = CapacityBelief(mu = 12.0, sigma = 8.0),
+            currentWillingness = WillingnessBelief(habit = 0.0),
+            initialActiveCards = cards,
+            totalKnownStart = 21,
+            evidenceDays = 5,
+            recentAccuracy = 0.85,
+            startTimeMillis = 0L
+        )
+
+        assertEquals(120, result.startingReviewLoad)
+        assertTrue("review backlog must not be reported as zero sustainable pace", result.sustainablePace > 0.0)
+        assertTrue(result.sustainableMinutes > 0.0)
+    }
 }

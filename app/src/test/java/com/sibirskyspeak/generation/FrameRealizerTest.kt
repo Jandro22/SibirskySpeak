@@ -20,11 +20,12 @@ private class JdbcContentDao(private val conn: Connection) : ContentDao {
     override suspend fun candidatesForLemma(lemma: String, limit: Int) = throw NotImplementedError()
     override suspend fun chunksForLemma(lemma: String, limit: Int) = throw NotImplementedError()
     override suspend fun familyForLemma(lemma: String, limit: Int) = throw NotImplementedError()
+    override suspend fun singleLetterPrefixRoots() = emptyList<String>()
     override suspend fun emojiForLemma(lemma: String) = throw NotImplementedError()
     override suspend fun neighborsForLemma(lemma: String, limit: Int) = throw NotImplementedError()
     override suspend fun metadata(key: String) = throw NotImplementedError()
     override fun paradigm(lemma: String) = throw NotImplementedError()
-    override suspend fun sentencesFor(unitMax: Int, requiredLemma: String?, requiredFeat: String?, limit: Int) = throw NotImplementedError()
+    override suspend fun sentencesFor(unitMax: Int, bandMax: String, requiredLemma: String?, requiredFeat: String?, limit: Int) = throw NotImplementedError()
     override suspend fun sentencesContaining(chunk: String, limit: Int) = throw NotImplementedError()
     override suspend fun dialoguesFor(unitMax: Int) = throw NotImplementedError()
     override suspend fun nodesForDialogue(dialogueId: String) = throw NotImplementedError()
@@ -114,6 +115,7 @@ class FrameRealizerTest {
                         assertTrue(result.targetAnswer.isNotBlank())
                         assertTrue("{" !in result.ru)
                         assertTrue("{" !in result.en)
+                        assertTrue("English meaning contains Cyrillic: ${result.en}", !Regex("""[\u0400-\u04FF]""").containsMatchIn(result.en))
                         // determinism: same (frame, day, card) reproduces the same output
                         val again = realizer.realize(frame, inventory, epochDay, cardId)
                         assertEquals(result, again)
@@ -139,6 +141,31 @@ class FrameRealizerTest {
                 if (outputs.size > 1) varied++
             }
             assertTrue("expected most frames to vary across days, only $varied/${frames.size} did", varied >= frames.size * 7 / 10)
+        }
+    }
+
+    @Test fun englishTemplateUsesMeaningsInsteadOfRussianSurfaceForms() {
+        val url = "jdbc:sqlite:${dbFile().absolutePath}"
+        DriverManager.getConnection(url).use { conn ->
+            val realizer = FrameRealizer(MorphologyEngine(JdbcContentDao(conn)))
+            val frame = ContentFrame(
+                id = "english_regression",
+                concept = "NOM_PL",
+                band = "A1",
+                slotsJson = """[{"role":"subj","pos":"noun","case":"NOM","number":"PL","target":true},{"role":"verb","pos":"verb","tense":"PRES","person":3,"number":"PL"}]""",
+                ruFrame = "{subj} {verb} здесь.",
+                enFrame = "{subj} {verb} here."
+            )
+            val inventory = FrameInventory(
+                nouns = listOf(Note(russian = "студе́нт", translation = "student", partOfSpeech = "noun", lemma = "студент", gender = "M")),
+                verbs = listOf(Note(russian = "рабо́тать", translation = "to work", partOfSpeech = "verb", lemma = "работать", aspect = "IPF")),
+                adjectives = emptyList()
+            )
+
+            val result = realizer.realize(frame, inventory, epochDay = 1L, cardId = 1L)
+
+            assertEquals("Students work here.", result?.en)
+            assertTrue(result?.ru?.contains("здесь") == true)
         }
     }
 }

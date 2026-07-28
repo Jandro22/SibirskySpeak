@@ -193,7 +193,7 @@ def test_units_are_monotonic_per_level_and_lessons_lead():
 
 
 def test_all_declared_concepts_have_titles_and_lessons():
-    lesson_concepts = {n["conceptId"] for n in all_rows() if n["pos"] == "lesson"}
+    lesson_concepts = {n["conceptId"] for n in all_rows() if n["pos"] == "lesson" and n.get("conceptId")}
     for concept in lesson_concepts:
         assert concept in CONCEPT_TITLES
 

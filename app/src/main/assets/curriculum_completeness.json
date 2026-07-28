@@ -1,22 +1,32 @@
 {
   "A1": {
     "corpusSentences": 123616,
-    "parseableSentences": 19,
-    "percent": 0.02
+    "parseableSentences": 122,
+    "percent": 0.1
   },
   "A2": {
     "corpusSentences": 123616,
-    "parseableSentences": 4,
-    "percent": 0.0
+    "parseableSentences": 612,
+    "percent": 0.5
   },
   "B1": {
     "corpusSentences": 123616,
-    "parseableSentences": 19,
-    "percent": 0.02
+    "parseableSentences": 1888,
+    "percent": 1.53
   },
-  "B2+": {
+  "B2": {
     "corpusSentences": 123616,
-    "parseableSentences": 3077,
-    "percent": 2.49
+    "parseableSentences": 3672,
+    "percent": 2.97
+  },
+  "C1": {
+    "corpusSentences": 123616,
+    "parseableSentences": 4808,
+    "percent": 3.89
+  },
+  "C2": {
+    "corpusSentences": 123616,
+    "parseableSentences": 6392,
+    "percent": 5.17
   }
 }

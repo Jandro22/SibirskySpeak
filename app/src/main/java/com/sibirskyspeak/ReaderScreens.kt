@@ -44,6 +44,9 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -451,6 +454,11 @@ internal fun ReaderTextScreen(
         .map { it.surface }
     var confirmKnownBatch by remember(selected.text.id, newTokens.size) { mutableStateOf(false) }
     var focusMode by rememberSaveable(selected.text.id) { mutableStateOf(false) }
+    val parallelRows = remember(selected.text.id, selected.text.translationBody) {
+        val english = selected.text.translationBody?.let(::splitIntoSentences).orEmpty()
+        splitIntoSentences(selected.text.body).zip(english)
+    }
+    var parallelMode by rememberSaveable(selected.text.id) { mutableStateOf(false) }
     // Sentence-by-sentence "Listen" mode: its own TTS engine so it doesn't clash with
     // the tap-a-word pronunciation, with karaoke-style current-sentence highlighting.
     val readerTts = rememberRussianTts()
@@ -510,6 +518,11 @@ internal fun ReaderTextScreen(
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (parallelRows.isNotEmpty()) {
+                            TextButton(onClick = { parallelMode = !parallelMode }) {
+                                Text(if (parallelMode) "Interactive" else "Parallel")
+                            }
+                        }
                         IconButton(onClick = {
                             if (isPlaying) {
                                 readerTts.stopSpeaking(); isPlaying = false; playingSentence = -1
@@ -590,6 +603,51 @@ internal fun ReaderTextScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
+                if (parallelMode && parallelRows.isNotEmpty()) {
+                    item(key = "parallel-heading") {
+                        Text(
+                            "Russian + English",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    items(
+                        items = parallelRows.withIndex().toList(),
+                        key = { "parallel-${it.index}" }
+                    ) { (_, pair) ->
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                            )
+                        ) {
+                            Column(
+                                Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(7.dp)
+                            ) {
+                                Text(
+                                    pair.first,
+                                    style = MaterialTheme.typography.bodyLarge.copy(fontSize = 19.sp),
+                                    fontWeight = FontWeight.Medium
+                                )
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f))
+                                Text(
+                                    pair.second,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    item(key = "interactive-heading") {
+                        Text(
+                            "Tap-to-learn Russian text",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                }
                 items(
                     items = tokenChunks,
                     key = { chunk -> chunk.firstOrNull()?.index ?: -1 }
@@ -919,6 +977,7 @@ internal fun WordDetailCard(
     token: ReaderToken,
     state: ReviewUiState,
     onSetStatus: (WordStatus) -> Unit,
+    onSaveGloss: (String) -> Unit,
     onClearSelection: () -> Unit,
     onSpeakRussian: (String) -> Unit,
     onToggleBookmark: (Int, String) -> Unit,
@@ -936,11 +995,19 @@ internal fun WordDetailCard(
     }
     var miningTranslation by rememberSaveable(token.surface, miningSentence) { mutableStateOf("") }
     var pendingStatus by remember(token.surface) { mutableStateOf<WordStatus?>(null) }
+    var glossDraft by remember(token.normalized, token.translation) {
+        mutableStateOf(token.translation?.takeIf { it != "lookup pending" }.orEmpty())
+    }
+    var glossHint by remember(token.normalized) { mutableStateOf(false) }
     fun requestStatus(status: WordStatus) {
         if (status == token.status) return
         when (status) {
             WordStatus.KNOWN, WordStatus.IGNORED -> pendingStatus = status
-            WordStatus.NEW, WordStatus.LEARNING -> onSetStatus(status)
+            WordStatus.NEW -> onSetStatus(status)
+            WordStatus.LEARNING -> {
+                if (token.translation?.takeIf { it != "lookup pending" }.isNullOrBlank()) glossHint = true
+                else onSetStatus(status)
+            }
         }
     }
     SectionCard(emphasis = true) {
@@ -970,11 +1037,34 @@ internal fun WordDetailCard(
                     }
                 }
                 val gloss = token.translation?.takeIf { it != "lookup pending" }
-                Text(
-                    gloss ?: "Not in your deck yet. Mark it to start tracking.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (gloss == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
-                )
+                if (gloss == null) {
+                    Text(
+                        "This word is saved, but it needs a meaning before it can enter practice.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = glossDraft,
+                        onValueChange = { glossDraft = it; glossHint = false },
+                        label = { Text("Meaning in English") },
+                        placeholder = { Text("e.g. to notice, observe") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.small,
+                        isError = glossHint && glossDraft.isBlank()
+                    )
+                    if (glossHint && glossDraft.isBlank()) {
+                        Text("Add a short meaning first; then this word will become a Learning card.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = { if (glossDraft.isBlank()) glossHint = true else onSaveGloss(glossDraft) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Save meaning & start learning") }
+                } else {
+                    Text(gloss, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                }
                 token.parse?.let {
                     Spacer(Modifier.height(2.dp))
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1005,7 +1095,7 @@ internal fun WordDetailCard(
         Spacer(Modifier.height(14.dp))
         Text("Word status", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(
-            "Use Learning for words you want to practise. Known counts toward coverage and stops practice; Ignore hides names or noise.",
+            "Use Learning for words you want to practise. Unknown reader words need a meaning first. Known counts toward coverage and stops practice; Ignore hides names or noise.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

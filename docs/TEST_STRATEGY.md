@@ -20,7 +20,9 @@ measured data instead of an arbitrary number.
 
 ## Protected boundaries
 
-- Room migrations 26→27, 27→28, and a representative 7→30 chain preserve semantic data.
+- Every Room migration (currently 7→32) has its own instrumented test
+  (`Migration<N>To<N+1>Test`) plus `MigrationChainTest`, which runs the full chain
+  and asserts fixture data survives intact end to end — see `app/src/androidTest/`.
 - Real Room DAO queries and the repository review/undo transaction run in instrumentation.
 - Compose smoke tests cover onboarding, dashboard start/customize actions, lesson rating,
   answer forwarding, and rating assertion callbacks.

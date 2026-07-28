@@ -42,9 +42,7 @@ class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
         }
         engine?.setSpeechRate(rate.coerceIn(0.75f, 1.25f))
         engine?.setPitch(pitch.coerceIn(0.85f, 1.15f))
-        engine?.voices?.filter { it.locale.language == "ru" }?.sortedBy { it.name }
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { voices -> engine?.voice = voices[Math.floorMod(voiceVariant, voices.size)] }
+        selectRussianVoice(voiceVariant)
         val chunks = chunkRussianSpeech(cleaned)
         if (chunks.isEmpty()) return
         chunks.forEachIndexed { index, chunk ->
@@ -78,6 +76,7 @@ class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
         sequenceOnSentence = onSentenceStart
         sequenceOnDone = onDone
         sequenceLast = cleaned.indices.last { cleaned[it].isNotBlank() }
+        selectRussianVoice((System.currentTimeMillis() / 86_400_000L).toInt())
         engine?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
                 val idx = utteranceId?.toIntOrNull() ?: return
@@ -119,6 +118,25 @@ class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
         sequenceOnDone = null
         sequenceLast = -1
         done?.invoke()
+    }
+
+    /** Android engines may expose several voices for ru-RU. Prefer downloaded,
+     * offline voices and rotate among them; never select a network-only voice in
+     * this offline app. Voice names/gender are engine-specific and not standardized. */
+    private fun selectRussianVoice(variant: Int) {
+        val tts = engine ?: return
+        val voicesByName = tts.voices.orEmpty().associateBy { it.name }
+        val names = rankedRussianVoiceNames(voicesByName.values.map { voice ->
+            TtsVoiceDescriptor(
+                name = voice.name,
+                language = voice.locale.language,
+                country = voice.locale.country,
+                quality = voice.quality,
+                latency = voice.latency,
+                requiresNetwork = voice.isNetworkConnectionRequired
+            )
+        })
+        if (names.isNotEmpty()) tts.voice = voicesByName.getValue(names[Math.floorMod(variant, names.size)])
     }
 
     fun shutdown() {
@@ -164,6 +182,23 @@ class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
         return chunks
     }
 }
+
+internal data class TtsVoiceDescriptor(
+    val name: String,
+    val language: String,
+    val country: String,
+    val quality: Int,
+    val latency: Int,
+    val requiresNetwork: Boolean
+)
+
+/** Engine-neutral policy, kept pure so voice selection is testable off-device. */
+internal fun rankedRussianVoiceNames(voices: Collection<TtsVoiceDescriptor>): List<String> = voices
+    .asSequence()
+    .filter { it.language.equals("ru", ignoreCase = true) && !it.requiresNetwork }
+    .sortedWith(compareByDescending<TtsVoiceDescriptor> { it.quality }.thenBy { it.latency }.thenBy { it.name })
+    .map { it.name }
+    .toList()
 
 /** Removes stress marks and Latin glosses before text reaches a Russian TTS engine. */
 internal fun normalizeRussianSpeech(input: String): String =

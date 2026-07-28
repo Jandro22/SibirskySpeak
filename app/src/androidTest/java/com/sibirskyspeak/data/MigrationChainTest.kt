@@ -11,7 +11,7 @@ import org.junit.runner.RunWith
 /** Verifies the supported historical path preserves representative learner rows. */
 @RunWith(AndroidJUnit4::class)
 class MigrationChainTest {
-    private val dbName = "migration-chain-7-32"
+    private val dbName = "migration-chain-7-33"
 
     @get:Rule
     val helper = MigrationTestHelper(
@@ -31,7 +31,7 @@ class MigrationChainTest {
 
         val db = helper.runMigrationsAndValidate(
             dbName,
-            32,
+            33,
             true,
             AppDatabase.MIGRATION_7_8,
             AppDatabase.MIGRATION_8_9,
@@ -57,7 +57,8 @@ class MigrationChainTest {
             AppDatabase.MIGRATION_28_29,
             AppDatabase.MIGRATION_29_30,
             AppDatabase.MIGRATION_30_31,
-            AppDatabase.MIGRATION_31_32
+            AppDatabase.MIGRATION_31_32,
+            AppDatabase.MIGRATION_32_33
         )
         db.query("SELECT russian, encounterCount, cefrLevel FROM notes WHERE id=7").use { cursor ->
             cursor.moveToFirst()

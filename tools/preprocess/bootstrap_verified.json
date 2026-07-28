@@ -1,7 +1,23 @@
 {
   "schema": 2,
   "approved": {
-    "d945549f61645f1b9169299452cc1c91b14f5c3dbf57d9a0e12f0947e0fcb629": {
+    "5daeba171e10ddd68a8ea6165228d75f8dd05f5458a38685ebdf259bd91f0b22": {
+      "method": "authored grammar lesson",
+      "source": "in-repository curriculum tests"
+    },
+    "c4c8279f5229c478fe605eba323b225e3951642c3bbcf9a45b8f6401113a012e": {
+      "method": "authored grammar lesson",
+      "source": "in-repository curriculum tests"
+    },
+    "1fb8e78dd7594049ee28a9355762410ca386946d6d88c6f566c91813755f4a7f": {
+      "method": "authored grammar lesson",
+      "source": "in-repository curriculum tests"
+    },
+    "4ff6f35450658296d0da0550ee24c467c98f8f0314841b393d57eb2768af27f7": {
+      "method": "authored grammar lesson",
+      "source": "in-repository curriculum tests"
+    },
+    "e64bc7a18391b6b8aab1a11419dc2d2e27f0a84d051d05fec210d95099448aa9": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "привет",
@@ -11,7 +27,7 @@
         "a greeting, a hello, a hi"
       ]
     },
-    "e5643eb4d120f1dea0aab9adf6622135eb2c07cd9d1b1d1342d412483748524e": {
+    "f5419b7f093b80e16949f368840a638212cb036000b3e53efc45e7aeb107467e": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "да",
@@ -22,7 +38,7 @@
         "right, isn't it (used at the end of an affirmative sentence, turning what was said into a question, asking for confirmation)"
       ]
     },
-    "5ce35420a3e6ba82a61e1527c2215c1fed631bf653b78f81fb61ad462a6e1810": {
+    "c5f3ad6751a7b4fad7c16fd863cf8b85e0659d17326ef8a658237d73ab5df3e8": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "нет",
@@ -33,7 +49,7 @@
         "there is not, there are no [with genitive ‘something’ and у (u, + genitive) ‘possessed by someone’] (often idiomatically translated by English not have with the object of у (u) as the subject)"
       ]
     },
-    "2e95872392877c2f1261d9827f240e24b112fa54e401d1cdacd5e24ad80dee35": {
+    "1e3f31b3de1093ec9fa412619f9b4a72e633714b0300c4de4df8455a69dd0366": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "спасибо",
@@ -42,7 +58,7 @@
         "thank you, thanks"
       ]
     },
-    "195fe9a4cf147a54e273b486ce77eb54f01c351476f212ad473edbf628cecb23": {
+    "afd442dd8eb6e1b5afb371b9725acaba8d0c3dea4f65107850730716f98fc860": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "я",
@@ -53,7 +69,7 @@
         "The name of the Cyrillic script letter Я."
       ]
     },
-    "5a43bf66945d65da782604c7d725313b06c2d6ef9dd1040a97dd6d7c56e01c37": {
+    "0051ad9328ce9a6fbb1726f9d7c396ec8bbc163f164439f1c8c2219f894e1493": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "ты",
@@ -62,7 +78,7 @@
         "second-person singular, nominative case: you, thou"
       ]
     },
-    "6f1771eb7d4cb001a353ea9dc242081b20ab4121fbad20f01eaee2d6a2a1c3b8": {
+    "b26b889ec6ddba3732d6ef578fecd8b31cae1ce80da544218c12ea5caf51dedc": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "это",
@@ -73,7 +89,7 @@
         "Generic demonstrative pronoun. Translated as \"this\" or \"that\" (or their plural forms, \"these\" or \"those\"), depending on the context."
       ]
     },
-    "87ac9d65e0198182fece081fbc5971ac101680b1d15bb83f778e25533f6f72d0": {
+    "55a5bb7f238027f93e1570dc77a90725c269a13b38678431203973791d69f071": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "и",
@@ -84,7 +100,7 @@
         "and"
       ]
     },
-    "035b3ea96bdbc1534217bd784064f7dc8fa0f5e6fc9dac66d6e513a8a0bb7118": {
+    "0212e6d02fcea420a13e8270a58855d6ba95933146d582d76aff681f1f6d0d62": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "хорошо",
@@ -95,7 +111,7 @@
         "four, B (a mark given to student’s work, indicating four out of five and corresponding roughly to a B in the American grading system)"
       ]
     },
-    "76590c7d62b64ffc6803b73e8c1eec284feff20996d16400e8144651b53886b4": {
+    "f0a7f34bbe00f4dc75715a61fd262d17a9eee36bb6eedafbfbb4ab2055304e6d": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "кто",
@@ -105,7 +121,7 @@
         "who"
       ]
     },
-    "e0b52d159c6b26ad7ad1f335e6ddcdd4ab969adff091db3decb7e01f6d9c53cd": {
+    "623a05a11d91315c17610af0c7022615b6347128d2a01346c7b6297959070229": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "пожалуйста",
@@ -116,7 +132,7 @@
         "here you are (when handing something over)"
       ]
     },
-    "2da7eb5ae6f1d9e60a3dd8bada6a891eb5df5efcd3e8bcbea47d8eb71f20ef08": {
+    "5f84cbf2069afc2811b4d964c119d6e3bad406b6f2e6ad948319595dd68dea02": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "конечно",
@@ -126,7 +142,7 @@
         "short neuter singular of коне́чный (konéčnyj)"
       ]
     },
-    "fb3ef2ca1bd08015adc805dfe4d79c2948663ccbb8cf1c74fd6e80be856c26d3": {
+    "973d32b48ba95a1bae1b5cf24ce09150a543e53e545415284661fe631942a3ec": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "ну",
@@ -137,11 +153,11 @@
         "(an encouragement marker for the other person to go on)"
       ]
     },
-    "35034f86156f6fbc7f94072cf46c07d6ab9c902d65b5986c449e3fec21f38d69": {
+    "3230c4b102e29222d816ddbc9d32a9f2c725254371cdf89c87f726d650b77f76": {
       "method": "authored grammar lesson",
       "source": "in-repository curriculum tests"
     },
-    "6a55cc7994e642a06677443204e4baa40244db40d9e70830dcd26baa81ae1c02": {
+    "2fde2e2f5eca1f0a13cec5bb48f503e6bf2d402a831f4a02c8efc23ab403aba4": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "стол",
@@ -152,7 +168,7 @@
         "department, section, office, bureau"
       ]
     },
-    "8d333180e3d60908a741a3e23155741fcd515d0616497a59b080373fe0c8891d": {
+    "7cf403d9f713ce07a58a25aca4d544bbcbb19e15b9599f839a5bf8baf2373ff2": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "стул",
@@ -163,7 +179,7 @@
         "stool, feces"
       ]
     },
-    "d95b6645b7f713475bd22fdf19a114d82a2462ab656042fc282fc812dcfe410c": {
+    "3c3e480010dfe9427100ff2424b886dc87f1896ab9ec70daab3b8dbf1e6cc827": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "книга",
@@ -172,7 +188,7 @@
         "book"
       ]
     },
-    "b9950dc81a06123a576b9c517320bf02333bc6ae28cfc1d516659cc0970c17ec": {
+    "000d685a25aa4b310b98d5ec57ad19905e8c410369cd4289aab749726ad24b77": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "окно",
@@ -181,7 +197,7 @@
         "window"
       ]
     },
-    "a628f07081348af95c84df38cc11182884006ff02cc998b0a9f04b05fa0b79cd": {
+    "5e3b61fa53c6c735e3a4af06942c7af4def6181ae3287524bf72a3625d2788bd": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "вода",
@@ -192,7 +208,7 @@
         "tide"
       ]
     },
-    "83fd91aec4c91d6841514293bd70e651194a3f6bae57c2452c640ac0a19dc01e": {
+    "9679eabc9847e10a232268b7eca3c018bff62c7cb91a64f028a045cac64a46f4": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "комната",
@@ -201,7 +217,7 @@
         "room"
       ]
     },
-    "994b4234c11bfd6a4cd87a38779db24a61dd0768f5c899669e358b6d1a8dcd67": {
+    "42708af9ecbf913fd33c2bc30f8384d76a35c4d0fcaf86e8594d514e8a182982": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "русский",
@@ -212,7 +228,7 @@
         "Rus', related to the Rus' people and Kievan Rus'"
       ]
     },
-    "2a59636d2f7b5552cc8542d9dafd47aa0c51c3b6cdb263e33ce008dc23b52e01": {
+    "5078e98871255cf53585a251c26714c42326ca4117c45428e2badfa105e2d781": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "вот",
@@ -223,7 +239,7 @@
         "Used before a full sentence to describe a scene unfolding before one's eyes."
       ]
     },
-    "c719e81685bfca23fa263d82bc37524318b1c63c803f87b672fc395c3f61d167": {
+    "38c93ede3c83bc744cb686cfe5674ed2d0a50a198d967de127de697ee4499ddf": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "мой",
@@ -233,7 +249,7 @@
         "second-person singular imperative imperfective of мыть (mytʹ)"
       ]
     },
-    "a496068b93876e724c982898ea39153eb583305f02c78bfdd683b3dbc84d9956": {
+    "5a30eeb92301aaf45786ce8cfe122e8c3d214f519a844bdea1c8ae9c9c988f8e": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "моя",
@@ -243,7 +259,7 @@
         "present adverbial imperfective participle of мыть (mytʹ)"
       ]
     },
-    "1ce29064c0d625d05151c4f217b7787828c5b67d078a895db57d51eb32508755": {
+    "5079d684cc22b12092c4f48907c44867c9396630e1ca8572222e393cc2377323": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "этот",
@@ -254,7 +270,7 @@
         "this/that guy, these/those guys"
       ]
     },
-    "b03327e80dbb33d0e0de89959f420f082185ff4d6b1f1596f310311ff6c151b5": {
+    "d5a4f484ea3d0dce6794139addef1ea101cc4fedda548d77b3e28f9fd0f9c4f4": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "слово",
@@ -265,7 +281,7 @@
         "promise"
       ]
     },
-    "172b08eae6b39af8ea8fdf2d8ebf478f174e99406236708f0ecfc75425154935": {
+    "5b8019f26e33130f034b408fe9a960dd9bccb92696dd510fdaccdea8ca5f9045": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "мама",
@@ -276,7 +292,7 @@
         "female socket"
       ]
     },
-    "9fbf15f3ae6b7108dc27286fec2098ab1322a30489939f9267a493338b25967f": {
+    "4835145a29a1dd8b453f83c3ed4b8bcbfbe9f2045a3719fab723de27435832e9": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "папа",
@@ -287,7 +303,7 @@
         "pope"
       ]
     },
-    "e06f6bd7c9d0930e263420dcc3a5c85e76d457b2bf49fcd3e455d810a1cd3413": {
+    "5e9c59b236cb8cc1585c56056a527a9e18035c850977f9970bb5fe15fcf75543": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "телефон",
@@ -298,7 +314,7 @@
         "small speaker near ears, earphone, headphone."
       ]
     },
-    "aaa292b2ce8b120f294625495b42ed9fc574e90de785b7d16e937926486900a3": {
+    "31600799c5fed5d7c27138874b9ff4e16bb6150c426cfcc89b9c1deb3e88691e": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "дверь",
@@ -307,7 +323,7 @@
         "door"
       ]
     },
-    "c9d5555a433e9bd08bcfa3a80049ae6beed93b5be8e6a29cbfceb4edc14948b6": {
+    "fc549239d18431434528f3121965a79ed61c2edeebdc26b44384ded6a379d6b3": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "стена",
@@ -317,7 +333,7 @@
         "genitive singular of стен (stɛn)"
       ]
     },
-    "c126feca0bc6e976c5db1178e03ae6e21740e70d5b91fc4bdac40fda2475ce37": {
+    "937422c2713558a2fd24e0880d7cb849fd70cca7e2b66df353980c3d4b41f8fb": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "тот",
@@ -328,7 +344,7 @@
         "used to link a noun with a relative clause, as in the following constructions; usually translated as \"the\" or, additionally in the plural, \"those\""
       ]
     },
-    "fb288e09818c25e60f598933023c5e76fd79ff149b1f16bb3765bf53a5e5bd5a": {
+    "406968a404730afbbdb65d069793b20f748796350347ddec85a016acb7a0be27": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "твой",
@@ -337,7 +353,7 @@
         "your, yours, thy, thine (2nd-person familiar, singular only)"
       ]
     },
-    "1fe6c8744ca65884d14bf8c1a8b481c53444c2982813fa95b4e87413f4fa1070": {
+    "d1526ae97e9c1e92caa28c5b0adcaaaeb450241c07a71a84818415ea7bff0f17": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "ведь",
@@ -348,11 +364,11 @@
         "why, well"
       ]
     },
-    "411625b8e108be46003f4f8f63a0e48c59a9753aaa6d813280c5accd0cb4bc8e": {
+    "fc6cef5a9f69a1433dac2058f5018616f54acf2bcfcf0a6ce1a8764f0d7a99df": {
       "method": "authored grammar lesson",
       "source": "in-repository curriculum tests"
     },
-    "8ff0a2f1a1f39b567a9c3ed428998e0b48e654327aded31b0d12cc63a6713c9e": {
+    "1685cd73d3719db788263c9681f47be5c122c9d00485fe00be298ce98dfa89b6": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "теплый",
@@ -362,7 +378,7 @@
         "alternative spelling of тёплый (tjóplyj)"
       ]
     },
-    "f52cfa282c395f54583ae739b23c54d18f67a550198fc934ec1846b7f34921fa": {
+    "fbb7c29749eba5addfb45099266462a2701f41a591eaca7ecba3022c88fdbc3e": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "холодный",
@@ -371,7 +387,7 @@
         "cold"
       ]
     },
-    "ab6657be4d4a936ed807f9aaaecbe203800f02d3abe8421cc50005f5aca22ab4": {
+    "6125fb4ec533b48cbe44acf6f80f5b035747fe726931e8ffd3c7677edf57ccf6": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "другой",
@@ -381,7 +397,7 @@
         "else, next, second"
       ]
     },
-    "7b63ee2903518e8cf586a2bc92574ec0cfe56f41dcfe7dc4e18e01267123d1b8": {
+    "155a08c520bf1e322fb2f9fa16bf81eb3eb6be8d64ada9e08f9aafabe502913f": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "наш",
@@ -392,7 +408,7 @@
         "the name of the letter н in the Old Russian alphabet."
       ]
     },
-    "aa713f424b1e490816ac6b3f87ef3b7422b87673d606044f5a1e5da39add0078": {
+    "95c0037798a557073d1abf45b9c9b08a984562236a0909e3ba57a1dac7149d68": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "ваш",
@@ -401,7 +417,7 @@
         "your, yours (2nd-person singular formal or 2nd-person plural)"
       ]
     },
-    "1016f3e98cfde53b39341295af84aef03a630f1c730666a887cc25ad2400ea00": {
+    "32f5e7bf9476aa627239466e3f748d8a0d25ee29d16cce59d51a5c3984102ef5": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "такой",
@@ -412,7 +428,7 @@
         "used with a pronoun, name or noun to specify the meaning of кто (kto) as \"what's the nature/essence (of)\" and not just a request to identify someone. Usually not translated."
       ]
     },
-    "2cae34ceb1ef602e4cc7fcc9ba616b7a70e9dc535d79874f76bfa6dd7e019974": {
+    "2b339923b607278af0e2c7e76f59de584c026d7ab6b424a4881eb64f81707404": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "какой",
@@ -423,11 +439,11 @@
         "what kind/type/sort of"
       ]
     },
-    "7165db7deef19fa6eb92a9ce5a7ae053957b1fe14db4a39beda86b27ad6eb87d": {
+    "2328837443eac7edf94f952ef53f56592f8db52d66393a23df585d14c0c5d347": {
       "method": "authored grammar lesson",
       "source": "in-repository curriculum tests"
     },
-    "3b3ad116b68ece510d5cded9cd4fd4d04d596a3af644d720690882548c12a3d1": {
+    "eb73e13a19f03896e308c01b2fa28e75264ca9fe38023050ee81b6601f9f8039": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "студент",
@@ -436,7 +452,7 @@
         "student (in a university or college), undergraduate"
       ]
     },
-    "ab1e1cad11b13c91ce32a553bb27dd748aaaac090f04f6ae09de094bd8529eca": {
+    "5af87e0609711fd0e7a126428e515eb7e5d7a14b256d1cbed7a716e8c5d37366": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "машина",
@@ -447,7 +463,7 @@
         "computer"
       ]
     },
-    "124002d1311c69efabff5d97a1c6cd698738143d94c1eb41cab6c5b0c828e7ba": {
+    "50a451216ccd381ebe8902798791c3e2edc42c3a5cf39a2403a7a446c9f46625": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "школа",
@@ -458,7 +474,7 @@
         "academy"
       ]
     },
-    "be78e6d27537859747032efb0a85cdee05acf723dbddedb1b8b1435bd1c09ca5": {
+    "4dd40a3301fd0214ddd8b44c8dc88d28ac014098e2b90cd59887fdfb77a3635d": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "газета",
@@ -467,7 +483,7 @@
         "newspaper"
       ]
     },
-    "dae25fd75bd28fc865aabada4200907461b07815e7ef9ad7b641d9d3ffce1a9d": {
+    "1005acb4d1ebe7fe9031c0a17d8821e79d599752fae22b3be344fa08f6d5dbef": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "парк",
@@ -478,7 +494,7 @@
         "fleet, stock"
       ]
     },
-    "a4af358d97d9ed8c17a14ad18e440dde0788d1cb8540dc5d4a800af7c3576da7": {
+    "a385d22314db81186cceaeb8f2f5e9f584eaa7d2cf7e1ea81102ff28a5a05eb4": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "есть",
@@ -489,7 +505,7 @@
         "inflection of быть (bytʹ):"
       ]
     },
-    "b4930c76370dc3f6fa89fad1e5f65d5d5459658ad2f573ba37fa92f2cd2430e2": {
+    "ca59fde552de2d9cb8d4e6db0e668fe6ca90000d14c2cf23765c1ccc9edd2930": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "в",
@@ -500,7 +516,7 @@
         "[with prepositional]"
       ]
     },
-    "9cf9f60a3c39ef5b093266366aa152704db62a1579a35ec10cc37328363bf7e6": {
+    "2e45d0fd7a1b1b4a04590ad7615fdf58f77c9fa22b29c905df976801e3fed4a5": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "на",
@@ -511,15 +527,15 @@
         "[with accusative]"
       ]
     },
-    "087081fe6276102ecc368516e69c02a439120c0ed1a20026f3bde1d993f94c01": {
+    "93486f7a9c158f2e395a9b47a4b4b78fc5dc86be9c1b46fb8def1c4aa2a253ac": {
       "method": "authored grammar lesson",
       "source": "in-repository curriculum tests"
     },
-    "524a02ff5ed3da6707031864497a3bfc9135b3f4f5f3980d97024d147e131c46": {
+    "47272601e0aab2dba99e46c13590fed3803cde22246190e55d678d5ae0abeebd": {
       "method": "authored grammar lesson",
       "source": "in-repository curriculum tests"
     },
-    "f8a586377fcc7d8ee0b80c0df605b692131aff86f2ea406ef8c363296ab8ea2b": {
+    "4e7e19695d427fe15bc6a8d77bee6b13a5a09da0f0b1410f6c52ed1125f018e8": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "друг",
@@ -529,7 +545,7 @@
         "other, another"
       ]
     },
-    "01c8a1504f38abf71a70d410e9001bbc42914a4b771b8c13bf56384a53c4f751": {
+    "e4b68a8da633f2814b980fe0c1be1ffc8b62bd25c9af4759fb4007d77c9eceba": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "у",
@@ -540,7 +556,7 @@
         "The name of the Latin script letter U/u."
       ]
     },
-    "005a11032b11cc0303fe859f20297012ee1cf45fc41bcb499901fa32068b9359": {
+    "a33b0680b116209bc42bd88fbc4a988ac452c94e0b0b319878932f043f107ce2": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "меня",
@@ -550,7 +566,7 @@
         "accusative of я (ja): me"
       ]
     },
-    "5589d4e3048dfacacfbb2d146fd7f90be2416fb9c6ef3b01e0ba2b347692cf83": {
+    "ce40ac46731d81db1a4845efed390de7b911eceb662253e98dabdb588efdd35f": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "без",
@@ -560,7 +576,7 @@
         "minus, less"
       ]
     },
-    "f337b333e20cfeb65c743390244942b1fabb4c7bcb324897149b2dc1ff792b40": {
+    "7c6597d8e76054082273e995840f6f7169decf146efe2104523a7c26b0db8724": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "чай",
@@ -571,11 +587,11 @@
         "methinks, must be, may be, hopefully, probably"
       ]
     },
-    "5a1f4fb4a6b8c0d9b43c05b8d69cfcdcf7a66927507e99bf692fc5bc0d4be2a4": {
+    "d604aeef5d535a882ebd04f7f4b5446de4ff4a9f74e345e7635b0ba38dbe333e": {
       "method": "authored grammar lesson",
       "source": "in-repository curriculum tests"
     },
-    "e52dd6c5c3527595e872b7da2b40dbfc69bbb4d38271b9196c0ded2dcb9502c7": {
+    "6b1d798a20c90781081b9cbcc903c18b8ba49d7e167273bd1ee90da25414e23b": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "работа",
@@ -586,7 +602,7 @@
         "assignment, task"
       ]
     },
-    "6c00ec981910c29400ea8e99eb0abb4b1344f9938061063334876ab32c9f2803": {
+    "c4b6844a8b95aea1794a1ef292e7b34f3fe2fd9b0ddb55b5ff63ac4d508d9f80": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "знать",
@@ -597,7 +613,7 @@
         "nobility, noble people"
       ]
     },
-    "28bd3e302b346d87d37ea7bd6adb672332dcb98d0febc7a434edc1678f32f82f": {
+    "cd0a58d963ff84d3808f844127c2bb0455b0825b9609358848226de8decb0864": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "читать",
@@ -608,7 +624,7 @@
         "to lecture, to give a lecture, to deliver a lecture"
       ]
     },
-    "4243643189712de3ddecf1d532cf3472e0ac15c3b795d4bedd9973bb03b0e247": {
+    "22f39a569dd4a8dfbead809a9f6599eedbe01206afbabc800de4e61324b6cb01": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "делать",
@@ -617,7 +633,7 @@
         "to make, to do"
       ]
     },
-    "b2c2522d19d4efe1bd72fc348f744e041cef46cbf5a625206d0e765541c1f3c2": {
+    "9e50d71c9c75c1599e42d973a2150c83b7bba62b2e6e081d85564c685976feab": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "работать",
@@ -628,7 +644,7 @@
         "to labor, to toil"
       ]
     },
-    "d6e5c8745b076144a8439c25f95703ad6e954067c5b2ffb9c2da8f481e8213fd": {
+    "24b60d319f9b963c7f7531a014193d1fbb8dd6b2b181e97cbde81e420ad5e3e0": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "он",
@@ -637,7 +653,7 @@
         "third-person masculine singular pronoun: he, it."
       ]
     },
-    "4329922660b702f452251682bba299386d192a9cd2eb9714c271135057793133": {
+    "3190d4012f1dccf37fc3189eff58a97dc49d95371fe1e238eb6081b6e68eb992": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "она",
@@ -647,7 +663,7 @@
         "short feminine singular of о́ный (ónyj)"
       ]
     },
-    "6019f06f871dbeee366df81245253f397d3c8731d60bc33e2414bd606e198357": {
+    "c0d5b0c5eb456b4a5e72288825de8146394d5853eab42930b5d2b20f73e5ec07": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "мы",
@@ -657,7 +673,7 @@
         "I (only when used with с (s))"
       ]
     },
-    "69aecee8481b3825b289b60ec20dfb0b5f6aee50919026be60da56810325b9af": {
+    "ecde80223802cf9ee3b936b9d8e7c079b910c2f74a681228957f84e0dba93eff": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "что",
@@ -668,7 +684,7 @@
         "that, which"
       ]
     },
-    "f01eef864b1f13faceb30a6928f036d19e758f37a38795f17d576f5ff7b69714": {
+    "ccf38341bd99edf796041f852f20267bfc4a7cbdf1299d64ebdd0e354d8a3450": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "даже",
@@ -677,11 +693,11 @@
         "even"
       ]
     },
-    "fbba2f9e5785fe2897b433f2bbca6ea19be5fd896d0497486a4ed04877b738da": {
+    "40292e09719f49591ba5198bb6e8150d8890aba8fe91e0def6854edeb0ffac5a": {
       "method": "authored grammar lesson",
       "source": "in-repository curriculum tests"
     },
-    "aca94c6181354e92c8eda6a03e0455430f24b42dfb4fbb4e2f12f60f1fe05be3": {
+    "3ee4b960f5c93775a54a064840d50cb4c8e89ae8b358c46972a590dcbb4c17da": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "собака",
@@ -692,7 +708,7 @@
         "mongrel, cur, bastard (a detestable person)"
       ]
     },
-    "90dcd566df2da6c180885aa2d0c704fe3ea4adf8d67f074747f72163e5fe0f72": {
+    "82d4f030ced061d4d64f7f43710b139a3a6c584716294f1d328974e5127ccbd0": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "кошка",
@@ -703,7 +719,7 @@
         "grapnel, drag"
       ]
     },
-    "560cafbb10516467af121528aaf72fa3a0601a7105238216ea2c1f8e981613b4": {
+    "124a5d90e6470495a70fb890523b97e799c2f06509756a1bbd7894bb3f55cd82": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "хлеб",
@@ -714,7 +730,7 @@
         "black bread, rye bread"
       ]
     },
-    "0f20d7f15b45341f9edc9e70ad426799d0be49e487e9d175985f0214eb7b72b2": {
+    "449c42c8489536693d33764dc2a8f0b794caf377cf5ad6264956fd38d68a2331": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "молоко",
@@ -725,7 +741,7 @@
         "thick fog"
       ]
     },
-    "4abca9b3bd00402acae6dfb2a8b5f6e039966852aea7bcf62dded1187a326631": {
+    "d6e469d7ba39d88d665b87894622f9ced78432e3b3b517476f5416d1a3072481": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "суп",
@@ -734,7 +750,7 @@
         "soup (dish)"
       ]
     },
-    "7d5163bcc30d109bbb7f177f6eb1d0a384d3cfb28bb87c746040dc55888027c2": {
+    "4bc061de797abba4fef15b17768aa7ebbcbbe4bc566171c696b730b17bcf2acf": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "яблоко",
@@ -744,7 +760,7 @@
         "eyeball (usually глазно́е я́блоко)"
       ]
     },
-    "e62d4bcb5a099f6dee7443320a9df96ec6d27d223d84ec09d51c4a8fbbfbab57": {
+    "fef117e580223ff662432d603a4e695df0a56977c9bd05f06c5ec4cd74094b14": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "любить",
@@ -753,7 +769,7 @@
         "to love, to like, to be fond of, to grow fond of (more intensely than нра́виться (nrávitʹsja))"
       ]
     },
-    "c6b8ae6a8d854c21f7e8d9fbced46619b4d18c16323580a284fa69318b3d64a0": {
+    "d98c9d50537855a8b79b115a6771446fb95b575110835ffc03b658c38aa5273c": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "покупать",
@@ -763,7 +779,7 @@
         "to bathe, to bath"
       ]
     },
-    "003875454fe277205005e2bf21c65b7b7f168b174926e9f7d8cd0516e80ba69d": {
+    "176db442d65b50ba645c6b1786a39b496dbef2b78abf4bf5df81e6ec62d328f9": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "пить",
@@ -772,7 +788,7 @@
         "to drink"
       ]
     },
-    "7e2cd1a30e4beedc14572249d7f8af1d4d1f2dc1d6f5977e15a0e17efcd56c6c": {
+    "a6bc378ce5324998560aca99978d91b6bf7916ad745d0e0c8872c1cf6ddd3e0c": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "жить",
@@ -782,7 +798,7 @@
         "to reside"
       ]
     },
-    "9d546a97da9ebd49491ebe7aff735f9442993cc7eb76e2fd86300f7d20d181a7": {
+    "1992c181f7653c4106072988890db041c0a36a2dea07f3b357644d20088d793c": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "играть",
@@ -793,7 +809,7 @@
         "to play"
       ]
     },
-    "49ae22fc0ea565f5f2cbb8ce28eea2b34c0a9f0ce1e4befe13d7560a77657a2f": {
+    "14f4708cc2d1947d50fbecdc547c635662f147c164c321e88120edc3d46d8dcf": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "гулять",
@@ -804,7 +820,7 @@
         "to make merry, to enjoy oneself, to carouse"
       ]
     },
-    "551cdb69e367810c8cdf6ae30cc31372e0e832be46ce12fdb2296df68666f00b": {
+    "c8df26e3420d53b8ca618f6a69cc6378d07e0278a97c3521ddfe401f3d045249": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "много",
@@ -815,7 +831,7 @@
         "a lot of, plenty of"
       ]
     },
-    "6c2f3f520d5ae6cb43b8a3a81fdff99b6dd85b8ef2e8e9ed00ef55aad44403ad": {
+    "faf91b8fe1697e4aade5f4239400bb08289daad57473cd2bb9cf3e8b020621ac": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "мало",
@@ -826,7 +842,7 @@
         "it is too little, it is insufficient, it is not enough"
       ]
     },
-    "b10dd5673eb580e006e59dff51d238814501a67fd4912ab65b98227718957f6c": {
+    "788b1d9a2a4050dae61ff431a168de509c331ff96fb2b341e09601da7b98ce89": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "тоже",
@@ -837,7 +853,7 @@
         "expresses disbelief, sarcasm, irony, often combined with мне (mne)"
       ]
     },
-    "57b61f5fbc8509e257b511590c77de19615839bb493ea6488a17d56956807291": {
+    "7a518fde780b320e7463095ff9be93770f968d5629261601dec8f78d7557413c": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "сейчас",
@@ -848,7 +864,7 @@
         "now (very shortly)"
       ]
     },
-    "c2b73a456a42687134df289a8a50bc4d56ae307ae876dc202ffa3de71d58f4d9": {
+    "28fc5077a529cf3c0fc302a0e08c50d5d0d3111468ee9237d7d3d1e913be7abf": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "куда",
@@ -859,7 +875,7 @@
         "much (more), a lot (more)"
       ]
     },
-    "9cf8e25f7daa210dd091d6798549f3aae853d0704f0289392b9e4553e9d7dbcd": {
+    "96a455e5456f4536730fe6420b40db6b94f453510d71e508e1e48eade8f58b5c": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "лишь",
@@ -869,7 +885,7 @@
         "as soon as"
       ]
     },
-    "ab14e515a0c6d8c5caf0b61320969afe6bb55fd3544263ad83f0a630e465b06f": {
+    "e961e941fc9707b17cfc1207da3a754a8a88762cf444609920d81d200defcbec": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "именно",
@@ -880,7 +896,7 @@
         "exactly, that's right, right, precisely, indeed; used to emphasise agreement or confirmation."
       ]
     },
-    "b06e708fc6ab8b78212a920d3cde158c3413fa711284b6891ab99bb4159f18ab": {
+    "d4e9da580f34eba2e4088a0b8cef6b0d6fc69eb5f3846b170297edc3dfbddf73": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "разве",
@@ -891,7 +907,7 @@
         "only"
       ]
     },
-    "8c7bb5a4fa8130d080a145c08904b30f122815e2fc0b9adf1eb1926b03a0289a": {
+    "8b19965e678d8adccab97d99bc74b09aac6dacfdc037c944fd825997453373ef": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "наверное",
@@ -901,7 +917,7 @@
         "for sure, certainly, for certain"
       ]
     },
-    "338c34b58b01e03359962c750b98005603d83c0233ede5e70f33f141c47cb2b7": {
+    "2a07e41e9e7a97c37665cbaf4deb4382312d275653d515d820d69c4bcd9da871": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "также",
@@ -911,7 +927,7 @@
         "either, neither, nor"
       ]
     },
-    "96b7d89b9c40d5316b40ede15a6595844c11cd2ec928356326f05994c9efaee9": {
+    "26efc4e30c3433c899abc155f829024d2b68287ee39d0479d79a25afb03defbd": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "вообще-то",
@@ -920,7 +936,7 @@
         "as a matter of fact, in fact, actually, generally"
       ]
     },
-    "7041e4d69ecdd874eb2bb56c7ee83bbfe448197d88ff1c8381821e9ab7d90bb3": {
+    "2496c7f4256c60e813f15af8d5ce33e69147529dadd7b46f21ed61f990500ef4": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "однако",
@@ -931,11 +947,11 @@
         "you don't say!, no really!"
       ]
     },
-    "2539366153675c76be47b6e737ce6ecfc47795ef3d158e4b840546e459ba990b": {
+    "af988456f7f7f3a00113b384e393104c56286606edc526ba60984be3de5513f8": {
       "method": "authored grammar lesson",
       "source": "in-repository curriculum tests"
     },
-    "c9c1726d41062e49d7edf195d40da44aff3d77acd7b3208494e0f655ace1448f": {
+    "bca42fc71843e6af4a5780d167edf2e664526a90627ec4598f0564ae15172582": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "город",
@@ -945,7 +961,7 @@
         "a bigger part of a city, including the downtown and inner city areas (as opposed to the suburbs and outskirts)"
       ]
     },
-    "85cf001b07a4875025f296aaed3cc47b146c8f79eafb2021416a8e1838b9b25c": {
+    "34660375495dc9479dbbefb03bf6dabe216c473e2bd5275321235ec79d3d63a8": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "дом",
@@ -956,7 +972,7 @@
         "plot (in some street addresses: a group of buildings sharing the same street number)"
       ]
     },
-    "db35277a67d4adef9e6109c3a84ee5f343a418c84dc4f1b47ead0da7ec1a4bb4": {
+    "7fb3220ada2604878309b96c9de9aba83b217e122ddc342a819b6dec4e59860f": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "страна",
@@ -966,7 +982,7 @@
         "region"
       ]
     },
-    "6bfe65ff77b27307be7e3c4aaef259519aa1a691f9e7b160fd96fe646330a1a4": {
+    "27c077b3b5d781c90a528e6faa5b783b31b6a546a337afa35f86d78ba6d259f9": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "ресторан",
@@ -975,7 +991,7 @@
         "restaurant"
       ]
     },
-    "64a8ad493b4aab10b7d9ce4272c9959391f1b8805666393f91b824c47cdca93c": {
+    "4408e61a6e2ce5cf704c34cc50a1225c4c4daa73c7721cfd3a169485a9efc464": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "о",
@@ -986,7 +1002,7 @@
         "The name of the Latin script letter O/o."
       ]
     },
-    "df1b313f51e65d863e620623dca6a0efa20a3b3f3502457d09e6d808eab567eb": {
+    "75cd8e58ad7b1fe625e689162ae4b166d260ec8a4cf16f516693378270eef2e4": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "здесь",
@@ -995,11 +1011,11 @@
         "here"
       ]
     },
-    "dc567f9216d72b643f2f70c14c1b2fd6fc998c7ea45e38ffa342510efdc1f506": {
+    "5efe41292eab943eed7eff5bbbb180006909c84eae6b0956761bc1a190ed808f": {
       "method": "authored grammar lesson",
       "source": "in-repository curriculum tests"
     },
-    "241629299d5de82d8f4cd44bf739ac139f7c74051c71351e38f57a45db73b06c": {
+    "9e7f94c7447c9804a2f5cf0f68ae79e684d7190abc0d9069ea1bcb7909b914b3": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "вчера",
@@ -1009,7 +1025,7 @@
         "yesterday"
       ]
     },
-    "4043da0c65bf16a5da17d31da5085f79a90bcddc2eb727ba7d1f2ade9e189e05": {
+    "8842c7f4dd1fee0e81d314bc4ecc6df958d5d18b3069af0129cacacf3b5ff225": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "они",
@@ -1020,11 +1036,11 @@
         "they"
       ]
     },
-    "6b0ec357ae9fb1bb36a819703816c80c645fb3cbe3ba06e3f89d8cecb83fd508": {
+    "f5dfc6d2e01c618bc2dc985ce639125ec2208190b484d169b2b55f4d36c6b272": {
       "method": "authored grammar lesson",
       "source": "in-repository curriculum tests"
     },
-    "d22a3002f27483c0ac26592d56e836ae190e1cf5e0c1038baf2f2f9586f211f9": {
+    "4c50609b9286f362f8531bd0f92a7c1a1ee42e445eecfbd6e4d01f583978591f": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "сосед",
@@ -1033,7 +1049,7 @@
         "neighbour"
       ]
     },
-    "1a3190333ec120fb0e734a602a08638ea7b710783ec303ac7ff04a97cee9f93d": {
+    "1b971e4784cfecc8f18360c1c59fd585cdb84ed99c2d625aefd0fb9c352dc607": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "учитель",
@@ -1042,7 +1058,7 @@
         "teacher, instructor"
       ]
     },
-    "31ee4abafa54e0e93e6fc1b661d0ec9d48edf0453d95479643b097dbb002541b": {
+    "8277efba11612f26277d6da69eabd417f7233183bc02bc1654bcf13894f62656": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "писать",
@@ -1053,7 +1069,7 @@
         "to urinate, to pee, to piss"
       ]
     },
-    "6818838ff96d75ab87ef731a38483cee91a9f165c4a894e11da08021dbf9bf24": {
+    "801b9b57d39a0612f988c16e5c9f51fd9f7ad602803fbbbfb2bedb5c2838fd32": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "давать",
@@ -1064,7 +1080,7 @@
         "to hit, to strike, to clip"
       ]
     },
-    "b148379ff1b032fb4ef205cb8ae179396fbb60ed59d85f5a64f94c29407d6961": {
+    "db35b973737303bb16dbecb30b097f5853d9316e433fe1971336be47ade1316a": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "к",
@@ -1075,7 +1091,7 @@
         "by, for (of time)"
       ]
     },
-    "d813be259dfe1f1c3ecc581e23a8477f3288d1ca2bb23f07def10115c5ce6af1": {
+    "c19636059183b054377956720bd39b2e79be6c1ab704737d2ff905462afd7332": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "жаль",
@@ -1086,11 +1102,11 @@
         "second-person singular imperative imperfective of жа́лить (žálitʹ, “bite, sting”)"
       ]
     },
-    "8633d19fc193821286945b5f4590e253b7fd82d9a56616fe8023c53033d11b7f": {
+    "8768ce65ccd5b9e32d883bd60d2a7ee537160ea060f7fc3af27d6bf0755e69b6": {
       "method": "authored grammar lesson",
       "source": "in-repository curriculum tests"
     },
-    "7875128fa6c08c8c61fc1f69f0d19fb8be7621bdd8cb9fd0e9a843e232784e60": {
+    "25ddd6f06961110447823ba2a15037efc44faee731daede7668963a3b50030e7": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "прочитать",
@@ -1100,7 +1116,7 @@
         "to recite"
       ]
     },
-    "956cea1b4f695181b79b9f1bad4b86de0dc28c36afd45659640cb66805ed904b": {
+    "f8a6eba282368b59bc0adc37ded997afc833f93734f6bde79e531e93dc815251": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "сделать",
@@ -1109,7 +1125,7 @@
         "to make, to do"
       ]
     },
-    "89ae42721399374248244e65a0f5f861896b4e3a3cbb5cc01f46f8afa57e7dba": {
+    "3eeed8712fdb2cd43d7ba80f4f7625058828d42d749f1770dd7497d1e5676dfa": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "написать",
@@ -1118,11 +1134,11 @@
         "to write"
       ]
     },
-    "af75c7006a2c5c10c75db553c7659987bdcfc29777a98d010f84af489aaee8b1": {
+    "a49310f2f9e4c507a46f4f2c0dd24ac4ae5daa32012adfe6a32efe80decab4a2": {
       "method": "authored grammar lesson",
       "source": "in-repository curriculum tests"
     },
-    "71324a17bfa3e3a136adfe4ef82e4672e45743c9d1ce97dd8f839b84e147a951": {
+    "c74b89c2f2447ccd018e9aa8376416f04d124dc6a12ef785ad00a2f8716f8542": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "ручка",
@@ -1133,7 +1149,7 @@
         "knob"
       ]
     },
-    "41556c9795d7c2b191f1dd82300c5bad7807fa1a792347123684ca2273c3e4e0": {
+    "c756f6cc7d9eecb8dfe25904be755b611b4e5146dd4b2245dc8da20e1760b63e": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "с",
@@ -1144,7 +1160,7 @@
         "with"
       ]
     },
-    "8b6500564d13ad89b91505606f1289c55b08dfe70dfcd364a4e7e4358d239376": {
+    "3a35bc0c0f5012ca805fa6c0262da6dc6f180f04bb58fa72735d73793b08dae5": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "перед",
@@ -1155,7 +1171,7 @@
         "front, forepart"
       ]
     },
-    "7537c4a151aaf3be04fa57a94b912cef566c8f8ef5801029f5c3586b91352a09": {
+    "fe2440ce3faaac6204ad7d0f431721628163b6b74490399eb59465f3629ac3c1": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "ноль",
@@ -1166,7 +1182,7 @@
         "precisely, exactly (time)"
       ]
     },
-    "8c431c68ed965ed7ff17afd748f42dea726e131f168577ff70a9fe446a0e3b12": {
+    "563a73c366121f30570f2182b52eb87b46ef24197c8e59b74d4fe7b54716ccd2": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "одиннадцать",
@@ -1175,7 +1191,7 @@
         "eleven (11)"
       ]
     },
-    "d462f7cf5973aec2956f721328220b87c762b965f68374346ab568be37d1ffbf": {
+    "1523db354d57d350c3bdd6bda389d1a79a032edcfaedb8c1f9563ee35ec1ccb0": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "двенадцать",
@@ -1184,7 +1200,7 @@
         "twelve (12)"
       ]
     },
-    "87b6a75695cf3f0d1832b675894137a2c595f02bb0cec03bec8d74c0bc48e121": {
+    "318ee08538822502922887f469a9a08941af04a8fdeb0cd85f021c1fdef1004b": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "тринадцать",
@@ -1193,7 +1209,7 @@
         "thirteen (13)"
       ]
     },
-    "9a72f8496156087a9cb7b1c555bdabba015251b8264eb977f12b55a7ccaa6d3c": {
+    "352d8937cf1875b219e48813076fe7842ad7fe42255feb427c1b14dab1294cbe": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "четырнадцать",
@@ -1202,7 +1218,7 @@
         "fourteen (14)"
       ]
     },
-    "9da3783a2d9eb56301b5e515a1ca3a779c77cc1a4595d08e7959bd59552ef10d": {
+    "4e59593eb0c17b491e681f3386d7a58e8287e12f268a9710e73f381fb5939d0b": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "пятнадцать",
@@ -1211,7 +1227,7 @@
         "fifteen (15)"
       ]
     },
-    "44fe939cd16db3433e558c58af68643613421d5a816b033123bc29a6fee0d62c": {
+    "c5dd482e98d2212f151dea7d27d57e04fc95b9e4de9cbfc977d78dea2a8f2018": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "шестнадцать",
@@ -1220,7 +1236,7 @@
         "sixteen (16)"
       ]
     },
-    "3806f3031172e17f20403031acfbb11c5aff9dc7c12275bf2c58f7ddf2eb64a3": {
+    "735434e133c56599637363324efc219cae2da5c79e9e9b1582a6df5e6a6148d9": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "семнадцать",
@@ -1229,7 +1245,7 @@
         "seventeen (17)"
       ]
     },
-    "5b30cf3439e8b6b542cf803cbb895d6106bd7a18147dca921d844a5da496c2e3": {
+    "c14c298818a08c058e64a2612d14c4277af37abca6b2cfa5f89830ceca624276": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "восемнадцать",
@@ -1238,7 +1254,7 @@
         "eighteen (18)"
       ]
     },
-    "1fd6700c9d8e8188f42fdf71286d3edc96539c03a36d50c8b8d5dd3591249d4c": {
+    "bf8cd34bcbdb3352fcbb329ff5ad60e130f1d905311dabdb08ee7a0468736e38": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "девятнадцать",
@@ -1247,7 +1263,7 @@
         "nineteen (19)"
       ]
     },
-    "e2c1b85cb34d6acf06786e371eec6c106aea5c55e4c2029068cb17350ebeac90": {
+    "ea820304b25eb005f3ac34f879e7d04a9f8a0848472a31cd7311550cd10fc9fb": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "двадцать",
@@ -1256,7 +1272,7 @@
         "twenty (20)"
       ]
     },
-    "1c1e4a44b6501737ca234177c72535da063fba7edbbc918912cd941ab9789e71": {
+    "7ffcae00fe666bbd98bcf534d7744faa5d4843f0efa9474e32380d49730070a3": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "рубль",
@@ -1265,7 +1281,7 @@
         "ruble, rouble (a monetary unit of Russia and Belarus equal to 100 kopecks)"
       ]
     },
-    "9ff0776a8e3548d36e09c70a631fb4ff395172f154760fcd412e96b8a133196c": {
+    "1db752a0596dee2ee7bc87840da41b754613ab61faf67380dfa2e47a89c90e1e": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "стоить",
@@ -1276,7 +1292,7 @@
         "to be worthy of, to deserve"
       ]
     },
-    "e8d8eacb49c42704cc9264f8403ac8fb1bd8fa9667f7a0355b2180ea5b5f7d0a": {
+    "3440624dd050cc65c3501836028bdf8951397f1130458a48db0acd2082d27c3f": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "тридцать",
@@ -1285,7 +1301,7 @@
         "thirty (30)"
       ]
     },
-    "bb8f1dbce867bc9415710ff6440c7d071724e7bb9c3b16517d7e4a4938218258": {
+    "e91c73e13d8eff546cd49ae2348d41a7517e41625102dc44fde7c1c62627a6fc": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "сорок",
@@ -1295,7 +1311,7 @@
         "genitive/accusative plural of соро́ка (soróka)"
       ]
     },
-    "422f79c79ac6b4f72d3f2985b3a76cadfb59e9f66c8c347154c3b28b93298ebe": {
+    "c697cd0f15579a5743c3ea4182149485eac55d7eb9163c3c7aa5fed0b53483b2": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "пятьдесят",
@@ -1304,7 +1320,7 @@
         "fifty (50)"
       ]
     },
-    "73268e504fa08e80fcdcdab80116997290716eda17c345f47e14120752fd0761": {
+    "e7ffb86e9801aca0557293c45235aeb4fdfd02c9e745c985d4fbe5dbcf79393c": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "шестьдесят",
@@ -1313,7 +1329,7 @@
         "sixty (60)"
       ]
     },
-    "a6ae3370544f64e66728ff484b57e4aa92faf74eaa9ee9e44535650fe5ceb6bf": {
+    "d32801fa171bd68e7e31910d0e0cd8bdbbf670466c7c84c9f822c6227bc8508a": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "семьдесят",
@@ -1322,7 +1338,7 @@
         "seventy (70)"
       ]
     },
-    "235a0d101765d828a92e77a704a26529eda901ed2e17698e2b7f959fdd269902": {
+    "730319b489cb9e1d1bb6f56fcdebf1da6f3cdcfd45c3d9c2436d5e621e1d6b6d": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "восемьдесят",
@@ -1331,7 +1347,7 @@
         "eighty (80)"
       ]
     },
-    "9dbb45f9e379581e4f3f24d5382db0d8e48821f5a79707ac13918235b721834e": {
+    "2f72639151a89262afc374eecf046fa77e67b0c811eac94a9e479002eb81c489": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "девяносто",
@@ -1340,7 +1356,7 @@
         "ninety (90)"
       ]
     },
-    "4c1e211f5fe54e08b5c1ceea88296693ebf2efc5f3052b5fa8782fcf080b2fba": {
+    "80724139e9e9e7c75cd9625db8b957c6c6ee31071f8b031bc181d6bdb14ad451": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "сто",
@@ -1349,7 +1365,7 @@
         "hundred (100)"
       ]
     },
-    "9d9dd14f6ec37de1ebba842a6fb3385262084fecf81b475f1e18b532b9b857fb": {
+    "fd8ab7742bfc13b03bff856ffdaf813c3fee4208c1d355ac986ec5500ceb2bd2": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "двести",
@@ -1358,7 +1374,7 @@
         "two hundred (200)"
       ]
     },
-    "4c4d4d068249cf825e6de6d5fb5d1ddf9939010d2f371799ed1450b354c9b0c6": {
+    "c3d63a4e00324aab2654f249bdd80bea7e08ead49a5a6809e44201db41db1e28": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "триста",
@@ -1367,7 +1383,7 @@
         "three hundred (300)"
       ]
     },
-    "56f5f6888e6e793a47cca233088218934ea34e1f4e333cff890db3053068acba": {
+    "91ef7d899cc070982ec0539ae3da8929f71bbb055c90cde1f67495f4d891f38d": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "пятьсот",
@@ -1376,7 +1392,7 @@
         "five hundred (500)"
       ]
     },
-    "1d814465576044a9c80338aff256e92f0f963c77844ed3bdfbca95df7a5ead4d": {
+    "68549af7c06461d96b9c35ffcabc9538931b542ceba8eac9dd6ac7fe6eeb3ccb": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "тысяча",
@@ -1387,7 +1403,7 @@
         "one thousand ruble banknote"
       ]
     },
-    "2755027af586c673175c610ad2bb09b45ab995bb17ff9269da8f4134ce20c5ad": {
+    "be16cf4e182f2771f5d2fa7c41bf7ab027f3444628a034ea5eb4c18a588e3b3a": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "час",
@@ -1398,7 +1414,7 @@
         "clock, watch"
       ]
     },
-    "f6f45351492691e5f58357724ff7405289ce51748ea0b6f60fb3c0e484352b85": {
+    "5c066417d5da255088221179ce01bc953f5fa3386764c51b2859346c4478ab00": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "полдень",
@@ -1409,7 +1425,7 @@
         "south"
       ]
     },
-    "9cd78a5f2f3d92e6b30df2054cc908822ca68cd4e88520b69ba34e12615e48e1": {
+    "87848c92845f3796b9d21b1651f8ec3db36a9320e63470f828a3b27c36f408f1": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "полночь",
@@ -1419,7 +1435,7 @@
         "north"
       ]
     },
-    "3d23e12bf2f042154dbb2e68841979449c1d508dfc753456b7f1445174d879b7": {
+    "6cc3d05c327575a073d2d09a221e9cd35961cef9aa52afd3bdff5dfdaca92b96": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "утро",
@@ -1428,7 +1444,7 @@
         "morning"
       ]
     },
-    "2813e1a67993899f82da53aba11cce310595b52aa63b2ecb8c3cd1e7404422f2": {
+    "24a7dbd479160af8370ca01900d21bae168000ff6f45aa7cca4c2b5474b91db2": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "вечер",
@@ -1439,7 +1455,7 @@
         "party, social gathering, soiree"
       ]
     },
-    "035803de5d7725c1d7564286cd4822446376fdf3147d46e71436422ff5e7d610": {
+    "7b42bf60c156b1e0a131b56e0f33f27983cc23cf426a92a269fe3c17a2e52046": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "брат",
@@ -1450,7 +1466,7 @@
         "kind, sort"
       ]
     },
-    "91bd85f8d5cdc891c7e5475ce7b27c051f535c49ff8822b83db63f5928f680e1": {
+    "3d3cc1bdfee0ac06bf05d812c189f2160ac9318299a9497955ec2b1337e7c2e6": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "бабушка",
@@ -1461,7 +1477,7 @@
         "Gandhi's breakfast, eighty in the lotto game"
       ]
     },
-    "9c35c0aab109126ed2a040e4592dbedcdb2dee2079e97b9b8812c3183b4e2a40": {
+    "042c7c34c51f74085a6da9a5c086acde8374de5100ad0ee3e0b4b21f4e1c69ae": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "дедушка",
@@ -1472,7 +1488,7 @@
         "diminutive of дед (ded)"
       ]
     },
-    "df6b142bf521e78c9c3fdbbc9dbf4ccf69dbb638729955bc9331b96a3f964a69": {
+    "a8c5fcd3867faa0085c349a44fd03499b591c5c8e32210e628ef1eefe0d908be": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "семья",
@@ -1481,7 +1497,7 @@
         "family"
       ]
     },
-    "9526fa33688ef14a0f160ac73f3c433b0cf8dec314a4a0ce586e9a2269eba41f": {
+    "e70f73f04abe0e10e12ab651e732077a786b2e84c599b90a16c170a5d1e7207e": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "голова",
@@ -1492,7 +1508,7 @@
         "head; chief; master"
       ]
     },
-    "a5f9f4dbeb4bfc3fdd41cb4e64254ae82b774adc6696860b1ad19d5a32d15a6f": {
+    "77bbe098370d5529a022c6aa30658d27b89ccc4a79fd317e389f0c2ffafc04fb": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "рука",
@@ -1502,7 +1518,7 @@
         "arm"
       ]
     },
-    "cca85e0262f476101c494bc8110b7497c4a3585b9e0cae9b58e43d724729841f": {
+    "bd67981cc63c0a6275a244e53ae34401d92b2afbc9546c4d95de72a0783d7d4a": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "нога",
@@ -1512,7 +1528,7 @@
         "foot"
       ]
     },
-    "7475db2fcbec753cbb96abb1da68405401c708ed794f1067af7b1579edad4a86": {
+    "fbdfbb7c91abf7e225b16a5391984f4a57440b7cf3df2e029e98e70d88884228": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "болеть",
@@ -1523,7 +1539,7 @@
         "to cheer, to root for"
       ]
     },
-    "077b6f7a191f58ae85cbddfe169b25b0a3c8cbbd0d8e08ae46bb0fab7923ace2": {
+    "23a1cfc9acb00d1a9017dcc69383b9c7aa8fb0a37ff00caf14b3bb1d31085ee4": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "погода",
@@ -1533,7 +1549,7 @@
         "bad weather"
       ]
     },
-    "8667283885f003cf0541a6d464e8c17d3210cb51e420a3fb4b1b8a08cf061662": {
+    "7219961d5f97790f4d507d7a9b4cd62e24f5c18957d25ff088427035a9596027": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "солнце",
@@ -1543,7 +1559,7 @@
         "the Sun, Sol, Old Sol"
       ]
     },
-    "6ad9fdbf1dcaf4006fda77dd0a5f26a2ca80caa80f210ccafd22fb0609829a90": {
+    "a73db61ec08938c115fc0d29ab572057ba2736b33b8e193bc951d24b93311bca": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "дождь",
@@ -1552,7 +1568,7 @@
         "rain"
       ]
     },
-    "0446f20f40cce099569d2e937dc6cdc9e63f7486f7718e61fc2fed659726812b": {
+    "b53072a74cdd2ed3fb93f6e0f45970126244c4b2d9fabb602ff7476d88987c7b": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "снег",
@@ -1563,7 +1579,7 @@
         "cocaine"
       ]
     },
-    "7f82a483f9d60f6876c2bc492986d10ff67850ee385d68d838f404d8283024f4": {
+    "8c914a57bc4f86798f5e17ce84178add7b95a134bdae2e70548432a5ae28ba3b": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "сегодня",
@@ -1573,7 +1589,7 @@
         "today, this day"
       ]
     },
-    "b886baee91f51a84d436178adf92f9169e4c58c97a8f8b56cb40e10bac4bc5c3": {
+    "c12987b7893a3d217d9d1dfc303fc10a62eae85c3e2568e5ce1a5a8be4deb674": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "рубашка",
@@ -1584,7 +1600,7 @@
         "back (of a playing card)"
       ]
     },
-    "30c65377ffcea437ceb53abf6d7ae66cec85f39a234d5e52417097e9d20db880": {
+    "770fa55f29dc485d7405a83aaa1b582bca88920ef6a59086138587f16a4ad366": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "платье",
@@ -1594,7 +1610,7 @@
         "dress, gown, frock"
       ]
     },
-    "1457c1c19bfef2116b829ea0b941c6a80726bfdc8d96079c2cd4c8aa7158c3d5": {
+    "9c90113f195ddcfdffa4b98cfc0d05ed356bfa1af5e504beefb1c569b1a537de": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "куртка",
@@ -1603,7 +1619,7 @@
         "jacket (a short coat)"
       ]
     },
-    "d38e7eabec8c2845051788566b911bc55128a19ed21d20a712feb9a274589808": {
+    "ce30e317404722d530c6bd183c7eaf4624faa4e7186a5628bfb9605618b8c0ae": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "обувь",
@@ -1612,7 +1628,7 @@
         "footwear, shoes"
       ]
     },
-    "14e0d0488ed1b862948027a420ff5f48055a717df92fd602349e873811437ffa": {
+    "2106d4c8efe03bb796204a3260474378b76aa2c58850e9376330fc1d0a832132": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "веселый",
@@ -1623,7 +1639,7 @@
         "post and baggage train"
       ]
     },
-    "029494c072356074a4b8a2a7c432773404d97e4d92eaed05934848cb67cb7c0f": {
+    "70c7b767ec3f1661f4d0d5463313711366a7ad11264041f8df5f514ae9bd71ea": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "грустный",
@@ -1632,7 +1648,7 @@
         "sad"
       ]
     },
-    "a1758f32a88005b7ab330390d063e09c8dc2edeed883601136c6961d411380df": {
+    "98eeeaba25c3f420729def5a6c1e455b829007482c8cfda07a3ba1eff24ea90a": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "усталый",
@@ -1641,7 +1657,7 @@
         "weary, tired, fatigued"
       ]
     },
-    "99d649bb19bb2fe03838e98f30ad3d2f3399b0a3d6ddb65539a5ff414d04eb42": {
+    "19a12d75f2cd416e0820ecb7ac97ff6ecda52ee58d1924e5bae89eedd2d1f2c0": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "после",
@@ -4897,7 +4913,7 @@
         "land"
       ]
     },
-    "c0c1076db7b5ddc70b456a3445a7c3b2ee689cdee907ee67940b40137d185fd5": {
+    "f6f0218a6e3bbd3cc4c46c73100490801b966302381e8a18b9d12b4e755dca5f": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "общий",
@@ -5737,7 +5753,7 @@
         "equal (the same in all respects)"
       ]
     },
-    "4c0b612690a977c4f0ae96c95634d1b4213f4ba8354d356563fd11f995e00759": {
+    "385770f304e1c75d965add4eaecfb43abe2a76bf3215af60effe39734b41f7f0": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "из-за",
@@ -5914,7 +5930,7 @@
         "huge, vast, enormous"
       ]
     },
-    "38f1e8710f63a5a10de216ece870a3d9b8d91ddaa1ea37c42fcd9498b97ebbbf": {
+    "f337da42ad85344e83164c6200efa7c2208aa281baac694c52c979a2316916f4": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "давно",
@@ -6510,7 +6526,7 @@
         "manager, director, principal, headmaster"
       ]
     },
-    "a0f74c3bda0c74a564dd74cfbe84afdc8957b2afc4220c2adac330bb26de2184": {
+    "bab099732ca4c5ee6500ec64c57aae93f2e8e77f590f95e4075a79409ccc77f1": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "спать",
@@ -7325,7 +7341,7 @@
         "resolved by settlement rather than trial"
       ]
     },
-    "3c758f150ec4bdcebc8ac6766218349fdb9a47a4d975a9497091b8527c650ae6": {
+    "62ae75017faf9f4798eab2742bf047e6b4fc783b871f02394542f4878dff9058": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "пол",
@@ -8602,7 +8618,7 @@
         "solution, way out, outlet"
       ]
     },
-    "3a9afbd1bb6f491958c8ac3bcb5c60653590c8a83a5220c510bda7323bf33c05": {
+    "ffe2a2d6567a6ad100b47d3a606155d2cc597837c7c1527e6a40c3c1420fe7b6": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "удар",
@@ -8964,7 +8980,7 @@
         "fire (of weapons)"
       ]
     },
-    "319ca14ded28ffe8712206968d7ca1f9d77805533f7bc726c39af427e63c2e69": {
+    "238e72179225d7a8920fde64eaa02186fc4cce6bc18c2d25881d1480910c4de7": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "замок",
@@ -9433,7 +9449,7 @@
         "weight"
       ]
     },
-    "362aa649505531174ab14dc2537b8b8b0bb0f37251adf93547adec9d5799de65": {
+    "c5a4ce3a972747285c17749e4f2b8cfd0e962f562c9dd4983d6fbbfb93743b42": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "будущее",
@@ -9646,7 +9662,7 @@
         "shallow (of one's personality)"
       ]
     },
-    "d37396feed6eafd5b6a1c7e8e024df5dabdc77b0f9a1d24d63ce668af5895af5": {
+    "880a6fd5048ae5c82c103fcc948c16ee4d2715d8f915c21a4d7ca801c7c8a9b6": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "очередной",
@@ -10625,7 +10641,7 @@
         "lobe (of the brain)"
       ]
     },
-    "28e94d749f247c38135d8439b2c59cb7ed3ba8a42cbafb3b53e9057c93504418": {
+    "71d281aba13ddf063b1a091cc9175a47d1fc3457466d917e20af1399ee776cc1": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "норма",
@@ -15560,7 +15576,7 @@
         "I’m kidding!"
       ]
     },
-    "2e6237aa4522edd408ecd4b625ed19ecbdf53afa606b39bc9b67a2fcfd794b30": {
+    "d5bd21a1697f0b32dce2102780389d874ba9641caa6eca88ec2ceaf43304c94e": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "спешить",
@@ -15974,7 +15990,7 @@
         "expectation, waiting, pending"
       ]
     },
-    "c4ca6c5d16df79ba7fca11231d219d1258b1da3d7e4fa8855192dd3b08ad67e7": {
+    "8ad9ea30f4c2d7174de48a147e2a264c06494b942c71629fd8118df5d23dfaa5": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "партийный",
@@ -16463,7 +16479,7 @@
         "surveillance"
       ]
     },
-    "38d13e1393a984d9a8aa62f47bc0efe770a4b9ef025a19b22e11f2a0cb4378c5": {
+    "69c956b1637b2a999e3faefebc955a9b649c0603c7a6b4adfc27aa773c988492": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "вон",
@@ -17202,7 +17218,7 @@
         "including"
       ]
     },
-    "d102d420fe2a8206be65278df6387c27c2e4ea433ace6e6b4bc4339a264b6e4a": {
+    "697c4763ae9091b572fac7f19437214fd9f2fc16726eee034643f3667058e4d4": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "печать",
@@ -17391,7 +17407,7 @@
         "the Chinese language (short for кита́йский язы́к (kitájskij jazýk))"
       ]
     },
-    "38c1b41e6b6a83dc0ac5cf6dca7cf81d17b06f727fb9e6df00acf9bedc3f30af": {
+    "4ac94f6f62dd3bc857227c33ec6ca3b319856d82bfbd4d1e8ee14b213ca5a938": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "увы",
@@ -18290,7 +18306,7 @@
         "safely"
       ]
     },
-    "039fa35c56c531b9f61203fcd7cdeb8073b231ab5822779ce79cc78196a8f233": {
+    "c30d2d2cf38290ed75da5affd71ea1db4e89f54a6cfb92aeed08228010f1b6b9": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "фактически",
@@ -18896,7 +18912,7 @@
         "chemical"
       ]
     },
-    "4d1ef77624be998a6b0bad7364310e80959a2334b5570cca3bd6473fbd2526d6": {
+    "47044d3742b9e49846cc6dac0f44b1ddfc3a37bdd11cd8d2bb536e6ad681e016": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "взрослый",
@@ -19412,7 +19428,7 @@
         "laboratory"
       ]
     },
-    "fce490deadb846a12585905a75be0db96a36ff2273dbb94a18a8944161553b8d": {
+    "8f2ed52bb96920724644ea01b16cebacc841b34261a434c52ddf275c0af038d1": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "ведущий",
@@ -19646,7 +19662,7 @@
         "match"
       ]
     },
-    "11722f960c3766e73e9ecc654c9eb26889691bc9b1c9313c87efa8471f6e1615": {
+    "f778b05fa5d6453b50e4cb9853f7d85a33b8bfe8a7f3c982735be164b4757ca8": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "тепло",
@@ -21173,7 +21189,7 @@
         "parish, congregation"
       ]
     },
-    "c7c724c5b73e9d467105339a13fc27b7e96b919a98a43085ee008cffb9631faf": {
+    "07dadef74a8e8547786d194dc23ee030907fc6feddf682525f4a6c558cf319f8": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "критика",
@@ -22671,7 +22687,7 @@
         "prognosis"
       ]
     },
-    "615821f7d9529abdabd809d8ed06f582948689feef765d7a18eeb97662cbffef": {
+    "2625d1c097ad46980d4979fd1f51803de7de759b880fd967d965ab476e646104": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "цивилизация",
@@ -24324,7 +24340,7 @@
         "short neuter singular of и́скренний (ískrennij)"
       ]
     },
-    "38a7b6825e54d1a483ef6bcbec7a841e287f91bd68556a6b4ef1a7a23d68c5b1": {
+    "7a906b1ccc538716997670e93de985c68a8120acb6dbe3026f129eb18f515c0b": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "пачка",
@@ -25361,7 +25377,7 @@
         "dual"
       ]
     },
-    "59253636f8e52203404488ca87a3b48448001e6243f901378601cd87b1679041": {
+    "d0c1a12007f1cb26547513276daea598bb41ee0ac01765155c3a75ebb6652320": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "пленка",
@@ -26252,7 +26268,7 @@
         "branch of science"
       ]
     },
-    "bfa832efccb7e1846fb174254847761a6380643de2618b917253829afae0a8b4": {
+    "2e0c8575d822f70086d70e8438a9fe260a5a5e998cd6466f3389d8728d20cd00": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "коэффициент",
@@ -28699,7 +28715,7 @@
         "alcoholic beverage"
       ]
     },
-    "b52177a28439245bccfb0d7c4131c96161e4a168fa4d0bb4083adba7d8f7480b": {
+    "c3baa81271519dd4ec9d6cee13a11624c823917062442aedec7b99afd2da254c": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "яма",
@@ -30056,7 +30072,7 @@
         "sweat, perspiration"
       ]
     },
-    "c1bd8c59bafccdea7e3254dfa055ff762a25cbcf10f37b44edcfbea82f4c0233": {
+    "140f5465f2da3452843c3f433a2ea90807f9c4a30843f16b27a8ee95e17af751": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "владыка",
@@ -31705,7 +31721,7 @@
         "precious"
       ]
     },
-    "784ed418085dcfa3e0792aac5f7265479c9b08989f7da91e832ee9d34afb7850": {
+    "e47b338a3aa8ac0ef732a81df50ab0e59e80cac69631c0c19333c61b90334f11": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "ванная",
@@ -31944,7 +31960,7 @@
         "affiliate"
       ]
     },
-    "0c80e8348c4e78da07cd36c30ac1faf8f512ab137b31d40d95b11c4dfd8cd7b6": {
+    "bc38726aea39bf4bb5d2037324b4b19e3b1f621a094a30fdbc3de80e8fb2a4e9": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "рай",
@@ -34966,7 +34982,7 @@
         "novice, newcomer"
       ]
     },
-    "5532eb2d05959e201d7f1091d7b87cefe2cd9c054ee02eaa7b2abf5f4b6b0bdd": {
+    "cd5cc8c3d7d686dbdfb6ff643c0c471e97e8a0bbc8ac51bf09c57cff84f896df": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "открыто",
@@ -36202,7 +36218,7 @@
         "to tear (intransitive)"
       ]
     },
-    "e15d868e74e09ef2aa1a24e8fae307012b1d96fe2a6dd23ac1f788da04cc1a25": {
+    "d774c77322e7f8afa3a88bfd2dc7566fed787102a74215e9ed26cfda25687ea6": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "воплощение",
@@ -36289,7 +36305,7 @@
         "courage"
       ]
     },
-    "bcb35bcb6798f1c24e9c6bbf45ff320b4ab05a071e744865791c315ce6eaf691": {
+    "620a938e1002a1728a6e6ac7d9f15eb96d393b65d99656779756362aa3cdcddf": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "октябрьский",
@@ -36744,7 +36760,7 @@
         "singing"
       ]
     },
-    "734aaab90420c6921257c56d0f75d36e46203e52fca8558c57b8e28bfefcfc83": {
+    "e38f2105b2fcbc93e24795f8c6b7cfb0d5258370607a2787cfe68cbfda4f6ffe": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "балет",
@@ -37735,7 +37751,7 @@
         "motionless (at rest, not moving)"
       ]
     },
-    "d301bdc2fabfca10ef5e594be16fa93c1c6f1aa9b3ae3abc91f17f57934c1968": {
+    "570c0e2c72e75c75ff268412f39dd16f297eb93fdd0cc1711371f40716ffe6bc": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "скот",
@@ -38618,7 +38634,7 @@
         "snakes alive, fifty-five in the lotto game"
       ]
     },
-    "794da5f0bb74f7b062d526e5c68d19b2d8c86f03eccecad8d49ddb7cc7e60b26": {
+    "f5fc661e7fc59c76c61fb04083b5cc2712c05d304f45228b156d0cd8959c2f48": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "осколок",
@@ -39312,7 +39328,7 @@
         "to reign, to dominate, to prevail"
       ]
     },
-    "2c4a0fa353bc2919824e11b2f7e94ee8518f782dfaf90455fcf81599412a0ff7": {
+    "e2475e6c71218472d673e511e580072f926c81216061d8fde02200bc6a9a37ea": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "выпускник",
@@ -39401,7 +39417,7 @@
         "vitamin"
       ]
     },
-    "c760601d99fbcea81bc92248145725478c5f2e6c7e353740be0969c5fb8f9c40": {
+    "9d685b3f87566a6b9fd041dd7a568654e977216040c56094da328c3dac79cce9": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "острота",
@@ -39571,7 +39587,7 @@
         "chess (two-player board game)"
       ]
     },
-    "367c79848d7ebbc83dbc62986ca3d5714a72a9dfe329d4906c7afb7a5e259f5e": {
+    "08cb7004ee84571d560ea29075bc58c1c648a3075abc00159393e969f74d6bfa": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "диагноз",
@@ -39696,7 +39712,7 @@
         "lever (rigid thing turning about an axis, used for transmitting and modifying force and motion)"
       ]
     },
-    "6922763e868d41e9490a450f3c354079a930f47995aef9452190db0bdef9d538": {
+    "0e50f32e4c3d00b7440b3b6dc5f8a58016e1a2a00c2f6f824bc3463bc78a9ae5": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "плотность",
@@ -41120,7 +41136,7 @@
         "to gladden, to please, to rejoice, to make happy"
       ]
     },
-    "d87c8a1980083db5fe5db4e5ea55c6fd59014d428c6ca678d632ec6247209192": {
+    "582cad88bf8cf21787efa5e9b7865f64c5ea043b937a96387ac8454ed89c00e4": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "издали",
@@ -41229,7 +41245,7 @@
         "sculpture (a sculpted piece)"
       ]
     },
-    "9880fd79f6feccc0d68029413deb66c51a6d4866f233df63a80d8d7582a25eff": {
+    "603b2124ac9fe55279ef56011c2045b47b69696f1a282ecaa39440b3f457fcdd": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "индекс",
@@ -41553,7 +41569,7 @@
         "passive of води́ть (vodítʹ)"
       ]
     },
-    "d6c9777f3c1273279f3060c33f96c140bb94c70ec521659dd4a5608ecdff00bd": {
+    "387a02a8dc9a986462d6e30611ec9eb0dcd4e8eaf788577b9b36b4d0230c8491": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "спичка",
@@ -43071,7 +43087,7 @@
         "to disclose, to reveal, to discover"
       ]
     },
-    "5796f3e66d96132c5ad93dcaedd29a21a8bf59f928cf882f55eb85a1c3f432d7": {
+    "ff6a86481548cf33c94ba04704ed90af3752515420384c57240f3527a23bea82": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "экспертный",
@@ -43376,7 +43392,7 @@
         "ceremony, rite"
       ]
     },
-    "810a9f884b46c329de7e01b961447ab052e356f466978d4c7dea76eab9f87c16": {
+    "9c245d94af4254e2a26a4a22454b7fc0cb1630fb193ea5d4cceacca07b417cde": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "примитивный",
@@ -44848,7 +44864,7 @@
         "boom, rumble, rumbling, hum, buzz, din"
       ]
     },
-    "17cc086b3ee1504aff55a6dc515d958ce7d1406b644fe0b44ea948d739f8718d": {
+    "29893cc650654e3e17a3f5c052463e71b59a34d50589a9716b4689b740b88865": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "матушка",
@@ -46169,7 +46185,7 @@
         "precept, rule"
       ]
     },
-    "58746d861ac7854a909c89ed9b8ca68a6a817a5d3aab185fa940635edb5d5ee6": {
+    "d44654ad8bba8236cd66045b9f29d1f78d2f38c41e7227843a6c17babe3ad756": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "зам",
@@ -46196,7 +46212,7 @@
         "path, small path (a trail for the use of, or worn in by, pedestrians)"
       ]
     },
-    "5c17b322c242198197936480f03888afae4fda6b6280a7b8e5b39ff4bed801f6": {
+    "278e43a72748cbe72b98eba266369eaf83b3ea0ab6d51fac3a202d8d5913559a": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "бережно",
@@ -46818,7 +46834,7 @@
         "rapid, swift"
       ]
     },
-    "b64daa59908c5fc21760553d25a08d1efd1fdcf25945b9c8dd48936cd4cee5b3": {
+    "c178ccf24045e763d2f015195240ddefbd4f22c1f6149b76894ae9261ed234e3": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "речной",
@@ -47128,7 +47144,7 @@
         "group of children, kids"
       ]
     },
-    "cc45d9b79c91bfaab7098ff247c3fdd884257f62695533184789ba4bf0c5d0f6": {
+    "ab5a93d1d55050f3a13eb51a6dfa146e306b791fab656063fa4a9056ad7755bf": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "героический",
@@ -47537,7 +47553,7 @@
         "sleeping, sleepy"
       ]
     },
-    "fd42d21ae874f0a8d428bec1a49c54245a8d2ba6fad8f00a0260ccf52798bd72": {
+    "8fee18f2cd2f8f3001a844e3898bf6f967b47b46e22be2e8897afcda3414c2d6": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "воробей",
@@ -47879,7 +47895,7 @@
         "class (of vehicles)"
       ]
     },
-    "482b58d9ed6192a8dd25e0f7af6d6293fe60fc5df521cdedccd09c46d14ac727": {
+    "1bbd9c1e11cf755e6ef38988320e428b241952dbe02c4b3bfbf5ba9ea302fb8b": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "закупка",
@@ -49035,7 +49051,7 @@
         "member of the Taz ethnicity"
       ]
     },
-    "daa4666a1a929efba80188fab8779cf27577cbfbfdc6848718ad3436689aef35": {
+    "c4b8916e8b1f83c3e046cff5a4981d9acd50263f5cba6cc2e1b18e89e50fd048": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "райком",
@@ -49180,7 +49196,7 @@
         "signing, subscription"
       ]
     },
-    "3516bae920de8fe981e66e124709c1a9ad7bd83401445fbb71164a8200af64bd": {
+    "82444e50daa4771eb35274f23861ac0c7a14918ec4254c6059ed3d30f2e1abd7": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "даром",
@@ -49489,7 +49505,7 @@
         "to offend, to hurt someone's feelings, to abuse, to insult"
       ]
     },
-    "e458af01e956da197880567bd3015c054f2ce3c55b9d740551dee4ff568182f4": {
+    "3570fd936df974b1ce6fb93e83c7ed160670603283c00c9292522d548df2678c": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "палач",
@@ -50400,7 +50416,7 @@
         "luge (a racing sled)"
       ]
     },
-    "4d11138bda0e49dab30ab5d3d6ede17cab3a636cd0b1f376847f013e3b557176": {
+    "ecaf868bd506a862284073c45810e3dd05490e1602b6fe1dc1996940a48b22db": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "рев",
@@ -50697,7 +50713,7 @@
         "disappearance, vanishing"
       ]
     },
-    "65a72a2a3add0371e3d93d62bce9d4a2aa4bd55bdcba0ceda1876b1cf78a1bfe": {
+    "c2ddfb9ca35b7eb07ebf23263d303112c34528096cda841fddb1dea0d36156b5": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "профилактика",
@@ -50744,7 +50760,7 @@
         "to kibitz"
       ]
     },
-    "1fb137870dd170afeb66d974e613bd3923d8403ea172223ad396c926acd43e9c": {
+    "3aec10978e953416da2d726462a1dafe5816ad30c52f21b05980e3216fe4920e": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "приморский",
@@ -53954,7 +53970,7 @@
         "to ignore, to disregard (to deliberately pay no attention to)"
       ]
     },
-    "66c5870761d5f721b35b4da1c9eb92739a10af8c09946d3212fd3f0e0eb7ac58": {
+    "5cafdb94dc60ee0ea76f40334627a728635ac79a560e1cefb1b847cab5553fa6": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "противодействие",
@@ -54844,7 +54860,7 @@
         "beggar, pauper"
       ]
     },
-    "7931957e6dd27c5a7095ad073c62f717eaff0b907745395b0b39cad0fd54a8f0": {
+    "47f07f77126b553e16ab148f8ce09001fc45ec0304a055c2e3e899ea1a71779a": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "классовый",
@@ -55907,7 +55923,7 @@
         "romance, a love song (of a sentimental nature)"
       ]
     },
-    "2db4ae6c9012e23bc852239db773d3f815d9b77136c9c42adf733c952eaf0b7a": {
+    "7ab4d277af20b3fbf852049126c92ef33bb01bf0c9b5d4883c4965a05949aa13": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "дефект",
@@ -57133,7 +57149,7 @@
         "indirect"
       ]
     },
-    "e5db855c954cdabfaabec0b8dfe8b39e72ddcc2988f5222fc8078bc060abf759": {
+    "d913b942dd4a68e4a1fe69e18def267ddad885be09a14ecc738eba4827aeabc5": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "реорганизация",
@@ -57902,7 +57918,7 @@
         "to fret, to fidget"
       ]
     },
-    "e171778de332ef564c0007d8245b43046c49556252713751deac0356893de5b7": {
+    "63131d53f4c6903d76042df7c8cd40a212e79c206af89a1acda01fd4711b68b0": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "профессионализм",
@@ -60651,7 +60667,7 @@
         "to economize (imperfective only)"
       ]
     },
-    "7735011fffdc8ad94b9563043085b53b6a43916e0148788fecef166cc74381ec": {
+    "60697b5789b2ab4b88cde47df77f4cc18e77602d942bee967f21106b344f107a": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "навещать",
@@ -60709,7 +60725,7 @@
         "breech (the part of a breechloader)"
       ]
     },
-    "74bb521e85f044ff07e74c7ce4c1baa3dfbcf6423e53d1fc9351fffe806fb1f5": {
+    "2b2de11f814836ba17ddb8a212fd933e6cfc9c351aaacc27142268edf6feed45": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "воспроизводство",
@@ -62217,7 +62233,7 @@
         "Korean"
       ]
     },
-    "6390d1be12110929d2b6f19e527161c8942d94588774ad0d5b8f3cb63a8d8eb8": {
+    "cc10d1f76e5fbaa1e33dbb73ad0dfb100fda115e01b2f762aa99879d05b3ae29": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "рудник",
@@ -70869,7 +70885,7 @@
         "obstinacy, stubbornness, pertinacity, doggedness"
       ]
     },
-    "60bd5bee11dd6c4335c2d4b284f77c37b72a9706c1a2b0a1d20262f2acd648e6": {
+    "1d711911fb90432a5b3e75c52ccd212f0272b6aaae1b00bff4df6961ae71de9a": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "регистрировать",
@@ -71852,7 +71868,7 @@
         "journalism"
       ]
     },
-    "91dc3780f809293f2cf6972714dc263cf3bfaeafcc37f13459515503357b99e3": {
+    "c3c82daf391e630e6eaf5f09978e0f9a96e7f22cb33ee3b248a9e7bcc645c1b0": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "оформлять",
@@ -73566,7 +73582,7 @@
         "indisputable, unquestionable"
       ]
     },
-    "a743f468ca04a7b148805280030edb6c9cea6677f780431ca11a74105bb9b657": {
+    "5bcaf9717c86cc8475367c33f4b05758d9359109cf9f1993cb166c80c13ad462": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "открытость",
@@ -74408,7 +74424,7 @@
         "variation (a musical technique based on an altered repetition of a theme)"
       ]
     },
-    "4c6147ef3d73d65005bd9d700fb3982453d00c2725bb9359a2aab2ee06a1bfff": {
+    "6907ed64a70667988756cd44d2d8e8b32fc2e7f63a20466b1d712f982a524b11": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "легкомысленный",
@@ -75665,7 +75681,7 @@
         "repurchase; buying-out"
       ]
     },
-    "0227cecae0b296af147de8edcb1e14b88d757d8e47042d24759d9b87f9a73533": {
+    "db34be88b0337277c6f22c37ccc68cc2ace029a72c5661553175d7e63543e684": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "заметать",
@@ -76864,7 +76880,7 @@
         "military commissariat, voenkomat (military registration and enlistment office)"
       ]
     },
-    "0cf68d25523cb4591ef2ac4081867610fd34be37791d8483ca04ce3857549d14": {
+    "b5cefea843c9fb929d33200314088e3ca9d31af1fcfbe199583c265ad5fed7be": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "полпред",
@@ -77527,7 +77543,7 @@
         "frumpy, frumpish"
       ]
     },
-    "ab6396c5923326abaf7756f0ec687963cbb9b115e34aa3f5c2a40fa2d894b4ef": {
+    "19116a96f7bd114e0e1d72d064d7d952bd4e3c9247fe1445369f3763f4832cf7": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "княжна",
@@ -77545,7 +77561,7 @@
         "fragrant, sweet-scented"
       ]
     },
-    "bec2ab4979250d7ddb113793ca9d6b629ff288cf9e9aa3baa92063218757606d": {
+    "40e8f5b165e353906eaa53acd15c54aa67eadf606907ba8310ea6baee7e96700": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "пренебрегать",
@@ -78398,7 +78414,7 @@
         "laundry (laundering; washing)"
       ]
     },
-    "d4a9925d50f274ca99672943d214a9440d6dc9d1caaa064dfee58250585fd862": {
+    "615663272aee353360c427823a94456a29469026aebd5a28232332bb2fe1d508": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "фанерный",
@@ -78973,7 +78989,7 @@
         "enthusiastically, rapturously"
       ]
     },
-    "97a785fbc91684b001d1bbda16be7108919a887ee49a58db03e0a5428dbf5a07": {
+    "bafc0b4446fdb7a7d49efe90821054b3fe927a6603e938cad3f3eb607de267ec": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "беглый",
@@ -80079,7 +80095,7 @@
         "to shorten"
       ]
     },
-    "c89752fbae93831a3c063fb9a425d84dd17da0d15b1267fcbf556549eac77d45": {
+    "ce440fd84d9c8d6432d544b87e884f24c204273245f80359a1d7d49ff81d2d9d": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "незамеченный",
@@ -80854,7 +80870,7 @@
         "to understand, to get"
       ]
     },
-    "c0982914d1972b5f12e66ba6ab6623a5ef3693994334a66add84d20e23ae5716": {
+    "d608ea19c62405eefa3e108171c9c7d82e69019b316bd51eb0640c919c153490": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "помещик",
@@ -81054,7 +81070,7 @@
         "siren (device)"
       ]
     },
-    "96b98993df8d9b3010306672e60e2fa77098d6705b99399a166da75d334f4c2f": {
+    "d02eb78099735cec25889fab2e0fc39b0c11e83f188bbf78f462ff19968bb250": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "сговор",
@@ -81278,7 +81294,7 @@
         "fuel, petrol"
       ]
     },
-    "786579552824a12573851de00d6fc4bd3b5bf8c630658c6051170a424b2f7e60": {
+    "ed5a2e2ed6b294db8e2bba1b2366bf45e2bc7739b0ab76bd55dbc492f6bf2db3": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "синева",
@@ -83552,7 +83568,7 @@
         "to meddle"
       ]
     },
-    "ca3245b7740ee6d38866c76bafcc9fd7a7cd5e175d5b34841f38952ab918b720": {
+    "abfe5e67fdd2b0e170419e188256d6b332dd13e77627c38b28c3f3e9f2afaad2": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "неравенство",
@@ -83613,7 +83629,7 @@
         "Pinus sibirica"
       ]
     },
-    "c24a771a88fc09440354ce1dcd03fcea2c1722b640d290ecbe053611add1a038": {
+    "29281a45a802d70421e6073cd56b74a5514339c8b108f20f58668a56cac4f4ae": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "отрабатывать",
@@ -85565,7 +85581,7 @@
         "prose writer, prosaist"
       ]
     },
-    "39260d28c7f6a02308626b601f55acc46584b9916ac07f149b1a563bcb43f6e5": {
+    "707869357aadda465b21a0d9e09e655a5cf2916e6fbbb2cb0c928435eca16278": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "присвоение",
@@ -85754,7 +85770,7 @@
         "discrepancy"
       ]
     },
-    "eb56bafe0a7a97085c310744be37846df689f43cd4987cd84779b4e241f28019": {
+    "e0d7ed1978a0a548a0b0314ffabef2853f939b69fd80a22cabc8f7f387425094": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "общечеловеческий",
@@ -85912,7 +85928,7 @@
         "alternative form of свёкла (svjókla)"
       ]
     },
-    "b7fe32c6f89c0fe8425e616c27e918fa29b7b3745f13981cde1b9314abd1ac17": {
+    "1d54ea0d05d153ca479ba09de994431d06bdbde75da2c04a365736afeb771e98": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "презумпция",
@@ -86046,7 +86062,7 @@
         "further off"
       ]
     },
-    "6da3e9e74531325dc7c09075294455ff6b988f72cb8fb6e979e8dfa5e6f22140": {
+    "16fa91b49e4a65dd51399addcfcfcdece18b02b82a12889931fcf5d5452f65d3": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "духовность",
@@ -87475,7 +87491,7 @@
         "beauty (beautiful female)"
       ]
     },
-    "ff1ab62f233fb526b59c03b5a1f45fe6d1c7cff1ecb7bb15dd88e12abc1c8d63": {
+    "4ab5c4407f1a2c59b78815eef7a54a3261c07f8d0ccb5d00be893590e02733e8": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "раскинуть",
@@ -87854,7 +87870,7 @@
         "to expose, to subject, to commit, to hand over"
       ]
     },
-    "188470ac81f28c52753cbad5bf13baac499422513a70fe4e7fb524fe0e6df028": {
+    "fb2513bceddb46cff6fc43393c70ea8d127ae1f8ee84952d8ce0f851c72c800f": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "племянница",
@@ -90494,7 +90510,7 @@
         "coachman, cabman, carter, wagoner, carman"
       ]
     },
-    "e590372aaab6ef4520dc4a7119bab229cb05961e63f52b6958ad49f37d4fcc96": {
+    "94d499c952acbb47ae0b72e7cd6a6582d162cfb76c935309defef790fe4293e8": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "подворотня",
@@ -90879,7 +90895,7 @@
         "to introduce, to acquaint, to familiarize"
       ]
     },
-    "618e312d844cfce2a5f9f328092554538fa2310ab149c0f7f8424d96ae713b28": {
+    "303902bda7aa2816bdf5400870b2d76a7a241d4386524210f736abb08d75392d": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "навеки",
@@ -90994,7 +91010,7 @@
         "sharpshooter"
       ]
     },
-    "4dff1f41628e134d8643c195feea09b0da91f8413d90dd5aeeb8d64f9f0a72d8": {
+    "ac94a2ebbe43dc37c067feebdaa6dce13b7df8e2895820e95bf36278b4d8d10a": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "вибрация",
@@ -92579,7 +92595,7 @@
         "comparative degree of хороший (xorošij): better"
       ]
     },
-    "a6e8d2e926937044520b63c3d0129dcdbeb283c27a27cee7b3dd30d465567e62": {
+    "6fc8f321f0499063aa949df8b416e8d60c41415080fdd62b1ca45c094f4a7252": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "сдать",
@@ -92590,7 +92606,7 @@
         "to surrender, to yield"
       ]
     },
-    "a8f914b4bb8233a6fc5dc5b06840b68903ff0891951c6af093c64a6792ba4b48": {
+    "0bec9b87c7ceade6865c2c97cace7836fa61c802539bceeab055ab6ce1782988": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "шалаш",
@@ -92600,7 +92616,7 @@
         "the bottom bunk of a bunk bed, with a blanket hanging down from the top bunk as a curtain"
       ]
     },
-    "bec64ccc0af2b2136d9953bdb9654cb3bc610d6d58508843f9e3736606cfa63c": {
+    "4efb2893c28c1d6f123a6c3e0349660060d3e4b6fec7c071249feffcf02a4962": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "зебра",
@@ -92610,7 +92626,7 @@
         "zebra crossing (a pedestrian crosswalk)"
       ]
     },
-    "2497ee511e16b7a3c4cfbd52e1e0ab593ab391549848bce624d94dd19b2c4cd5": {
+    "1390a5a54bdd5b72b4b76bc464313b31260eae519d2601c971eb4ed8315af7fa": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "жираф",
@@ -92621,7 +92637,7 @@
         "the Giraffe, Camelopardalis (a northern constellation)"
       ]
     },
-    "0a9a3b35d5374cf0e0746dde78940c380f6b4191aeeb2c734619097c480cfd7c": {
+    "7902dd69a4be328099effecdb1555cf8a7039c5f123bc8c2003afc4b45620a72": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "гид",
@@ -92630,7 +92646,7 @@
         "guide (someone who guides, especially someone hired to show people around a place)"
       ]
     },
-    "4c5fdba382bfb548ab3c3c8e2e91282c101fa5cce0c378cb62f36ce5dba4d7dd": {
+    "8875cef1393a23c343bfa1aa8ec7f02607263e7982b127fc19991559c9767e43": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "найти",
@@ -92641,7 +92657,7 @@
         "to come across"
       ]
     },
-    "d6ae9b8873c009b8b8266e4c610de1c6446b119d03529e2f28d58cb7f6e04ba7": {
+    "d5b66f595ed7d0d2613c18db8709881d050837ae515c7389d62b114ed4c3f5db": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "апельсиновый",
@@ -92651,7 +92667,7 @@
         "bright orange, Indian orange (color/colour)"
       ]
     },
-    "b1cfdda029e3d9a114cd2b1956c2ae260222d5db01ac45b0163a2abe63b88735": {
+    "6b989cde7669f5cf360be39476eab8b66a1dd24c6c49dbe1fa997e7fb6156dc7": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "остаться",
@@ -92661,7 +92677,7 @@
         "to be left"
       ]
     },
-    "9ee42423fc6a1487f2406237e74133227134613417c40f139947071838578de5": {
+    "a746c09be5d35a866892d5421ad32c5149f3a0ea359508673a6d8492c1dcb51d": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "дать",
@@ -92672,7 +92688,7 @@
         "to organize, to create"
       ]
     },
-    "0d301c58bd41be364db0877c0e7e5642fcbe8267d17c2c2eb0720e0d154a47c0": {
+    "641305eb0d872616395975d61bb1d3384c088ad7064cc97fd0bb3ef7d065d889": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "свинина",
@@ -92681,7 +92697,7 @@
         "pork"
       ]
     },
-    "a0c2a9f7d9d50d03f265a3556da3ce1c320fa382c324122942bca6f8e355f0e6": {
+    "4796fc9f57f1b1cde4e30e0cdd9295afb0e5b259694e09ca4cb0062cdc5504f1": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "миндальный",
@@ -92690,7 +92706,7 @@
         "almond (nut or tree)"
       ]
     },
-    "145f09ecac7ce1abbd92a8248c6e709b5a590f571cfb6b41e9aa8fe1be23bac9": {
+    "186e954dcf33db881b2b5f0d99775b2f58fb505c7330c9c4ee63061c85f57e0e": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "дешево",
@@ -92701,7 +92717,7 @@
         "alternative spelling of дёшево (djóševo)"
       ]
     },
-    "18a0b3fa8a61b3913603ab94e3bc7ac7df29badb5792079843968484da217435": {
+    "0af962273c8dd93cad281d58da9aa6ec246c619512b1ccfc84bb5f6d12e295bb": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "зонт",
@@ -92712,7 +92728,7 @@
         "canopy, awning"
       ]
     },
-    "9ef269ca7d0c7ed922ba088af20f1f1127e5f345bc6e0cbc44126a8e0ca1b33c": {
+    "1b75e0cd995e9ff72cfd81b5c20337ba5167e2a7726fada989224148dfe535af": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "падеж",
@@ -92722,7 +92738,7 @@
         "murrain, cattle plague, rinderpest"
       ]
     },
-    "841312833642874837fb00944553ef112a2b54f85a10c4461449c4b2c78c95cb": {
+    "72096b8e0da86aa12f504452ecfdacf2832c88feac04190bf71d7fb1bc09dd99": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "визитка",
@@ -92732,7 +92748,7 @@
         "morning coat"
       ]
     },
-    "f30c8da87cb0804f6305b517ac07d23bea58a8baaae50dd87e194bf9369ea723": {
+    "64f87cf84d2e76507b75873ac1a8c0377cae14ea0886b87f94b4cdcbca6f9b09": {
       "method": "automated lexical cross-check",
       "source": "English Wiktionary via Kaikki",
       "lookup": "попасть",
@@ -92752,60 +92768,6 @@
         "in a slippery manner",
         "it is slippery (of a surface, e.g. after rain)",
         "short neuter singular of ско́льзкий (skólʹzkij)"
-      ]
-    },
-    "d33e1a4b8e0a3f6092310a7a9b2cadf1a493fcee8d45423cb7b1bea4077cbd9f": {
-      "method": "automated lexical cross-check",
-      "source": "English Wiktionary via Kaikki",
-      "lookup": "винительный",
-      "pos": "word",
-      "matched_glosses": [
-        "accusative"
-      ]
-    },
-    "e3f23c4e82044076098b6408f87dfb0f15f2511593c8ac6d0708ab9de18638fd": {
-      "method": "automated lexical cross-check",
-      "source": "English Wiktionary via Kaikki",
-      "lookup": "именительный",
-      "pos": "word",
-      "matched_glosses": [
-        "nominative"
-      ]
-    },
-    "202bb3f69207e8dd691a776a508dc9cdf88ec89da432f0c289aa84df7bad7832": {
-      "method": "automated lexical cross-check",
-      "source": "English Wiktionary via Kaikki",
-      "lookup": "родительный",
-      "pos": "word",
-      "matched_glosses": [
-        "genitive (relating to the case of possession)"
-      ]
-    },
-    "70e0f5ec68f1f6b4d58dda89093b17b58cf9ea5cb8bd91edf8e494961a4f7cdc": {
-      "method": "automated lexical cross-check",
-      "source": "English Wiktionary via Kaikki",
-      "lookup": "дательный",
-      "pos": "word",
-      "matched_glosses": [
-        "dative (denoting the case of noun which expresses indirect object)"
-      ]
-    },
-    "c71321929689af9c83f2d129340ac4b915f3f1313d29a5af8811e93753459061": {
-      "method": "automated lexical cross-check",
-      "source": "English Wiktionary via Kaikki",
-      "lookup": "творительный",
-      "pos": "word",
-      "matched_glosses": [
-        "instrumental"
-      ]
-    },
-    "580877c0e228aca556003d5faad9cec1e89b3fd19926d73926f5f90c8e8a1ff3": {
-      "method": "automated lexical cross-check",
-      "source": "English Wiktionary via Kaikki",
-      "lookup": "предложный",
-      "pos": "word",
-      "matched_glosses": [
-        "prepositional"
       ]
     }
   }

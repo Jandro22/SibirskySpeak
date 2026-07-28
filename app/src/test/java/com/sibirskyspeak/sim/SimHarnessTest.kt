@@ -60,6 +60,17 @@ class SimHarnessTest {
         assertTrue("debt ratio should never explode past 2x sustainable load", outcomes.all { it.maxDebtRatio < 2.0 })
     }
 
+    @Test fun coldStartMakesMeaningfulCurriculumProgress() = runTest {
+        val outcomes = (0 until 3).map { seed -> SimHarness(seed).run(days = 90) }
+        assertTrue(
+            "a healthy daily learner must not be trapped rehearsing a tiny opening set: $outcomes",
+            // This fixture consumes only one bounded page per day and never supplies
+            // real session-completion capacity telemetry. Even under that conservative
+            // ceiling, curriculum breadth must grow by at least one word per day.
+            outcomes.all { it.introducedVocabNotes >= 90 }
+        )
+    }
+
     @Test fun clockCorrectionsDoNotPoisonLongHorizonScheduling() = runTest {
         val outcomes = (0 until 3).map { seed ->
             SimHarness(seed, maxUnit = 30).run(days = 180, clockJumps = true)

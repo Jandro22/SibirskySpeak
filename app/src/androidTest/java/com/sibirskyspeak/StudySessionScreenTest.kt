@@ -1,11 +1,16 @@
 package com.sibirskyspeak
 
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import com.sibirskyspeak.data.Card
 import com.sibirskyspeak.data.CardType
+import com.sibirskyspeak.data.ExitTicketItem
+import com.sibirskyspeak.data.ExitTicketSession
 import com.sibirskyspeak.data.Note
 import com.sibirskyspeak.data.Queue
 import com.sibirskyspeak.data.Rating
@@ -54,6 +59,66 @@ class StudySessionScreenTest {
             exampleEn = ""
         )
     )
+
+    private fun russianPrompt(): ReviewPrompt = ReviewPrompt(
+        card = card.copy(cardType = CardType.CASE_FILL),
+        note = note,
+        prompt = "I see the house",
+        expectedAnswer = "дом",
+        answerMode = AnswerMode.RUSSIAN_TYPED,
+        intervalPreview = emptyMap()
+    )
+
+    @Test
+    fun capstoneIsAFullTapOnlyRoomWithNoTextEntryAction() {
+        var selected: String? = null
+        val capstone = ExitTicketSession(
+            unit = 7,
+            band = "A1",
+            canDoLabel = "handle a short everyday exchange",
+            items = listOf(
+                ExitTicketItem(
+                    kind = "dialogue",
+                    noteId = 1L,
+                    prompt = "Partner: Как дела?",
+                    expectedAnswer = "Хорошо, спасибо.",
+                    choices = listOf("Хорошо, спасибо.", "До свидания.", "Меня зовут Анна.")
+                )
+            )
+        )
+        compose.setContent {
+            SibirskySpeakTheme {
+                StudySessionScreen(
+                    state = ReviewUiState(exitTicketSession = capstone, inStudySession = true),
+                    typedAnswer = MutableStateFlow(""),
+                    correctionAnswer = MutableStateFlow(""),
+                    onAnswerChanged = {},
+                    onChoice = {},
+                    onReveal = {},
+                    onRate = {},
+                    onContinue = {},
+                    onCorrectionChanged = {},
+                    onSubmitCorrection = {},
+                    onSpeak = {},
+                    onExit = {},
+                    onUndo = {},
+                    onKnewIt = {},
+                    onSuspend = {},
+                    onKnowWord = {},
+                    onStartSession = {},
+                    onSaveEdit = { _, _, _, _ -> },
+                    onSubmitCapstoneAnswer = { selected = it }
+                )
+            }
+        }
+
+        compose.onNodeWithText("Unit 7 capstone").assertExists()
+        compose.onNodeWithText("Finish later").assertExists()
+        compose.onNodeWithText("Tap one answer. No Russian keyboard is needed.").assertExists()
+        compose.onAllNodes(hasSetTextAction()).assertCountEquals(0)
+        compose.onNodeWithTag("${TestTags.EXIT_TICKET_CHOICE_PREFIX}_0").performClick()
+        assertEquals("Хорошо, спасибо.", selected)
+    }
 
     @Test
     fun ratingButtonsInvokeTheirOwnRating() {
@@ -154,5 +219,149 @@ class StudySessionScreenTest {
 
         compose.onNodeWithTag(TestTags.ANSWER_INPUT_FIELD).performTextInput("house")
         assertEquals("house", typed)
+    }
+
+    @Test
+    fun russianAnswersStartWithTilesInsteadOfAKeyboard() {
+        compose.setContent {
+            SibirskySpeakTheme {
+                StudySessionScreen(
+                    state = ReviewUiState(prompt = russianPrompt(), inStudySession = true),
+                    typedAnswer = MutableStateFlow(""),
+                    correctionAnswer = MutableStateFlow(""),
+                    onAnswerChanged = {},
+                    onChoice = {},
+                    onReveal = {},
+                    onRate = {},
+                    onContinue = {},
+                    onCorrectionChanged = {},
+                    onSubmitCorrection = {},
+                    onSpeak = {},
+                    onExit = {},
+                    onUndo = {},
+                    onKnewIt = {},
+                    onSuspend = {},
+                    onKnowWord = {},
+                    onStartSession = {},
+                    onSaveEdit = { _, _, _, _ -> }
+                )
+            }
+        }
+
+        compose.onNodeWithText("Tap tiles to build the answer").assertExists()
+        compose.onAllNodes(hasSetTextAction()).assertCountEquals(0)
+    }
+
+    @Test
+    fun novelRussianProductionCannotFallBackToKeyboardInput() {
+        val prompt = russianPrompt().copy(
+            card = russianPrompt().card.copy(cardType = CardType.NOVEL_PRODUCE),
+            prompt = "Say: I see the house",
+            expectedAnswer = "Я вижу дом."
+        )
+        compose.setContent {
+            SibirskySpeakTheme {
+                StudySessionScreen(
+                    state = ReviewUiState(prompt = prompt, inStudySession = true),
+                    typedAnswer = MutableStateFlow(""),
+                    correctionAnswer = MutableStateFlow(""),
+                    onAnswerChanged = {},
+                    onChoice = {},
+                    onReveal = {},
+                    onRate = {},
+                    onContinue = {},
+                    onCorrectionChanged = {},
+                    onSubmitCorrection = {},
+                    onSpeak = {},
+                    onExit = {},
+                    onUndo = {},
+                    onKnewIt = {},
+                    onSuspend = {},
+                    onKnowWord = {},
+                    onStartSession = {},
+                    onSaveEdit = { _, _, _, _ -> }
+                )
+            }
+        }
+
+        compose.onNodeWithText("Tap tiles to build the answer").assertExists()
+        compose.onAllNodes(hasSetTextAction()).assertCountEquals(0)
+    }
+
+    @Test
+    fun promptAutoplayHasOneOwnerAcrossUnrelatedRecomposition() {
+        var spoken = 0
+        val state = androidx.compose.runtime.mutableStateOf(
+            ReviewUiState(prompt = recallPrompt(), inStudySession = true)
+        )
+        compose.setContent {
+            SibirskySpeakTheme {
+                StudySessionScreen(
+                    state = state.value,
+                    typedAnswer = MutableStateFlow(""),
+                    correctionAnswer = MutableStateFlow(""),
+                    onAnswerChanged = {},
+                    onChoice = {},
+                    onReveal = {},
+                    onRate = {},
+                    onContinue = {},
+                    onCorrectionChanged = {},
+                    onSubmitCorrection = {},
+                    onSpeak = { spoken += 1 },
+                    onExit = {},
+                    onUndo = {},
+                    onKnewIt = {},
+                    onSuspend = {},
+                    onKnowWord = {},
+                    onStartSession = {},
+                    onSaveEdit = { _, _, _, _ -> }
+                )
+            }
+        }
+
+        compose.waitForIdle()
+        assertEquals(1, spoken)
+        compose.runOnIdle {
+            state.value = state.value.copy(statusMessage = "unrelated")
+        }
+        compose.waitForIdle()
+        assertEquals(1, spoken)
+    }
+
+    @Test
+    fun revealedCardShowsCorrectAnswerInResultBanner() {
+        compose.setContent {
+            SibirskySpeakTheme {
+                StudySessionScreen(
+                    state = ReviewUiState(
+                        prompt = recallPrompt(),
+                        revealed = true,
+                        isAnswerCorrect = false,
+                        answerFeedback = "Check the meaning again.",
+                        inStudySession = true
+                    ),
+                    typedAnswer = MutableStateFlow("wrong"),
+                    correctionAnswer = MutableStateFlow(""),
+                    onAnswerChanged = {},
+                    onChoice = {},
+                    onReveal = {},
+                    onRate = {},
+                    onContinue = {},
+                    onCorrectionChanged = {},
+                    onSubmitCorrection = {},
+                    onSpeak = {},
+                    onExit = {},
+                    onUndo = {},
+                    onKnewIt = {},
+                    onSuspend = {},
+                    onKnowWord = {},
+                    onStartSession = {},
+                    onSaveEdit = { _, _, _, _ -> }
+                )
+            }
+        }
+
+        compose.onNodeWithText("Correct answer: house").assertExists()
+        compose.onNodeWithText("Check the meaning again.").assertExists()
     }
 }

@@ -64,10 +64,13 @@ def test_register_transformations_are_deterministic():
 def test_curriculum_completeness_metric_is_reproducible_and_shipped():
     from build_curriculum_metadata import completeness
     shipped = json.loads((ASSETS / "curriculum_completeness.json").read_text(encoding="utf-8"))
-    assert set(shipped) == {"A1", "A2", "B1", "B2+"}
+    assert list(shipped) == ["A1", "A2", "B1", "B2", "C1", "C2"]
+    previous = 0
     for band, metrics in shipped.items():
         assert set(metrics) == {"corpusSentences", "parseableSentences", "percent"}
         assert metrics["corpusSentences"] > 0
         assert 0 <= metrics["parseableSentences"] <= metrics["corpusSentences"]
         assert metrics["percent"] == round(100.0 * metrics["parseableSentences"] / metrics["corpusSentences"], 2)
+        assert metrics["parseableSentences"] >= previous
+        previous = metrics["parseableSentences"]
     assert completeness() == shipped

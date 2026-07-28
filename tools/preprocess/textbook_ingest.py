@@ -95,14 +95,23 @@ INSTRUCTION_VERB_GLOSSES = {
 # miner otherwise trusts the textbook's parenthetical gloss verbatim.
 GLOSS_OVERRIDES = {
     "зебра": "zebra",          # book glossed it generically as "an animal"
-    "винительный": "Accusative",  # book glossed the case name as "inanimate"
+    # Learner overrides exposed glosses that were narrower than the app's own
+    # examples or ordinary English answers.
+    "дешево": "cheap; cheaply",
+    "гид": "guide; tour guide",
+    "сдать": "submit; pass",
 }
 
 # Surfaces the miner captured that are not real vocabulary at this level: a PDF
 # head-split fragment that happens to lemmatize ("тика" <- полиТИКА), or a gloss
 # the book attached to the wrong/too-advanced word ("мнить" glossed "to remember",
 # which is помнить). Dropped outright. Keyed by stress-stripped lowercase surface.
-DROP_SURFACES = {"тика", "мнить"}
+DROP_SURFACES = {
+    "тика", "мнить",
+    # Case labels belong in grammar explanations, not the vocabulary queue.
+    "именительный", "родительный", "дательный", "винительный",
+    "творительный", "предложный",
+}
 
 # English glosses that begin with these tokens are phrase / prepositional-phrase
 # glosses for an inflected form ("в парке (in the park)", "кому (to whom)"), or a

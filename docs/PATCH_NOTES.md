@@ -155,7 +155,8 @@ operational verification while preserving the app's offline-first design.
 The following items are intentionally not part of this implementation pass:
 
 - App-wide localization and plural/locale formatting.
-- Full TalkBack, switch-access, contrast, and broad accessibility test passes.
+- Full TalkBack, switch-access, 200%-font, reduced-motion, and contrast test passes
+  on representative screens.
 - Production-signed R8/shrinker smoke and signed-APK upgrade testing; production
   signing credentials are not stored in the workspace.
 - Physical-device macrobenchmark metrics for plan generation and card advance.

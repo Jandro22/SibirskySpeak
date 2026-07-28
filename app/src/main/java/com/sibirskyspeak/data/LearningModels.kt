@@ -89,8 +89,12 @@ data class CheckpointSession(val items: List<CheckpointItem>, val generatedAt: L
  * One question in a unit exit ticket (Phase G6 / P6.5): a short mixed proof
  * assembled from existing card/task types over a single unit's own vocabulary,
  * never a new card type. [kind] mirrors the units.json exitTicket facets —
- * "recognition" | "production" | "listening" | "reading" — and drives grading
- * in LearningRepository.gradeExitTicketAnswer.
+ * "recognition" | "production" | "listening" | "reading" | "dialogue" |
+ * "transfer" — and drives grading in LearningRepository.gradeExitTicketAnswer.
+ *
+ * Every runtime capstone item is tap-only: [choices] contains the correct
+ * [expectedAnswer] exactly once plus calibrated distractors. No capstone may
+ * fall back to a text field.
  */
 data class ExitTicketItem(
     val kind: String,
@@ -99,12 +103,15 @@ data class ExitTicketItem(
     val expectedAnswer: String,
     val choices: List<String> = emptyList(),
     /** Text spoken by TTS while remaining hidden from the learner. */
-    val audioPrompt: String? = null
+    val audioPrompt: String? = null,
+    val acceptableAnswers: List<String> = emptyList(),
+    val targetLemmas: List<String> = emptyList(),
+    val evidenceNoteIds: List<Long> = emptyList()
 )
 
-/** A unit's assembled exit ticket (Phase G6): never a hard lock — see
- * ReviewViewModel.dismissExitTicket, which lets the learner skip with zero
- * friction. [canDoLabel] mirrors the unit's units.json "canDo" line. */
+data class ExitTicketGrade(val correct: Boolean, val feedback: String)
+
+/** An assigned unit capstone embedded in the normal study route. */
 data class ExitTicketSession(
     val unit: Int,
     val band: String = "A1",
@@ -220,6 +227,25 @@ data class SessionPlan(
     val adaptiveReason: String = "Cold-start settings prior"
 )
 
+/**
+ * The route is complete when the scheduler has no required work left. This is
+ * deliberately separate from the learner's optional daily review target: a
+ * route can finish before that target is reached when adaptive pacing stops at
+ * the safe scheduled boundary.
+ */
+val SessionPlan.routeComplete: Boolean
+    get() = completion.status == DailyLearningStatus.SCHEDULED_COMPLETE ||
+        completion.status == DailyLearningStatus.NEW_LIMIT_REACHED
+
+/** Progress for route UI. Before completion, the daily target is the best
+ * available progress denominator; once the scheduler says the route is done,
+ * the route ring must report 100% even if the optional target is higher. */
+val SessionPlan.routeProgress: Float
+    get() = if (routeComplete) 1f else {
+        val target = gamification.dailyGoal
+        if (target <= 0) 1f else (gamification.learningActionsToday.toFloat() / target).coerceIn(0f, 1f)
+    }
+
 data class ProblemCardSummary(
     val cardId: Long,
     val russian: String,
@@ -280,7 +306,12 @@ data class GamificationStats(
     val currentStreak: Int,
     val inputStreak: Int = 0,
     val longestStreak: Int,
+    /** Card reviews completed today, kept separate from reading activity. */
     val reviewedToday: Int,
+    /** Completed scheduled reading activities today. */
+    val readingToday: Int = 0,
+    /** The unit used by the daily goal: cards plus completed reading activities. */
+    val learningActionsToday: Int = reviewedToday + readingToday,
     val dailyGoal: Int,
     val activeDays: Int,
     val last7Days: List<Boolean>,
@@ -299,7 +330,7 @@ data class GamificationStats(
     // day it already charged for — see ReviewViewModel.loadSession.
     val insuredGapDay: Long? = null
 ) {
-    val goalReached: Boolean get() = dailyGoal > 0 && reviewedToday >= dailyGoal
+    val goalReached: Boolean get() = dailyGoal > 0 && learningActionsToday >= dailyGoal
 
     companion object {
         // 14 weeks: enough to read as a real GitHub/Anki-style heatmap while still

@@ -76,4 +76,22 @@ class BackupManagerInstrumentedTest {
         manager.clearExternalEncryption()
         assertTrue(!manager.externalEncryptionConfigured())
     }
+
+    @Test fun encryptRejectsAPasswordShorterThanEightCharacters() {
+        val plain = "{\"lemma\":\"house\"}\n".toByteArray()
+        runCatching { BackupEncryptionCodec.encrypt(plain, "short") }
+            .onSuccess { error("a 5-character password unexpectedly passed the minimum-length check") }
+    }
+
+    @Test fun decryptRejectsAPayloadWithNoHeaderSeparator() {
+        runCatching { BackupEncryptionCodec.decrypt("no newline anywhere in this payload".toByteArray(), "correct horse battery") }
+            .onSuccess { error("a payload with no header separator unexpectedly decrypted") }
+    }
+
+    @Test fun decryptRejectsAPayloadWithACorruptedOrForeignHeader() {
+        val bogusHeader = "{\"magic\":\"NOT_A_SIBIRSKY_BACKUP\",\"format\":1}".toByteArray()
+        val payload = bogusHeader + "\n".toByteArray() + "irrelevant ciphertext".toByteArray()
+        runCatching { BackupEncryptionCodec.decrypt(payload, "correct horse battery") }
+            .onSuccess { error("a payload with a foreign/corrupted magic header unexpectedly decrypted") }
+    }
 }

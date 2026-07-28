@@ -16,6 +16,8 @@ internal object SpeechRecognitionPolicy {
         SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognizer busy. Try again."
         SpeechRecognizer.ERROR_SERVER -> "Recognition server error."
         SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech heard. Try again."
+        SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> "Russian recognition is not supported by this device."
+        SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "The Russian speech model is not installed."
         else -> "Couldn't recognize speech. Try again."
     }
 }

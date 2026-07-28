@@ -7,6 +7,25 @@ import org.junit.Test
 
 class AnswerNormalizerTest {
     @Test
+    fun speechHypothesisSelectionUsesPromptFitBeforeRecognizerOrder() {
+        val selected = selectBestSpeechHypothesis(
+            expected = "молоко",
+            candidates = listOf("далеко" to 0.95f, "молоко" to 0.35f)
+        )
+        assertEquals("молоко", selected?.first)
+        assertEquals(0.35f, selected?.second)
+    }
+
+    @Test
+    fun speechHypothesisSelectionFallsBackToConfidenceWhenAllAreWrong() {
+        val selected = selectBestSpeechHypothesis(
+            expected = "молоко",
+            candidates = listOf("машина" to 0.2f, "работа" to 0.8f)
+        )
+        assertEquals("работа", selected?.first)
+    }
+
+    @Test
     fun normalizesStressCaseWhitespaceAndYo() {
         assertEquals("молоко", normalizeRussian("  МОЛОКО\u0301 "))
         assertEquals("все", normalizeRussian("всё"))
@@ -79,6 +98,24 @@ class AnswerNormalizerTest {
     @Test
     fun acceptsRussianSlashAlternatives() {
         assertTrue(isRussianAnswerCorrect("писать/написать", "написать"))
+    }
+
+    @Test
+    fun acceptsLatinAsrTranscriptForSpeechWithoutRelaxingTypedRussian() {
+        val speech = evaluateRussianAnswer("ваш", "vash", allowTransliteration = true)
+
+        assertEquals(AnswerMatch.EXACT, speech.match)
+        assertTrue(speech.accepted)
+        assertTrue(speech.usedTransliteration)
+        assertFalse(evaluateRussianAnswer("ваш", "vash").accepted)
+    }
+
+    @Test
+    fun elicitedImitationAcceptsLatinAsrTokens() {
+        val evaluation = evaluateElicitedImitation("ваш дом", "vash dom")
+
+        assertTrue(evaluation.accepted)
+        assertTrue(evaluation.usedTransliteration)
     }
 
     @Test

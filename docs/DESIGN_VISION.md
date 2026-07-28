@@ -155,8 +155,16 @@ This is one learner, so DATA IS SCARCE. Therefore:
   forced placement test.
 
 =====================================================================
-10. HOW THE CURRENT ENGINES MAP (as of DB v16)
+10. HOW THE CURRENT ENGINES MAP (as of DB v16 — ⚠ STALE, see note below)
 =====================================================================
+⚠ This section is a point-in-time snapshot from DB v16; schema is now v32 and
+everything this section lists as "net-new to build" (multi-skill TrueSkill,
+the Rival/Ghost, willingness/return model, capacity Gaussian, review-debt
+constraint) has since shipped — see PaceController.kt, Rival.kt, TrueSkill.kt,
+WillingnessModel, CapacityModel in `app/src/main/java/com/sibirskyspeak/learning/`.
+Kept below verbatim as a historical snapshot of the staging sequence actually
+followed, not as a current status board.
+
 Already in place (the substrate exists):
   FSRS retrievability ........... M (item memory)            ✓
   BKT (MasteryModel) ............ K (concept mastery)         ✓

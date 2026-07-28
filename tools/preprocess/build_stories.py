@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
+import unicodedata
 from pathlib import Path
 
 import pymorphy3
@@ -23,7 +25,10 @@ KNOWN_CHARACTER_NAMES = {"анна", "иван", "мария", "петр", "ма
 
 
 def norm(value: str) -> str:
-    return value.lower().replace("ё", "е")
+    value = unicodedata.normalize("NFD", value.lower()).replace("\u0301", "")
+    # NFD decomposes й as well as stress marks; always recompose before using
+    # the result as a pymorphy/dictionary key.
+    return unicodedata.normalize("NFC", value).replace("ё", "е")
 
 
 def known_lemmas(notes_path: Path) -> set[str]:
@@ -47,6 +52,8 @@ def unknown_words(body: str, morph: pymorphy3.MorphAnalyzer, vocab: set[str]) ->
             continue
         parses = morph.parse(word)
         lemmas = {norm(p.normal_form) for p in parses}
+        if lemmas & KNOWN_CHARACTER_NAMES:
+            continue
         if not lemmas & vocab:
             unknown.append(word)
     return unknown
@@ -68,9 +75,22 @@ def validate_series(doc: dict, vocab: set[str], morph: pymorphy3.MorphAnalyzer, 
         word_count = len(WORD.findall(chapter["body"]))
         if not (40 <= word_count <= 300):
             raise SystemExit(f"{doc['seriesId']} ch.{chapter['chapter']}: {word_count} words, outside the 40-300 band")
+        translation = chapter.get("translation", "").strip()
+        if translation:
+            russian_sentences = len(re.findall(r"[.!?]+", chapter["body"]))
+            english_sentences = len(re.findall(r"[.!?]+", translation))
+            if russian_sentences != english_sentences:
+                raise SystemExit(
+                    f"{doc['seriesId']} ch.{chapter['chapter']}: parallel sentence count "
+                    f"{russian_sentences} != {english_sentences}"
+                )
         unknown = unknown_words(chapter["body"], morph, vocab)
-        if len(unknown) > gloss_budget:
-            raise SystemExit(f"{doc['seriesId']} ch.{chapter['chapter']}: {len(unknown)} unglossed unknown words (budget {gloss_budget}): {unknown}")
+        # A sentence-aligned English companion is an always-available scaffold, so
+        # upper-level parallel texts may deliberately carry a richer lexical load.
+        # Monolingual stories retain the strict three-word narrow-reading budget.
+        budget = max(gloss_budget, math.ceil(word_count * 0.25)) if chapter.get("translation") else gloss_budget
+        if len(unknown) > budget:
+            raise SystemExit(f"{doc['seriesId']} ch.{chapter['chapter']}: {len(unknown)} unglossed unknown words (budget {budget}): {unknown}")
 
 
 def build(stories_dir: Path, notes_path: Path, reader_texts_path: Path) -> dict:
@@ -96,6 +116,8 @@ def build(stories_dir: Path, notes_path: Path, reader_texts_path: Path) -> dict:
                     "format": chapter.get("format", doc["format"]),
                     "topic": chapter.get("topic", doc["topic"]),
                 }
+                if chapter.get("translation"):
+                    row["translationBody"] = chapter["translation"]
                 if chapter.get("cast"):
                     row["cast"] = chapter["cast"]
                 out.write(json.dumps(row, ensure_ascii=False) + "\n")

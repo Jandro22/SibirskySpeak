@@ -42,7 +42,7 @@ FAMILY_REENCOUNTER_CONCEPT = {
 
 def _lesson_units(rows):
     """{concept_id: unit} for every LESSON note (including extraConcepts)."""
-    return {n["conceptId"]: n["unit"] for n in rows if n["pos"] == "lesson"}
+    return {n["conceptId"]: n["unit"] for n in rows if n["pos"] == "lesson" and n.get("conceptId")}
 
 
 def test_case_family_concepts_are_not_adjacent():

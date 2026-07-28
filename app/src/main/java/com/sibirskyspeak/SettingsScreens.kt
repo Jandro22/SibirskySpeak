@@ -116,6 +116,7 @@ internal fun ImportExportPanel(
     onReminderEnabled: (Boolean) -> Unit,
     onReminderHour: (Int) -> Unit,
     onFontScale: (Float) -> Unit,
+    onOnlineGlossLookup: (Boolean) -> Unit,
     onSearch: (String) -> Unit,
     onSpeakRussian: (String) -> Unit,
     onDebugStartCardType: (com.sibirskyspeak.data.CardType) -> Unit
@@ -172,14 +173,14 @@ internal fun ImportExportPanel(
                             Text("Daily workload", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(6.dp))
                             Text(
-                                "Tune how much appears in a normal session. Changes apply after you finish moving a slider.",
+                                "Choose a sustainable target. The tutor estimates minutes from your recent pace and shifts toward easier review when fatigue or accuracy dips; it never discards assigned cards. Changes apply after you finish moving a slider.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(Modifier.height(12.dp))
                             SettingSlider(
-                                label = "Daily goal",
-                                valueLabel = "${dailyGoal.roundToInt()} cards",
+                                label = "Daily learning target",
+                                valueLabel = "${dailyGoal.roundToInt()} actions",
                                 value = dailyGoal,
                                 range = SettingsStore.MIN_DAILY_GOAL.toFloat()..SettingsStore.MAX_DAILY_GOAL.toFloat(),
                                 steps = SettingsStore.MAX_DAILY_GOAL - SettingsStore.MIN_DAILY_GOAL - 1,
@@ -188,7 +189,7 @@ internal fun ImportExportPanel(
                             )
                             Spacer(Modifier.height(10.dp))
                             SettingSlider(
-                                label = "Session size",
+                                label = "Session target",
                                 valueLabel = "${sessionSize.roundToInt()} cards",
                                 value = sessionSize,
                                 range = SettingsStore.MIN_SESSION_SIZE.toFloat()..SettingsStore.MAX_SESSION_SIZE.toFloat(),
@@ -217,12 +218,17 @@ internal fun ImportExportPanel(
                                 onChange = { retention = it },
                                 onChangeFinished = { onRetention(retention.toDouble()) }
                             )
+                            Text(
+                                "Retention is the share of mature cards the scheduler aims to have you recall at review time. Higher targets mean shorter intervals and more review work.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         SectionCard {
                             Text("Learning goal", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(6.dp))
                             Text(
-                                "Commit to a CEFR level and a date. Once set, the tutor nudges your pace toward it without ever overriding a real fatigue or accuracy stop.",
+                                "Commit to a CEFR level and a date. Once set, the tutor nudges your pace toward it while adapting card difficulty and order to fatigue and accuracy.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -233,7 +239,11 @@ internal fun ImportExportPanel(
                             var selectedLevel by remember(state.goalTargetLevelSetting) {
                                 mutableStateOf(state.goalTargetLevelSetting.ifEmpty { "B2" })
                             }
-                            val nowDay = remember { System.currentTimeMillis() / 86_400_000L }
+                            val nowDay = remember {
+                                val now = System.currentTimeMillis()
+                                val offset = java.util.TimeZone.getDefault().getOffset(now).toLong()
+                                (now + offset) / 86_400_000L
+                            }
                             val initialMonths = if (hasGoal) {
                                 (((state.goalTargetDateEpochDaySetting - nowDay).coerceAtLeast(0)) / 30f).roundToInt().coerceIn(3, 60)
                             } else 18
@@ -270,12 +280,20 @@ internal fun ImportExportPanel(
                                     GoalVerdict.STRETCH -> "A stretch — the tutor will nudge your pace up toward it." to MaterialTheme.colorScheme.tertiary
                                     GoalVerdict.UNSUSTAINABLE -> "Not realistic without risking burnout — consider a later date." to MaterialTheme.colorScheme.error
                                 }
-                                Text(
-                                    "Needs ~${feasibility.requiredPace.roundToInt()} new words/day " +
-                                        "(your sustainable pace: ~${feasibility.currentPace.roundToInt()}/day). $verdictLabel",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = verdictColor
-                                )
+                                if (feasibility.currentPace > 0.0) {
+                                    Text(
+                                        "Needs ~${feasibility.requiredPace.roundToInt()} new words/day " +
+                                            "(sustainable baseline: ~${feasibility.currentPace.roundToInt()}/day). $verdictLabel",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = verdictColor
+                                    )
+                                } else {
+                                    Text(
+                                        "The tutor is still building a reliable pace estimate; keep the date flexible for now.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                                 Spacer(Modifier.height(10.dp))
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -402,6 +420,22 @@ internal fun ImportExportPanel(
                                 rangeLabel = { "${(it * 100).toInt()}%" },
                                 onChange = onFontScale
                             )
+                            Spacer(Modifier.height(14.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Online gloss assist", fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        "Uses a free public translation service when an unknown reader word is tapped. It is enabled by default, may be imperfect, and never blocks offline reading.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Switch(
+                                    checked = state.onlineGlossLookupEnabled,
+                                    onCheckedChange = onOnlineGlossLookup,
+                                    modifier = Modifier.semantics { contentDescription = "Online gloss assist" }
+                                )
+                            }
                         }
                         SectionCard {
                             Text("Add Reader Text", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -550,7 +584,7 @@ internal fun ImportExportPanel(
                                 Column(Modifier.weight(1f)) {
                                     Text("Automatic Downloads backup", fontWeight = FontWeight.SemiBold)
                                     Text(
-                                        "When enabled, a rolling copy is saved to the public Downloads/SibirskySpeak folder. Turn this off if you prefer only a custom folder or manual exports.",
+                                    "Enabled by default: a rolling copy is saved to the public Downloads/SibirskySpeak folder. This copy is not encrypted unless you configure external backup encryption.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )

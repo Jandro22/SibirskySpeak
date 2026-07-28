@@ -1,7 +1,6 @@
 package com.sibirskyspeak
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -51,25 +50,25 @@ internal val BrandLight = lightColorScheme(
 )
 
 internal val BrandDark = darkColorScheme(
-    primary = Color(0xFF90CAF9),
-    onPrimary = Color(0xFF00325B),
-    primaryContainer = Color(0xFF1565C0),
-    onPrimaryContainer = Color(0xFFBBDEFB),
-    secondary = Color(0xFFA5D6A7),
-    onSecondary = Color(0xFF0F3512),
-    secondaryContainer = Color(0xFF2E7D32),
-    onSecondaryContainer = Color(0xFFC8E6C9),
-    tertiary = Color(0xFFF0D47E),
-    onTertiary = Color(0xFF3D2E00),
-    tertiaryContainer = Color(0xFF5C4300),
-    onTertiaryContainer = Color(0xFFFFE4B0),
-    background = Color(0xFF121316),
-    onBackground = Color(0xFFE3E5E7),
-    surface = Color(0xFF17181B),
-    onSurface = Color(0xFFE3E5E7),
-    surfaceVariant = Color(0xFF43474A),
-    onSurfaceVariant = Color(0xFFC3C7CA),
-    outline = Color(0xFF8D9195),
+    primary = Color(0xFF2D7DB9),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFF1C4F73),
+    onPrimaryContainer = Color(0xFFD7EEFF),
+    secondary = Color(0xFF5DB878),
+    onSecondary = Color(0xFF082611),
+    secondaryContainer = Color(0xFF1D4B2B),
+    onSecondaryContainer = Color(0xFFC8F3D0),
+    tertiary = Color(0xFFD6AE4B),
+    onTertiary = Color(0xFF2A1B00),
+    tertiaryContainer = Color(0xFF594300),
+    onTertiaryContainer = Color(0xFFFFE5A4),
+    background = Color(0xFF0D1117),
+    onBackground = Color(0xFFE6EDF3),
+    surface = Color(0xFF141B24),
+    onSurface = Color(0xFFE6EDF3),
+    surfaceVariant = Color(0xFF26323D),
+    onSurfaceVariant = Color(0xFFB4C0CA),
+    outline = Color(0xFF71808C),
     error = Color(0xFFFFB4AB),
     onError = Color(0xFF690005)
 )
@@ -99,10 +98,10 @@ internal val RussianDisplay = TextStyle(fontSize = 30.sp, lineHeight = 40.sp, fo
 
 @Composable
 internal fun SibirskySpeakTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    // Keep the deliberate blue/green/gold identity. Device wallpaper-derived
-    // dynamic palettes can collapse the learning UI into nearly monochrome tones.
-    val colors = if (dark) BrandDark else BrandLight
+    // SibirskySpeak is intentionally dark-first: the app is a focused evening
+    // practice tool, and its primary user keeps the device in dark mode. Keeping
+    // this explicit also means screenshots, QA, and the shipped experience agree.
+    val colors = BrandDark
     MaterialTheme(colorScheme = colors, shapes = AppShapes, content = content)
 }
 

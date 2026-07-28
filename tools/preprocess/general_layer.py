@@ -42,6 +42,40 @@ SOURCE = HERE / "general_source.jsonl"
 _MOJIBAKE_CYRILLIC = re.compile("[ѐђ-џЀЂ-Џ]")
 
 
+_LATIN_TOKEN = re.compile(r"[A-Za-z\u0400-\u04FF]+(?:[-'][A-Za-z\u0400-\u04FF]+)*")
+
+
+def _studyable_example(ru: str, en: str) -> bool:
+    """Return whether a scraped example is safe to put in a learner card."""
+    if not ru.strip() or not en.strip():
+        return False
+    if not any("\u0400" <= ch <= "\u04FF" for ch in ru):
+        return False
+    if not any("A" <= ch <= "Z" or "a" <= ch <= "z" for ch in en):
+        return False
+    if ru.count('"') % 2 or en.count('"') % 2:
+        return False
+    if any(ord(ch) == 0xFFFD or 0x80 <= ord(ch) <= 0x9F for ch in ru + en):
+        return False
+    if re.search(r"[\u0400-\u04FF]\u20AC[\u0400-\u04FF]", ru):
+        return False
+    lower_ascii_words = 0
+    for match in _LATIN_TOKEN.finditer(ru):
+        token = match.group(0)
+        has_latin = any("A" <= ch <= "Z" or "a" <= ch <= "z" for ch in token)
+        if has_latin:
+            letters = "".join(ch for ch in token if ch.isascii() and ch.isalpha())
+            in_quote = ru[:match.start()].count('"') % 2 == 1
+            if len(letters) >= 3 and not token[0].isupper() and not token.isupper() and not in_quote:
+                lower_ascii_words += 1
+    # Three or more ordinary lower-case English words in the Russian half
+    # is the characteristic signature of a sentence boundary that was missed;
+    # isolated product names/usernames (``dwm``, ``prototype.js``) remain valid.
+    if lower_ascii_words >= 3:
+        return False
+    return True
+
+
 def _repair_mojibake(text: str) -> str:
     if not _MOJIBAKE_CYRILLIC.search(text):
         return text
@@ -68,6 +102,23 @@ POS_MAP = {
 SECOND_SENSE_OVERRIDES = {
     "мир": ("peace", "Он хочет мира.", "He wants peace."),
     "лук": ("onion", "Мама режет лук для супа.", "Mom is cutting an onion for the soup."),
+}
+# A few scraped glosses carried a second-language explanation from the source
+# dictionary. Keep the learner-facing meaning in one language; the examples
+# remain the evidence for the Russian sense.
+TRANSLATION_OVERRIDES = {
+    "из-за": "because of; owing to",
+    "кафе": "café",
+    "жених": "fiancé (male)",
+    "диагноз": "diagnosis",
+    "плотность": "density",
+    "переворот": "coup d'état",
+    "коммюнике": "communiqué",
+    "атташе": "attaché",
+    "регистрировать": "to register",
+    "легкомысленный": "flippant; thoughtless; light-minded",
+    "мэтр": "maître",
+    "пренебрегать": "to neglect; to treat without respect",
 }
 GENDER_MAP = {"masc": "M", "femn": "F", "neut": "N"}
 
@@ -432,7 +483,8 @@ def general_rows(domain_lemmas: set[str]) -> list[dict]:
         if not lemma or key in seen:
             continue
         seen.add(key)
-        translation = e.get("definition", "").strip()
+        source_translation = e.get("definition", "").strip()
+        translation = TRANSLATION_OVERRIDES.get(lemma, source_translation)
         if not translation:
             continue
         pos = _pos(e.get("pos", ""))
@@ -454,6 +506,11 @@ def general_rows(domain_lemmas: set[str]) -> list[dict]:
             "generalFreqRank": rank if rank else None,
             "tags": tag_name,
         }
+        if translation != source_translation:
+            # This is a deliberate local editorial correction, not an
+            # unreviewed scrape; finalize_notes preserves it for the next
+            # evidence-ledger rebuild.
+            note["authored"] = True
         curated_count += 1
 
         second_sense = SECOND_SENSE_OVERRIDES.get(lemma)
@@ -461,6 +518,7 @@ def general_rows(domain_lemmas: set[str]) -> list[dict]:
             note["secondSense"], note["secondSenseExample"], note["secondSenseExampleTranslation"] = second_sense
 
         example = e.get("example", "").strip()
+        needs_quality_fallback = False
         if example:
             # Deck examples are "Russian - English". Split into sentence + gloss; only
             # keep the example if BOTH halves are present — a sentence with an empty
@@ -505,9 +563,11 @@ def general_rows(domain_lemmas: set[str]) -> list[dict]:
             has_cyrillic = any("а" <= ch.lower() <= "я" or ch == "ё" for ch in ru)
             has_latin = any("a" <= ch.lower() <= "z" for ch in en)
             is_mojibake = bool(_MOJIBAKE_CYRILLIC.search(ru)) or bool(_MOJIBAKE_CYRILLIC.search(en))
-            if ru and en and has_cyrillic and has_latin and not is_mojibake:
+            if ru and en and has_cyrillic and has_latin and not is_mojibake and _studyable_example(ru, en):
                 note["exampleSentence"] = ru
                 note["exampleTranslation"] = en
+            else:
+                needs_quality_fallback = True
 
         gender_raw = e.get("gender", "").strip().lower()
         gender = GENDER_MAP.get(gender_raw)
@@ -528,6 +588,30 @@ def general_rows(domain_lemmas: set[str]) -> list[dict]:
                 note["declensionJson"] = table
             except Exception:
                 pass  # irregular/comparative-only: vocab-only is fine
+
+        # A small number of scraped records are structurally corrupted (quote
+        # truncation, an English tail embedded in RU, or mojibake punctuation).
+        # Keep the vocabulary card, but replace only those records with a
+        # morphology-aware, explicitly marked fallback context. This is safer
+        # than silently teaching the corrupted source sentence or dropping a
+        # high-frequency note altogether.
+        if needs_quality_fallback:
+            if pos == "noun" and table:
+                fallback_ru, fallback_en = noun_example_gen(
+                    table, strip_stress(word), translation,
+                    _seems_animate(gender_raw, translation), len(rows))
+            elif pos == "adjective" and table:
+                fallback_ru, fallback_en = adjective_example_gen(table, word, translation, len(rows))
+            elif pos == "verb":
+                fallback_ru, fallback_en = verb_example_gen(word, translation, len(rows))
+            elif pos == "adverb":
+                fallback_ru, fallback_en = adverb_example_gen(word, translation, len(rows))
+            else:
+                fallback_ru = f"Мы изучаем слово «{strip_stress(word)}»."
+                fallback_en = f"We are studying the word “{term_en(translation)}”."
+            note["exampleSentence"] = fallback_ru
+            note["exampleTranslation"] = fallback_en
+            note["exampleSource"] = "generated-quality-fallback"
 
         # NOTE: we intentionally do NOT synthesize 2nd/3rd examples here. The
         # templated generators (noun_example_gen, etc.) produce formulaic, low-quality

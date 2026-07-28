@@ -97,7 +97,7 @@ object CardFactory {
         // STRESS_MARK was retired in the database migration. Keep the old enum and
         // prompt builder importable for backups, but never mint new stress cards.
         if (!isReadingMatrix) caseCards(note).forEach(::add)
-        if (!isReadingMatrix) verbFormCards(note).forEach(::add)
+        if (!isReadingMatrix && !isExistentialHomograph(note)) verbFormCards(note).forEach(::add)
         if (!isReadingMatrix) adjectiveAgreementCards(note).forEach(::add)
         if (!isReadingMatrix) genderCard(note)?.let(::add)
         // ASPECT_SELECT requires a verified Aktionsart (design F8): the drill's
@@ -123,6 +123,11 @@ object CardFactory {
         val functionWord = pos in setOf("preposition", "conjunction", "particle", "pronoun", "conj.", "prep.")
         return functionWord && note.translation.split(',', ';', '/').count { it.isNotBlank() } > 1
     }
+
+    /** `есть = there is/are` is not the infinitive `есть = to eat`. */
+    fun isExistentialHomograph(note: Note): Boolean =
+        RussianForms.normalize(note.lemma) == RussianForms.normalize("есть") &&
+            note.translation.trim().lowercase(Locale.ENGLISH).startsWith("there is")
 
     /** Also used outside card generation — e.g. to decide whether a note qualifies
      * for a retroactively-added CLOZE card once it gains a usable example. */

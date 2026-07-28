@@ -31,11 +31,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.EmojiEvents
@@ -46,7 +49,10 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import kotlin.math.roundToInt
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -88,6 +94,8 @@ import androidx.compose.ui.unit.dp
 import com.sibirskyspeak.data.Achievement
 import com.sibirskyspeak.data.GamificationStats
 import com.sibirskyspeak.data.SkillRating
+import com.sibirskyspeak.data.routeProgress
+import com.sibirskyspeak.data.routeComplete
 import com.sibirskyspeak.review.LeechItem
 import com.sibirskyspeak.review.ReviewUiState
 import com.sibirskyspeak.learning.AbilitySkill
@@ -106,11 +114,6 @@ internal fun DashboardPanel(
     onLoadLeeches: () -> Unit = {},
     onReleaseLeech: (LeechItem) -> Unit = {},
     onSaveLeechEdit: (LeechItem, String?, String?, String?, String?) -> Unit = { _, _, _, _, _ -> },
-    onStartExitTicket: () -> Unit = {},
-    onDismissExitTicketOffer: () -> Unit = {},
-    onSubmitExitTicketAnswer: (String) -> Unit = {},
-    onCloseExitTicket: () -> Unit = {},
-    onSpeakRussian: (String) -> Unit = {},
     onGoToBackupSettings: () -> Unit = {},
     onCustomizeToday: () -> Unit = {},
     onGoToGoalSettings: () -> Unit = {},
@@ -138,7 +141,7 @@ internal fun DashboardPanel(
     var showDetails by rememberSaveable { mutableStateOf(false) }
     var editingLeech by remember { mutableStateOf<LeechItem?>(null) }
     LaunchedEffect(stats.leechCount) { if (stats.leechCount > 0) onLoadLeeches() }
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         // The local backup (see BackupManager) lives in app-private storage, which
         // does NOT survive an uninstall or "Clear storage" — by design, per its own
         // doc comment. BackupManager now mirrors to public Downloads/SibirskySpeak
@@ -148,11 +151,6 @@ internal fun DashboardPanel(
         // window before that first automatic mirror, or on a pre-Android-10 device
         // where MediaStore.Downloads isn't available and a manually-chosen SAF
         // folder (Settings > Data) is the only durable option.
-        if (state.exitTicketSession != null) {
-            ExitTicketCard(state, onSubmitExitTicketAnswer, onCloseExitTicket, onSpeakRussian)
-        } else if (state.exitTicketOfferUnit != null) {
-            ExitTicketOfferCard(state.exitTicketOfferUnit, state.exitTicketOfferCanDo, onStartExitTicket, onDismissExitTicketOffer)
-        }
         DashboardNextActionCard(state, onStart, onCustomizeToday)
         if (state.automaticPublicBackupEnabled && state.backupLastDurableAt <= 0L && stats.noteCount > 0) {
             BackupNotConfiguredCard(onGoToBackupSettings)
@@ -163,12 +161,12 @@ internal fun DashboardPanel(
         // and landscape retain the compact two-column layout.
         BoxWithConstraints {
             if (maxWidth < 420.dp) {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     DailyGoalCard(Modifier.fillMaxWidth(), game)
                     WordsKnownCard(Modifier.fillMaxWidth(), game)
                 }
             } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     DailyGoalCard(Modifier.weight(1f), game)
                     WordsKnownCard(Modifier.weight(1f), game)
                 }
@@ -255,102 +253,187 @@ internal fun BackupNotConfiguredCard(onGoToBackupSettings: () -> Unit) {
 }
 
 /**
- * Phase G6 / P6.5: "Unit N complete — quick check?" offer, shown once a unit's
- * own vocabulary/grammar first crosses the mastery threshold (see
- * ReviewViewModel.maybeOfferExitTicket). Skipping this is always zero-friction —
- * dismissing it never blocks the learner from continuing normally.
+ * A dedicated full-screen unit-assessment room. Every response is a tap; this
+ * surface intentionally has no text field and no software-keyboard path.
  */
 @Composable
-internal fun ExitTicketOfferCard(
-    unit: Int,
-    canDo: String?,
-    onStart: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    SectionCard {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Unit $unit complete — quick check?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    canDo?.let { "Can you $it?" } ?: "A short mixed check over what you just learned.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onStart, modifier = Modifier.testTag(TestTags.EXIT_TICKET_START)) { Text("Quick check") }
-            TextButton(onClick = onDismiss, modifier = Modifier.testTag(TestTags.EXIT_TICKET_DISMISS)) { Text("Skip") }
-        }
-    }
-}
-
-/**
- * The exit ticket's mixed mini proof session (Phase G6 / P6.5): one item at a
- * time, exactly like CheckpointCard, over the four facets units.json defines
- * (recognition/production/listening/reading — see LearningRepository.
- * buildExitTicketSession). Writes no FSRS state directly; ReviewViewModel feeds
- * the result to the evidence bus at PRACTICE strength on completion.
- */
-@Composable
-internal fun ExitTicketCard(
+internal fun ExitTicketRoom(
     state: ReviewUiState,
     onSubmit: (String) -> Unit,
+    onContinue: () -> Unit,
     onClose: () -> Unit,
     onSpeakRussian: (String) -> Unit
 ) {
     val session = state.exitTicketSession ?: return
     val item = session.items.getOrNull(state.exitTicketIndex)
-    SectionCard {
-        Text("${session.band} · Unit ${session.unit} quick check", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        session.canDoLabel?.let { Text("Can-do: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        when {
-            item != null -> {
-                var answer by rememberSaveable(state.exitTicketIndex) { mutableStateOf("") }
-                Text("${state.exitTicketIndex + 1} / ${session.items.size} · ${item.kind}", style = MaterialTheme.typography.labelMedium)
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                tonalElevation = 2.dp
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Icon(Icons.Filled.EmojiEvents, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Column {
+                                Text("Unit ${session.unit} capstone", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Text(session.band, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        TextButton(onClick = onClose, modifier = Modifier.testTag(TestTags.EXIT_TICKET_DISMISS)) {
+                            Icon(Icons.Filled.Close, contentDescription = null)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Finish later")
+                        }
+                    }
+                    session.canDoLabel?.let {
+                        Text("Goal: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    val completed = state.exitTicketIndex.coerceAtMost(session.items.size)
+                    AppLinearProgressIndicator(
+                        progress = { completed.toFloat() / session.items.size.coerceAtLeast(1).toFloat() },
+                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(50)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                if (item == null) {
+                    val correct = state.exitTicketResults.count { it }
+                    Icon(
+                        Icons.Filled.CheckCircle,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(54.dp).align(Alignment.CenterHorizontally)
+                    )
+                    Text("Capstone complete", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.CenterHorizontally))
+                    Text(
+                        "$correct of ${session.items.size} calibrated checks were correct. The result has been connected to unit evidence and future practice.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center
+                    )
+                    Button(
+                        onClick = onClose,
+                        modifier = Modifier.fillMaxWidth().testTag(TestTags.EXIT_TICKET_CLOSE)
+                    ) { Text("Return to study") }
+                    return@Column
+                }
+
+                val kindLabel = when (item.kind) {
+                    "recognition" -> "Meaning"
+                    "production" -> "Build the response"
+                    "listening" -> "Listening"
+                    "reading" -> "Reading"
+                    "dialogue" -> "Conversation"
+                    "transfer" -> "Unit transfer"
+                    else -> "Unit check"
+                }
                 Text(
-                    when (item.kind) {
-                        "recognition", "reading" -> "What does this mean? ${item.prompt}"
-                        "listening" -> item.prompt
-                        else -> "Write the connected Russian: ${item.prompt}"
-                    },
-                    style = MaterialTheme.typography.bodyLarge
+                    "${state.exitTicketIndex + 1} of ${session.items.size} · $kindLabel",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
                 )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Text(
+                        when (item.kind) {
+                            "recognition" -> "What does this mean?\n\n${item.prompt}"
+                            "production" -> "Choose the Russian response for:\n\n${item.prompt}"
+                            "listening" -> item.prompt
+                            "reading" -> "Choose the meaning:\n\n${item.prompt}"
+                            "dialogue" -> "Choose what you would say next:\n\n${item.prompt}"
+                            else -> item.prompt
+                        },
+                        modifier = Modifier.padding(18.dp),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
                 item.audioPrompt?.let { audio ->
-                    OutlinedButton(onClick = { onSpeakRussian(audio) }, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { onSpeakRussian(audio) },
+                        modifier = Modifier.fillMaxWidth().testTag(TestTags.EXIT_TICKET_LISTEN)
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text("Listen")
                     }
                 }
-                if (item.choices.isNotEmpty()) {
-                    item.choices.forEach { choice ->
-                        OutlinedButton(onClick = { onSubmit(choice) }, modifier = Modifier.fillMaxWidth()) { Text(choice) }
+                item.choices.forEachIndexed { index, choice ->
+                    val selected = state.exitTicketSelectedAnswer == choice
+                    val reveal = state.exitTicketPendingCorrect != null
+                    val correctChoice = choice.trim().equals(item.expectedAnswer.trim(), ignoreCase = true)
+                    val feedbackContainer = when {
+                        reveal && correctChoice -> MaterialTheme.colorScheme.primaryContainer
+                        reveal && selected -> MaterialTheme.colorScheme.errorContainer
+                        else -> MaterialTheme.colorScheme.surface
+                    }
+                    val feedbackContent = when {
+                        reveal && correctChoice -> MaterialTheme.colorScheme.onPrimaryContainer
+                        reveal && selected -> MaterialTheme.colorScheme.onErrorContainer
+                        else -> MaterialTheme.colorScheme.primary
+                    }
+                    OutlinedButton(
+                        onClick = { onSubmit(choice) },
+                        enabled = !reveal && !state.exitTicketAnswerInProgress,
+                        modifier = Modifier.fillMaxWidth().testTag("${TestTags.EXIT_TICKET_CHOICE_PREFIX}_$index"),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = feedbackContainer,
+                            contentColor = feedbackContent,
+                            disabledContainerColor = feedbackContainer,
+                            disabledContentColor = feedbackContent
+                        )
+                    ) {
+                        Text(choice, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start)
                     }
                 }
-                if (item.choices.isEmpty()) {
-                    androidx.compose.material3.OutlinedTextField(
-                        value = answer,
-                        onValueChange = { answer = it },
-                        modifier = Modifier.fillMaxWidth().testTag(TestTags.EXIT_TICKET_INPUT),
-                        label = { Text("Your answer") }
+                if (state.exitTicketAnswerInProgress) {
+                    CircularProgressIndicator(modifier = Modifier.size(28.dp).align(Alignment.CenterHorizontally))
+                } else if (state.exitTicketPendingCorrect != null) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.medium,
+                        color = if (state.exitTicketPendingCorrect) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.errorContainer
+                    ) {
+                        Text(
+                            state.exitTicketFeedback.orEmpty(),
+                            modifier = Modifier.padding(14.dp),
+                            color = if (state.exitTicketPendingCorrect) MaterialTheme.colorScheme.onPrimaryContainer
+                            else MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                    Button(
+                        onClick = onContinue,
+                        modifier = Modifier.fillMaxWidth().testTag(TestTags.EXIT_TICKET_CONTINUE)
+                    ) {
+                        Text(if (state.exitTicketIndex + 1 >= session.items.size) "See results" else "Next question")
+                    }
+                } else {
+                    Text(
+                        "Tap one answer. No Russian keyboard is needed.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Button(onClick = { onSubmit(answer) }, modifier = Modifier.testTag(TestTags.EXIT_TICKET_SUBMIT)) { Text("Submit") }
                 }
             }
-            else -> {
-                val correct = state.exitTicketResults.count { it }
-                Text(
-                    state.exitTicketFeedback ?: "Quick check complete: $correct/${session.items.size} correct.",
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Button(onClick = onClose, modifier = Modifier.testTag(TestTags.EXIT_TICKET_CLOSE)) { Text("Done") }
-            }
-        }
-        state.exitTicketFeedback?.takeIf { item != null }?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -437,11 +520,36 @@ internal fun DashboardNextActionCard(
     val hasGrammar = prompts.any { it.card.queue.name == "GRAMMAR" }
     val hasNew = prompts.any { it.card.state.name == "NEW" }
     val leechCount = state.dashboardStats?.leechCount ?: 0
-    val estimatedMinutes = (prompts.size * 0.3f).roundToInt().coerceAtLeast(1)
+    val estimatedMinutes = state.sessionPlan?.pace?.targetMinutes?.roundToInt()
+        ?.coerceAtLeast(1)
+        ?: (prompts.size * 0.3f).roundToInt().coerceAtLeast(1)
+    val game = state.sessionPlan?.gamification ?: GamificationStats.EMPTY
+    val dailyProgress = if (game.dailyGoal <= 0) 1f else (game.learningActionsToday.toFloat() / game.dailyGoal).coerceIn(0f, 1f)
+    val routeComplete = state.sessionPlan?.routeComplete == true
+    val routeProgress = state.sessionPlan?.routeProgress ?: dailyProgress
     HeroCard {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(Icons.Filled.Insights, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(34.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            ProgressRing(
+                progress = routeProgress,
+                modifier = Modifier.size(76.dp),
+                strokeWidth = 7.dp,
+                trackColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.18f),
+                color = if (routeComplete) SuccessGreen else MaterialTheme.colorScheme.onPrimary
+            ) {
+                Text(
+                    "${(routeProgress * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    "TODAY'S ROUTE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.72f),
+                    fontWeight = FontWeight.Bold
+                )
                 Text("Today's path", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
                 Text(
                     when {
@@ -457,6 +565,11 @@ internal fun DashboardNextActionCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
                 )
+                Text(
+                    "${game.learningActionsToday} of ${game.dailyGoal} daily learning actions",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.76f)
+                )
                 if (prompts.isNotEmpty()) {
                     Text(
                         stringResource(R.string.dashboard_adaptive_reason, state.sessionPlan?.adaptiveReason ?: "your recent accuracy and memory risk"),
@@ -466,7 +579,7 @@ internal fun DashboardNextActionCard(
                 }
             }
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             TodayFocusChip(if (prompts.isEmpty()) "Reviews clear" else "Memory review")
             if (hasNew) TodayFocusChip("New material")
@@ -481,7 +594,7 @@ internal fun DashboardNextActionCard(
         // when there's nothing sessionable, this card just says so above with no button.
         val startSession = prompts.isNotEmpty()
         if (startSession) {
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(10.dp))
             Button(
                 // A due reading must enter through the study-session state machine (same
                 // as the Practice tab's CTA) so its checkpoint updates the reading
@@ -493,7 +606,7 @@ internal fun DashboardNextActionCard(
                     contentColor = MaterialTheme.colorScheme.primary
                 )
             ) {
-                Icon(Icons.Filled.School, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Study")
             }
@@ -605,7 +718,7 @@ internal fun StreakCard(game: GamificationStats) {
                 Text("${"🛡".repeat(game.restDayCredits)}", style = MaterialTheme.typography.bodyLarge)
             }
         }
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(10.dp))
         ActivityHeatmap(game.activityHeatmap, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(4.dp))
         Text(
@@ -690,7 +803,7 @@ internal fun ActivityHeatmap(dailyCounts: List<Int>, modifier: Modifier = Modifi
 
 @Composable
 internal fun DailyGoalCard(modifier: Modifier, game: GamificationStats) {
-    val progress = if (game.dailyGoal == 0) 1f else game.reviewedToday.toFloat() / game.dailyGoal
+    val progress = if (game.dailyGoal == 0) 1f else game.learningActionsToday.toFloat() / game.dailyGoal
     MiniCard(modifier) {
         ProgressRing(
             progress = progress,
@@ -699,7 +812,7 @@ internal fun DailyGoalCard(modifier: Modifier, game: GamificationStats) {
             color = if (game.goalReached) SuccessGreen else MaterialTheme.colorScheme.primary
         ) {
             Icon(
-                if (game.goalReached) Icons.Filled.CheckCircle else Icons.Filled.School,
+                if (game.goalReached) Icons.Filled.CheckCircle else Icons.Filled.PlayArrow,
                 contentDescription = null,
                 tint = if (game.goalReached) SuccessGreen else MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(30.dp)
@@ -707,6 +820,11 @@ internal fun DailyGoalCard(modifier: Modifier, game: GamificationStats) {
         }
         Spacer(Modifier.height(10.dp))
         Text("Practice today", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        Text(
+            "${game.learningActionsToday} / ${game.dailyGoal} learning actions",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary
+        )
         Text(
             if (game.goalReached) "Complete" else "In progress",
             style = MaterialTheme.typography.bodySmall,
@@ -725,7 +843,7 @@ internal fun WordsKnownCard(modifier: Modifier, game: GamificationStats) {
                 .background(MaterialTheme.colorScheme.secondaryContainer),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Filled.AutoStories, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(34.dp))
+            Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(34.dp))
         }
         Spacer(Modifier.height(10.dp))
         Text("${animatedInt(game.knownWords)}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -760,7 +878,7 @@ internal fun AchievementsCard(game: GamificationStats) {
             )
         }
         if (!expanded && preview.isNotEmpty()) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 preview.forEach { achievement ->
                     PracticeFocusChip(achievement.title, null)
@@ -769,7 +887,7 @@ internal fun AchievementsCard(game: GamificationStats) {
         }
         AnimatedVisibility(visible = expanded) {
             Column {
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(8.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     game.achievements.forEach { AchievementBadge(it) }
                 }
@@ -784,13 +902,13 @@ internal fun SkillRadarCard(skillRatings: List<SkillRating>) {
     val axes = remember { AbilitySkill.values().toList() }
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(Icons.Filled.Insights, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Icon(Icons.Filled.Timeline, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Column(Modifier.weight(1f)) {
                 Text("Skill shape", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text("Ability means with uncertainty bands.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
         val hasEvidence = skillRatings.any { it.observations > 0 }
         if (hasEvidence) {
             SkillRadarChart(axes, ratings)
@@ -808,7 +926,7 @@ internal fun SkillRadarCard(skillRatings: List<SkillRating>) {
                 )
             }
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
         val statLabels = remember(ratings, axes) {
             axes.take(4).map { skill ->
                 val row = ratings[skill.name]
@@ -1282,9 +1400,13 @@ internal fun FluencyForecastCard(
     goalStatus: com.sibirskyspeak.learning.GoalStatus? = null
 ) {
     if (forecast == null) return
-    val anyMilestone = listOf("A1", "A2", "B1", "B2", "C1", "C2").any { forecast.days(it) != null }
+    var showDetails by rememberSaveable { mutableStateOf(false) }
+    val levels = listOf("A1", "A2", "B1", "B2", "C1", "C2")
+    val anyMilestone = levels.any { forecast.days(it) != null }
+    val sustainablePace = forecast.sustainablePace.takeIf { it.isFinite() && it > 0.0 }
+        ?: forecast.stablePace.coerceAtLeast(0.0)
     SectionCard {
-        Text("Days to Fluency Forecast", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("Projected curriculum milestones", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
 
         goalStatus?.let { goal ->
@@ -1316,12 +1438,11 @@ internal fun FluencyForecastCard(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            return@SectionCard
         }
 
         if (forecast.isEarlyEstimate) {
             Text(
-                "Early estimate — based on ${forecast.evidenceDays} of 14 recommended history days.",
+                "Early model estimate — based on ${forecast.evidenceDays} of 14 recommended history days; treat the ranges as planning guidance, not a promise.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
                 fontWeight = FontWeight.SemiBold
@@ -1346,10 +1467,36 @@ internal fun FluencyForecastCard(
             
             Spacer(Modifier.height(4.dp))
             Text(
-                "Based on steady-state pace: ${forecast.stablePace.roundToInt()} words/day, with review load stabilizing at ~${forecast.finalReviewLoad} reviews/day.",
+                "Sustainable baseline: ~${sustainablePace.roundToInt()} new words/day. The projection also accounts for spaced-review load, return consistency, and current uncertainty.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+
+        TextButton(onClick = { showDetails = !showDetails }) {
+            Text(if (showDetails) "Hide calculation details" else "Show calculation details")
+        }
+        AnimatedVisibility(showDetails) {
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("How this is calculated", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "• Capacity: ~${forecast.sustainableMinutes.roundToInt()} sustainable study minutes/day",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    "• Starting load: ${forecast.startingReviewLoad} mature review cards; projected steady load: ~${forecast.finalReviewLoad}/day",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    "• Return estimate: ${(forecast.returnProbability * 100).roundToInt()}% of study days; ${forecast.evidenceDays} evidence days",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    "• Simulation horizon: ${forecast.simulatedDays} days. Ranges widen when evidence is sparse; missing milestones are not treated as zero pace.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

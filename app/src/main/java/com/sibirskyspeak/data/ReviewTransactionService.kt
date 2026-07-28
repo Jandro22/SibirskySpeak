@@ -1,6 +1,7 @@
 package com.sibirskyspeak.data
 
 import javax.inject.Inject
+import com.sibirskyspeak.learning.EvidenceStrength
 
 /** Narrow review/undo boundary; transaction semantics stay owned by the repository adapter. */
 class ReviewTransactionService @Inject constructor(private val repository: LearningRepository) {
@@ -8,12 +9,14 @@ class ReviewTransactionService @Inject constructor(private val repository: Learn
         card: Card,
         rating: Rating,
         objectiveCorrect: Boolean? = null,
-        instructionalExposure: Boolean = false
+        instructionalExposure: Boolean = false,
+        evidenceOverride: EvidenceStrength? = null
     ): Boolean = repository.review(
         card,
         rating,
         objectiveCorrect = objectiveCorrect,
-        instructionalExposure = instructionalExposure
+        instructionalExposure = instructionalExposure,
+        evidenceOverride = evidenceOverride
     )
 
     suspend fun undoLastReview(): Card? = repository.undoLastReview()

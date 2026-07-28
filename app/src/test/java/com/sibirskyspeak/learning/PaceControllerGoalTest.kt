@@ -1,5 +1,9 @@
 package com.sibirskyspeak.learning
 
+import com.sibirskyspeak.data.Card
+import com.sibirskyspeak.data.CardState
+import com.sibirskyspeak.data.CardType
+import com.sibirskyspeak.data.Queue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -32,7 +36,7 @@ class PaceControllerGoalTest {
         )
         val pace = PaceController.generatePace(tiredButBadlyBehindSchedule)
         assertEquals(0, pace.newItemBudget)
-        assertEquals(StopPolicy.EARLY_STOP, pace.stretchStopPolicy)
+        assertEquals(StopPolicy.RECOVERY_PACING, pace.stretchStopPolicy)
     }
 
     @Test
@@ -84,5 +88,26 @@ class PaceControllerGoalTest {
             atCeiling.newItemBudget,
             wayBeyondCeiling.newItemBudget
         )
+    }
+
+    @Test
+    fun sustainableBaselineDoesNotBecomeZeroJustBecauseReviewBacklogIsLarge() {
+        val backlog = healthyInputs().copy(
+            activeCards = (1L..500L).map { id ->
+                Card(
+                    id = id,
+                    noteId = id,
+                    cardType = CardType.RU_TO_MEANING,
+                    queue = Queue.VOCAB,
+                    stability = 0.2,
+                    difficulty = 5.0,
+                    state = CardState.REVIEW,
+                    due = 0L,
+                    lastReview = 0L
+                )
+            }
+        )
+        assertTrue(PaceController.generatePace(backlog).newItemBudget == 0)
+        assertTrue(PaceController.sustainableNewItemRate(backlog) > 0.0)
     }
 }

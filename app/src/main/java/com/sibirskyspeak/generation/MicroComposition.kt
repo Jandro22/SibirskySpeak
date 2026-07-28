@@ -3,8 +3,8 @@ package com.sibirskyspeak.generation
 import com.sibirskyspeak.morph.MorphologyEngine
 
 /**
- * Optional post-session daily task (P6.3): "write a couple of sentences about a
- * topic using your due words." Grading is tiered and deliberately partial —
+ * Assigned unit-capstone task: "write a couple of sentences about a topic using
+ * target words." Grading is tiered and deliberately partial —
  * "grade what you can prove, stay silent on the rest" — never penalizing
  * unparseable extras the learner adds beyond what's being checked.
  */

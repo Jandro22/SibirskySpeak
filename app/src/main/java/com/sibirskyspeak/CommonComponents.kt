@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -102,8 +104,6 @@ internal fun SessionCompleteCard(
     reader: ReaderRecommendation? = null,
     sessionReviewed: Int = 0,
     sessionCorrect: Int = 0,
-    stoppedEarly: Boolean = false,
-    deferredPrompts: Int = 0,
     matchReport: MatchReport? = null,
     saving: Boolean = false,
     tomorrowReviews: Int = 0,
@@ -130,11 +130,7 @@ internal fun SessionCompleteCard(
         ) {
             Icon(Icons.Filled.EmojiEvents, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(52.dp))
             Text(
-                when {
-                    stoppedEarly -> "Protected stop"
-                    game.goalReached -> "Daily goal complete"
-                    else -> "Session complete"
-                },
+                if (game.goalReached) "Daily goal complete" else "Scheduled work complete",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onPrimary
@@ -156,9 +152,12 @@ internal fun SessionCompleteCard(
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                if (stoppedEarly)
-                    "$deferredPrompts prompts deferred; scheduled work may still remain."
-                else if (sessionReviewed > 0)
+                "Daily target: ${game.learningActionsToday} / ${game.dailyGoal} learning actions (${if (game.dailyGoal > 0) (game.learningActionsToday * 100 / game.dailyGoal).coerceAtMost(100) else 100}%)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.86f)
+            )
+            Text(
+                if (sessionReviewed > 0)
                     "This sitting: ${(sessionCorrect * 100) / sessionReviewed}% accurate."
                 else
                     "Scheduled practice is complete.",
@@ -189,14 +188,6 @@ internal fun SessionCompleteCard(
                     color = MaterialTheme.colorScheme.onPrimary,
                     fontWeight = FontWeight.SemiBold
                 )
-                if (stoppedEarly && report.outcome == MatchOutcome.LOSS) {
-                    Text(
-                        "A protected stop trades match rating for retention — that's the right call.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f),
-                        textAlign = TextAlign.Center
-                    )
-                }
                 report.ghostOutcome?.let { ghost ->
                     Text(
                         "21-day Ghost: ${ghost.name.lowercase().replaceFirstChar { it.uppercase() }} · ${report.tier}",
@@ -291,7 +282,9 @@ internal fun HeroCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.14f))
     ) {
         Box(
             modifier = Modifier.background(
@@ -303,7 +296,7 @@ internal fun HeroCard(content: @Composable ColumnScope.() -> Unit) {
                 )
             )
         ) {
-            Column(Modifier.padding(20.dp), content = content)
+            Column(Modifier.padding(16.dp), content = content)
         }
     }
 }
@@ -312,6 +305,7 @@ internal fun HeroCard(content: @Composable ColumnScope.() -> Unit) {
 internal fun SectionCard(
     modifier: Modifier = Modifier,
     emphasis: Boolean = false,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 14.dp, vertical = 13.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
     Card(
@@ -320,9 +314,10 @@ internal fun SectionCard(
         colors = CardDefaults.cardColors(
             containerColor = if (emphasis) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f) else MaterialTheme.colorScheme.surface
         ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.24f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (emphasis) 3.dp else 1.dp)
     ) {
-        Column(Modifier.padding(18.dp), content = content)
+        Column(Modifier.padding(contentPadding), content = content)
     }
 }
 
@@ -614,7 +609,13 @@ internal fun StatPill(value: String, label: String) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun FlowRowWithStats(vararg stats: Pair<String, String>) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    // Center each wrapped line as a group. Without the explicit horizontal
+    // alignment, a final stat pill can sit alone against the left edge and make
+    // an otherwise balanced card feel unfinished on phone widths.
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
         stats.forEach { (label, value) -> StatPill(value, label) }
     }
 }
@@ -709,7 +710,7 @@ internal fun SessionStep.icon(): ImageVector =
     when (mainTab()) {
         SessionStep.REVIEWS -> Icons.Filled.School
         SessionStep.READER -> Icons.Filled.AutoStories
-        SessionStep.DASHBOARD -> Icons.Filled.Insights
+        SessionStep.DASHBOARD -> Icons.Filled.Dashboard
         SessionStep.LAB -> Icons.Filled.Insights
         SessionStep.IMPORT -> Icons.Filled.Settings
         else -> Icons.Filled.School
@@ -767,7 +768,7 @@ internal fun reviewTaskTitle(prompt: ReviewPrompt): String =
         CardType.RU_TO_MEANING -> "Translate this Russian word"
         CardType.MEANING_TO_RU -> "Recall the Russian word"
         CardType.CLOZE -> "Fill in the missing Russian word"
-        CardType.AUDIO_TO_RU -> "Listen and type the Russian"
+        CardType.AUDIO_TO_RU -> "Listen and build the Russian word"
         CardType.SPEAK -> "Say the Russian aloud"
         CardType.CASE_FILL -> "Choose the right Russian form"
         CardType.VERB_FORM -> "Conjugate this Russian verb"
@@ -780,7 +781,7 @@ internal fun reviewTaskTitle(prompt: ReviewPrompt): String =
         CardType.TRANSFORM -> "Rewrite the sentence"
         CardType.NOVEL_PRODUCE -> "Write a sentence of your own"
         CardType.SPEAK_SENTENCE -> "Listen, then repeat the sentence"
-        CardType.DICTATION -> "Dictation: listen and type"
+        CardType.DICTATION -> "Dictation: listen and build"
         CardType.SENTENCE_BUILD -> "Build the Russian sentence"
         CardType.STRESS_MARK -> "Mark the stress"
         CardType.LESSON -> "Read the grammar lesson"
@@ -801,9 +802,9 @@ internal fun reviewFacetLabel(prompt: ReviewPrompt): String = when (CardPedagogy
 internal fun reviewTaskHelp(prompt: ReviewPrompt): String =
     when (prompt.card.cardType) {
         CardType.RU_TO_MEANING -> "Type the English meaning."
-        CardType.MEANING_TO_RU -> "Type the Russian word for this English meaning."
-        CardType.CLOZE -> "Use the sentence context and type the missing Russian word."
-        CardType.AUDIO_TO_RU -> "Type the Russian you hear."
+        CardType.MEANING_TO_RU -> "Build the Russian word from the tiles, or switch to the keyboard."
+        CardType.CLOZE -> "Use the sentence context, then build or type the missing Russian word."
+        CardType.AUDIO_TO_RU -> "Listen, then build or type the Russian word you hear."
         CardType.SPEAK -> "Use the mic to say the Russian word or phrase aloud."
         CardType.CASE_FILL -> if (prompt.card.reps >= 2) {
             if (prompt.answerMode == AnswerMode.CHOICE) {
@@ -828,15 +829,19 @@ internal fun reviewTaskHelp(prompt: ReviewPrompt): String =
             "Use the noun context to type the matching adjective form."
         }
         CardType.GENDER_ID -> "Choose the gender that fits this noun."
-        CardType.ASPECT_SELECT -> "Choose the form that matches whether the action is bounded or ongoing."
+        CardType.ASPECT_SELECT -> if (prompt.answerMode == AnswerMode.CHOICE) {
+            "Choose the form that matches whether the action is bounded or ongoing."
+        } else {
+            "Type the form that matches whether the action is bounded or ongoing."
+        }
         CardType.CONCEPT_DRILL -> "Use the rule from the lesson to answer this authored grammar prompt."
         CardType.CONCEPT_APPLY -> "This is a brand-new sentence — apply the rule, don't recall a memorized one."
         CardType.CHUNK -> "Type the whole chunk, not just the headword — word order and any preposition matter."
-        CardType.TRANSFORM -> "Type the whole rewritten sentence, following the instruction exactly."
+        CardType.TRANSFORM -> "Build or type the whole rewritten sentence, following the instruction exactly."
         CardType.NOVEL_PRODUCE -> "There's no Russian shown — compose your own sentence expressing the English cue."
         CardType.SPEAK_SENTENCE -> "Listen to the sentence, then repeat it aloud from memory — word order matters."
-        CardType.DICTATION -> "Listen to the Russian sentence and type what you hear."
-        CardType.SENTENCE_BUILD -> "Build the Russian sentence from the meaning cue or word bank."
+        CardType.DICTATION -> "Listen, then build or type the Russian sentence you hear."
+        CardType.SENTENCE_BUILD -> "Read the English meaning, then tap the Russian words in order."
         CardType.STRESS_MARK -> "Choose the spelling with the stressed vowel marked."
         CardType.LESSON -> "Read the explanation, then continue when it feels familiar."
         CardType.PHONOLOGY_MINIMAL_PAIR -> "Listen closely — this pair differs by a single sound. Choose the word you heard."

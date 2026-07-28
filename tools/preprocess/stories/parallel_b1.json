@@ -1,0 +1,22 @@
+{
+  "seriesId": "parallel_b1",
+  "band": "B1",
+  "title": "Решения",
+  "targetMaxRank": 6500,
+  "format": "parallel mini-story",
+  "topic": "work and community",
+  "chapters": [
+    {
+      "chapter": 1,
+      "title": "Первый день",
+      "body": "Когда Максим начал работать в новой школе, он боялся, что не запомнит имена учеников. Перед первым уроком он записал несколько вопросов, чтобы лучше познакомиться с классом. Ученики сначала отвечали тихо, однако скоро разговор стал живым. В конце урока один мальчик попросил дополнительную книгу. Максим понял, что первый день прошёл лучше, чем он ожидал.",
+      "translation": "When Maksim started working at a new school, he was afraid that he would not remember the students' names. Before the first lesson, he wrote down several questions so that he could get to know the class better. At first the students answered quietly, but the conversation soon became lively. At the end of the lesson, one boy asked for an extra book. Maksim realized that the first day had gone better than he expected."
+    },
+    {
+      "chapter": 2,
+      "title": "Соседский сад",
+      "body": "Жители дома давно обсуждали пустой двор, где стояли только старые машины. Ольга предложила сделать там небольшой сад. Не все соседи сразу согласились, потому что проект требовал времени и денег. Тогда Ольга подготовила простой план и объяснила, кто может помочь. Через месяц во дворе появились цветы, стол и место для детей. Даже самые серьёзные соседи стали чаще выходить на улицу.",
+      "translation": "The residents had long discussed the empty courtyard, where only old cars stood. Olga suggested making a small garden there. Not all the neighbors agreed immediately because the project required time and money. Olga then prepared a simple plan and explained who could help. A month later, flowers, a table, and a place for children appeared in the courtyard. Even the most serious neighbors began going outside more often."
+    }
+  ]
+}

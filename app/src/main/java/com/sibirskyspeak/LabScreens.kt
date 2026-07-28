@@ -8,10 +8,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material3.Button
@@ -45,8 +45,10 @@ import org.json.JSONObject
     onDismissMigrationReport: () -> Unit = {}
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("Learning insights", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text("A calm readout of what your guided practice is building.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Learning insights", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("A calm readout of what your guided practice is building.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         InsightSummaryCard(state)
         state.curriculumMigrationReport?.let { report ->
             SectionCard {
@@ -90,6 +92,8 @@ private fun InsightSummaryCard(state: ReviewUiState) {
     val strongest = observed.maxByOrNull { it.mu }
     val nextFocus = observed.minByOrNull { it.mu }
     val grammarFocus = state.dailyPlan?.grammarFocus?.firstOrNull()?.label?.takeIf { it.isNotBlank() }
+    val reviewedToday = state.dashboardStats?.reviewedToday ?: 0
+    val streak = state.sessionPlan?.gamification?.currentStreak ?: 0
     val message = when {
         observed.isEmpty() -> "Keep following the guided sessions. After a few completed reviews, this page will explain what is getting stronger and what the tutor is bringing back."
         strongest == null -> "Your guided practice is building a useful base. Keep going and the tutor will sharpen the picture."
@@ -106,6 +110,31 @@ private fun InsightSummaryCard(state: ReviewUiState) {
                     Text("Current guided focus: $it", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f))
                 }
             }
+        }
+        Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            InsightMetric("${observed.size}", "signals", Modifier.weight(1f))
+            InsightMetric("$reviewedToday", "today", Modifier.weight(1f))
+            InsightMetric("$streak", "day streak", Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun InsightMetric(value: String, label: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.13f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.18f))
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
+            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f))
         }
     }
 }
@@ -247,7 +276,7 @@ private fun CheckpointCard(
     SectionCard {
         Text("Monthly checkpoint", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Text(
-            "An independent check with no effect on your review schedule — the only unbiased read on whether \"known\" is real.",
+            "An independent sample with no effect on your review schedule. It is one useful signal about whether \"known\" transfers beyond normal cards, not a complete measure of fluency.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall
         )

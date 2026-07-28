@@ -28,10 +28,11 @@ class RussianSpeechRecognizer(context: Context) {
         // null when the recognizer didn't supply one — on-device/offline models
         // (preferred here via EXTRA_PREFER_OFFLINE) frequently omit it entirely, so
         // callers must treat absence as "no signal", not "low confidence".
-        onResult: (String, Float?) -> Unit,
+        onResult: (List<SpeechHypothesis>) -> Unit,
         onPartial: (String) -> Unit = {},
         onError: (String) -> Unit = {},
         onReadyForSpeech: () -> Unit = {},
+        onBeginningOfSpeech: () -> Unit = {},
         onEndOfSpeech: () -> Unit = {}
     ) {
         if (!isAvailable(appContext)) {
@@ -48,7 +49,7 @@ class RussianSpeechRecognizer(context: Context) {
         }.also { recognizer = it }
         engine.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) = onReadyForSpeech()
-            override fun onBeginningOfSpeech() {}
+            override fun onBeginningOfSpeech() = onBeginningOfSpeech()
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() {
@@ -63,8 +64,7 @@ class RussianSpeechRecognizer(context: Context) {
 
             override fun onResults(results: Bundle?) {
                 listening = false
-                val (hypothesis, confidence) = bestHypothesisWithConfidence(results)
-                onResult(hypothesis.orEmpty(), confidence)
+                onResult(hypothesesWithConfidence(results))
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
@@ -91,6 +91,12 @@ class RussianSpeechRecognizer(context: Context) {
             }
     }
 
+    /** Ask the active recognizer to finish the utterance without cancelling it. */
+    fun finishListening() {
+        if (!listening) return
+        runCatching { recognizer?.stopListening() }
+    }
+
     fun stop() {
         recognizer?.let {
             runCatching { it.stopListening() }
@@ -103,20 +109,25 @@ class RussianSpeechRecognizer(context: Context) {
 
     fun shutdown() = stop()
 
-    private fun bestHypothesis(bundle: Bundle?): String? = bestHypothesisWithConfidence(bundle).first
+    private fun bestHypothesis(bundle: Bundle?): String? =
+        hypothesesWithConfidence(bundle).firstOrNull()?.transcript
 
     // CONFIDENCE_SCORES (API 14+) is a float[] parallel to RESULTS_RECOGNITION, values
     // 0f-1f or -1f for "unavailable" per-entry. It's optional and many on-device
     // recognizers never populate it, so both a missing array and a -1 entry map to a
     // null confidence rather than being read as "low".
-    private fun bestHypothesisWithConfidence(bundle: Bundle?): Pair<String?, Float?> {
+    private fun hypothesesWithConfidence(bundle: Bundle?): List<SpeechHypothesis> {
         val hypotheses = bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-        val index = hypotheses?.indexOfFirst { it.isNotBlank() } ?: -1
-        if (hypotheses == null || index < 0) return null to null
-        val confidence = bundle.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
-            ?.getOrNull(index)
-            ?.takeIf { it >= 0f }
-        return hypotheses[index].trim() to confidence
+        if (hypotheses == null) return emptyList()
+        val confidences = bundle.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
+        return hypotheses.mapIndexedNotNull { index, value ->
+            value.trim().takeIf(String::isNotBlank)?.let {
+                SpeechHypothesis(
+                    transcript = it,
+                    confidence = confidences?.getOrNull(index)?.takeIf { score -> score >= 0f }
+                )
+            }
+        }
     }
 
     companion object {
@@ -129,3 +140,5 @@ class RussianSpeechRecognizer(context: Context) {
             }.getOrDefault(false)
     }
 }
+
+data class SpeechHypothesis(val transcript: String, val confidence: Float?)

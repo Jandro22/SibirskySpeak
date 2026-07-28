@@ -19,7 +19,8 @@ data class CalibrationExposure(
     val sample: WorldModel.CalibrationSample,
     val predicted: Double,
     val modelVersion: Int,
-    val cefrLevel: String?
+    val cefrLevel: String?,
+    val capturedAt: Long
 )
 
 data class CalibrationBin(val lower: Double, val upper: Double, val count: Int, val predicted: Double, val observed: Double)
@@ -66,7 +67,11 @@ object CalibrationDiagnostics {
                     getOrPut("CEFR:$level") { mutableListOf() }.add(observation)
                 }
             }
-        }.filterValues { it.size >= 2 }.mapValues { report(it.value, binsN, false) } else emptyMap()
+        // Tiny slices look precise but carry almost no stable information. Global
+        // diagnostics retain every row; segmented reports wait for a descriptive
+        // minimum before presenting an estimate.
+        }.filterValues { it.size >= MIN_SEGMENT_OBSERVATIONS }
+            .mapValues { report(it.value, binsN, false) } else emptyMap()
         return CalibrationReport(clean.size, brier, logLoss, ece, bias, bins, segments)
     }
 
@@ -93,6 +98,8 @@ object CalibrationDiagnostics {
             drift(ordered.take(split), ordered.drop(split))
         }
     }
+
+    private const val MIN_SEGMENT_OBSERVATIONS = 20
 }
 
 data class LearnerProfile(

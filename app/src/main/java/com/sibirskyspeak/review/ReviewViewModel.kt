@@ -33,6 +33,7 @@ import com.sibirskyspeak.learning.isHardProduction
 import com.sibirskyspeak.learning.ReviewControl
 import com.sibirskyspeak.learning.ContextualBandit
 import com.sibirskyspeak.learning.CardPedagogy
+import com.sibirskyspeak.learning.EvidenceStrength
 import com.sibirskyspeak.learning.FatigueModel
 import com.sibirskyspeak.learning.MatchReport
 import com.sibirskyspeak.learning.ObjectiveAttempt
@@ -71,6 +72,14 @@ private const val SLOW_LOAD_MS = 300L
 /** Competitive ratings need a block, not a coin flip disguised as a match. */
 private const val MIN_RANKED_MATCH_CARDS = 5
 
+/** Reorders one priority item without shrinking or replacing the assigned queue. */
+internal fun <T> MutableList<T>.moveFirstMatchToFront(matches: (T) -> Boolean): Boolean {
+    val index = indexOfFirst(matches)
+    if (index < 0) return false
+    if (index > 0) add(0, removeAt(index))
+    return true
+}
+
 /** Exception details belong in telemetry/logs, never in learner-facing copy. */
 private fun safeUserMessage(error: Throwable, fallback: String): String = when (error) {
     is java.io.IOException -> "$fallback Check your storage and try again."
@@ -97,6 +106,22 @@ internal fun shouldAutoCommitMiss(prompt: ReviewPrompt): Boolean = when (prompt.
     AnswerMode.SPEAK,
     AnswerMode.LESSON -> false
 }
+
+private fun ReviewPrompt.choiceEvidenceOverride(): EvidenceStrength? =
+    if (choiceArchetype != null) EvidenceStrength.MODERATE else null
+
+/**
+ * Recognition and speech matchers are advisory: a Good/Easy self-rating after a
+ * mismatch means the learner disputes the matcher. The disagreement is retained
+ * in telemetry, but must not train the learner model as an objective failure.
+ */
+internal fun isSelfRatedMatcherDispute(
+    answerMode: AnswerMode,
+    isAnswerCorrect: Boolean?,
+    rating: Rating
+): Boolean = answerMode in setOf(AnswerMode.ENGLISH, AnswerMode.SPEAK) &&
+    isAnswerCorrect == false &&
+    rating != Rating.AGAIN
 
 enum class SessionStep {
     REVIEWS,
@@ -194,6 +219,7 @@ data class ReviewUiState(
     val readerFontScale: Float = 1.0f,
     val backupTreeUri: String = "",
     val automaticPublicBackupEnabled: Boolean = true,
+    val onlineGlossLookupEnabled: Boolean = true,
     val externalBackupEncryptionConfigured: Boolean = false,
     val backupRecoveryKey: String? = null,
     val contentProvenance: List<ContentProvenance> = emptyList(),
@@ -250,18 +276,15 @@ data class ReviewUiState(
     // The suggested level once completed=true, or null meaning "no placement —
     // start from the true beginning" (distinct from "quiz not finished yet").
     val placementResult: String? = null,
-    // Phase G6 / P6.5: "Unit N complete — quick check?" offer shown on the
-    // session-complete screen once a unit first crosses the mastery threshold.
-    // Never a hard lock — dismissExitTicketOffer/skipExitTicket both let the
-    // learner continue with zero friction (see ReviewViewModel.maybeOfferExitTicket).
-    val exitTicketOfferUnit: Int? = null,
-    val exitTicketOfferBand: String? = null,
-    val exitTicketOfferCanDo: String? = null,
+    // Assigned end-of-unit capstone rendered inside the normal study route.
     val exitTicketSession: com.sibirskyspeak.data.ExitTicketSession? = null,
     val exitTicketIndex: Int = 0,
     val exitTicketResults: List<Boolean> = emptyList(),
     val exitTicketFeedback: String? = null,
     val exitTicketComplete: Boolean = false,
+    val exitTicketSelectedAnswer: String? = null,
+    val exitTicketPendingCorrect: Boolean? = null,
+    val exitTicketAnswerInProgress: Boolean = false,
     // Phase G4: shown once when the bundled curriculum content changed since
     // the last launch (LearningRepository.syncCurriculumManifest already
     // records this on seed; this just surfaces the pending report, if any).
@@ -363,8 +386,8 @@ class ReviewViewModel @javax.inject.Inject constructor(
     private val lapsedShownAt = mutableMapOf<Long, Int>()
     // Cards SessionMpcController.decide has already returned MpcAction.GRACE for (see
     // its handling in advanceFrozenQueue) — caps the grace to a single attempt per card
-    // per session so a card that keeps failing still gets deferred instead of holding
-    // the session open indefinitely. Fed back into MpcInputs.justFailedUngracedCardId
+    // per session so a card that keeps failing does not monopolize the next position.
+    // Fed back into MpcInputs.justFailedUngracedCardId
     // so the controller itself never re-grants a card that's already had its one extra
     // rep.
     private val graceGrantedCardIds = mutableSetOf<Long>()
@@ -379,6 +402,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
     // as a permanent block; the offer can resurface on a future app launch if the
     // learner still hasn't taken it. Populated lazily from recorded results too.
     private val exitTicketOfferedUnits = mutableSetOf<String>()
+    private var exitTicketItemShownAt: Long = 0L
     private var flowOffered = false
     // Confidence-rebuild window state (see MpcAction.RECOVER / SessionMpcController):
     // >0 means the next NextCardSelector.select() call should bias toward
@@ -392,13 +416,32 @@ class ReviewViewModel @javax.inject.Inject constructor(
 
     init {
         viewModelScope.launch {
+            val startupStartedAt = clock.now()
+            val startupStages = linkedMapOf<String, Long>()
+            var startupStageStartedAt = startupStartedAt
+            suspend fun startupPhase(name: String, block: suspend () -> Unit) {
+                block()
+                startupStages[name] = (clock.now() - startupStageStartedAt).coerceAtLeast(0L)
+                startupStageStartedAt = clock.now()
+            }
+            repository.recordTelemetry(TelemetryEvent(
+                eventType = "app_launch_started",
+                metadataJson = JSONObject().put("status", "started").toString()
+            ))
             // Never let a startup error (bad import, transient DB issue) leave the
             // app stuck on a blank screen with no feedback.
             runCatching {
-                repository.banditArmStates().let(nextCardBandit::restore)
-                repository.seedIfEmpty(runMaintenance = false)
+                startupPhase("restore_bandit") {
+                    repository.banditArmStates().let(nextCardBandit::restore)
+                }
+                startupPhase("seed_and_manifest") {
+                    repository.seedIfEmpty(runMaintenance = false)
+                }
                 val skeletonIds = settings.planSkeletonCardIds.split(',').mapNotNull(String::toLongOrNull)
-                val skeleton = repository.promptsForCardIds(skeletonIds)
+                var skeleton = emptyList<ReviewPrompt>()
+                startupPhase("skeleton_prompts") {
+                    skeleton = repository.promptsForCardIds(skeletonIds)
+                }
                 if (skeleton.isNotEmpty()) {
                     // Paint a card immediately so the Study screen never opens to a
                     // spinner, WITHOUT marking the session as actually started: doing
@@ -413,9 +456,15 @@ class ReviewViewModel @javax.inject.Inject constructor(
                     // preserveStudyQueue param), so nothing here is wasted.
                     mutableState.value = mutableState.value.copy(prompt = skeleton.first(), skeletonReady = true, sessionProgressTotal = skeleton.size)
                 }
-                val restored = restoreSessionIfAvailable()
-                loadSession(preserveStudyQueue = restored, includeReaderInsights = false)
-                repository.pendingCurriculumMigrationReport()?.let { report ->
+                var restored = false
+                startupPhase("restore_session") {
+                    restored = restoreSessionIfAvailable()
+                }
+                startupPhase("initial_plan") {
+                    loadSession(preserveStudyQueue = restored, includeReaderInsights = false)
+                }
+                startupPhase("post_plan") {
+                    repository.pendingCurriculumMigrationReport()?.let { report ->
                     mutableState.value = mutableState.value.copy(curriculumMigrationReport = report)
                     runCatching {
                         repository.recordTelemetry(TelemetryEvent(
@@ -428,18 +477,30 @@ class ReviewViewModel @javax.inject.Inject constructor(
                                 .toString()
                         ))
                     }
+                    }
                 }
+            }.onSuccess {
+                repository.recordTelemetry(TelemetryEvent(
+                    eventType = "app_launch_ready",
+                    metadataJson = JSONObject()
+                        .put("status", "ok")
+                        .put("durationMs", (clock.now() - startupStartedAt).coerceAtLeast(0L))
+                        .put("skeletonReady", mutableState.value.skeletonReady)
+                        .put("hasPlan", mutableState.value.sessionPlan != null)
+                        .put("stages", JSONObject().also { json -> startupStages.forEach { (name, durationMs) -> json.put(name, durationMs) } })
+                        .toString()
+                ))
             }.onFailure { error ->
                 mutableState.value = mutableState.value.copy(
                     statusMessage = safeUserMessage(error, "Couldn't load your session.")
                 )
                 runCatching {
                     repository.recordTelemetry(TelemetryEvent(
-                        eventType = "startup_error",
+                        eventType = "app_launch_failed",
                         metadataJson = JSONObject()
-                            .put("type", error::class.java.name)
-                            .put("message", error.message ?: "unknown error")
-                            .put("origin", error.stackTrace.firstOrNull()?.toString())
+                            .put("status", "error")
+                            .put("errorClass", error::class.java.name)
+                            .put("durationMs", (clock.now() - startupStartedAt).coerceAtLeast(0L))
                             .toString()
                     ))
                 }
@@ -453,10 +514,12 @@ class ReviewViewModel @javax.inject.Inject constructor(
             // the same way reader coverage is.
             viewModelScope.launch(computeDispatcher) {
                 // Let Compose finish first layout and accept input before competing
-                // for CPU/memory bandwidth with whole-library reader coverage.
+                // for CPU/memory bandwidth with whole-library repair work. Keep
+                // maintenance independent of reader coverage: a long coverage scan
+                // must never prevent shipped learner-data corrections from running.
                 delay(2_000)
-                runCatching { refreshReaderInsights() }
                 runCatching { repository.performLaunchMaintenance() }
+                runCatching { refreshReaderInsights() }
             }
             // Backups are written after completed sessions. Materializing an 80MB
             // full-state JSON snapshot during first-launch seeding competes with
@@ -574,9 +637,11 @@ class ReviewViewModel @javax.inject.Inject constructor(
      */
     fun previewGoalFeasibility(level: String, targetDateEpochDay: Long) {
         viewModelScope.launch {
-            val stablePace = mutableState.value.fluencyForecast?.stablePace ?: 0.0
-            val feasibility = repository.evaluateGoalFeasibility(level, targetDateEpochDay, stablePace)
-            mutableState.value = mutableState.value.copy(goalFeasibilityPreview = feasibility)
+            val forecast = mutableState.value.fluencyForecast
+            val stablePace = forecast?.sustainablePace ?: return@launch
+            runCatching { repository.evaluateGoalFeasibility(level, targetDateEpochDay, stablePace) }
+                .onSuccess { feasibility -> mutableState.value = mutableState.value.copy(goalFeasibilityPreview = feasibility) }
+                .onFailure { mutableState.value = mutableState.value.copy(statusMessage = it.message ?: "Couldn't preview that goal") }
         }
     }
 
@@ -586,29 +651,47 @@ class ReviewViewModel @javax.inject.Inject constructor(
      * daily/weekly throttle. */
     fun commitLearningGoal(level: String, targetDateEpochDay: Long) {
         viewModelScope.launch {
-            repository.setLearningGoal(level, targetDateEpochDay)
-            val forecast = mutableState.value.fluencyForecast
-            val goalStatus = forecast?.let { repository.currentGoalStatus(it) }
-            mutableState.value = mutableState.value.copy(
-                goalTargetLevelSetting = settings.goalTargetLevel,
-                goalTargetDateEpochDaySetting = settings.goalTargetDateEpochDay,
-                goalFeasibilityPreview = null,
-                goalStatus = goalStatus
-            )
+            val outcome = runCatching {
+                repository.setLearningGoal(level, targetDateEpochDay)
+                val forecast = mutableState.value.fluencyForecast
+                forecast?.let { repository.currentGoalStatus(it) }
+            }
+            outcome.onSuccess { goalStatus ->
+                mutableState.value = mutableState.value.copy(
+                    goalTargetLevelSetting = settings.goalTargetLevel,
+                    goalTargetDateEpochDaySetting = settings.goalTargetDateEpochDay,
+                    goalFeasibilityPreview = null,
+                    goalStatus = goalStatus
+                )
+            }.onFailure {
+                mutableState.value = mutableState.value.copy(statusMessage = it.message ?: "Couldn't save that goal")
+            }
+            if (outcome.isSuccess) {
+                // Rebuild the live session plan so the newly committed goal reaches
+                // PaceController immediately; otherwise goal pressure would only
+                // appear after a later review/reload.
+                loadSession(preserveStudyQueue = studySessionActive, includeReaderInsights = false)
+            }
         }
     }
 
     /** "Drop goal" from the off-track agency fork, or from Settings directly. */
     fun abandonLearningGoal() {
         viewModelScope.launch {
-            repository.abandonLearningGoal()
-            mutableState.value = mutableState.value.copy(
-                goalTargetLevelSetting = settings.goalTargetLevel,
-                goalTargetDateEpochDaySetting = settings.goalTargetDateEpochDay,
-                goalFeasibilityPreview = null,
-                goalStatus = null,
-                showGoalOffTrackPrompt = false
-            )
+            val outcome = runCatching { repository.abandonLearningGoal() }
+            outcome.onSuccess {
+                    mutableState.value = mutableState.value.copy(
+                        goalTargetLevelSetting = settings.goalTargetLevel,
+                        goalTargetDateEpochDaySetting = settings.goalTargetDateEpochDay,
+                        goalFeasibilityPreview = null,
+                        goalStatus = null,
+                        showGoalOffTrackPrompt = false
+                    )
+                }
+                .onFailure { mutableState.value = mutableState.value.copy(statusMessage = it.message ?: "Couldn't drop that goal") }
+            if (outcome.isSuccess) {
+                loadSession(preserveStudyQueue = studySessionActive, includeReaderInsights = false)
+            }
         }
     }
 
@@ -670,6 +753,11 @@ class ReviewViewModel @javax.inject.Inject constructor(
         settings.automaticPublicBackupEnabled = value
         mutableState.value = mutableState.value.copy(automaticPublicBackupEnabled = value)
         if (value) maybeBackup(force = true)
+    }
+
+    fun setOnlineGlossLookupEnabled(value: Boolean) {
+        settings.onlineGlossLookupEnabled = value
+        mutableState.value = mutableState.value.copy(onlineGlossLookupEnabled = value)
     }
 
     fun setTemporarySessionMode(mode: TemporarySessionMode) {
@@ -761,6 +849,52 @@ class ReviewViewModel @javax.inject.Inject constructor(
         }
     }
 
+    /** Record ASR quality without persisting the learner's transcript. */
+    fun recordSpeechRecognition(transcript: String, confidence: Float?) {
+        val prompt = mutableState.value.prompt ?: return
+        if (prompt.answerMode != AnswerMode.SPEAK) return
+        val normalized = transcript.trim()
+        val evaluation = evaluatePromptAnswer(prompt, normalized)
+        val cyrillic = normalized.count { it in '\u0400'..'\u04FF' }
+        val latin = normalized.count { it in 'a'..'z' || it in 'A'..'Z' }
+        viewModelScope.launch {
+            repository.recordTelemetry(telemetryForPrompt("speech_recognized", prompt).copy(
+                metadataJson = JSONObject()
+                    .put("script", when {
+                        cyrillic > 0 && latin > 0 -> "MIXED"
+                        cyrillic > 0 -> "CYRILLIC"
+                        latin > 0 -> "LATIN"
+                        normalized.isBlank() -> "EMPTY"
+                        else -> "OTHER"
+                    })
+                    .put("transcriptChars", normalized.length)
+                    .put("transcriptTokens", normalized.split(Regex("\\s+")).count { it.isNotBlank() })
+                    .put("cyrillicChars", cyrillic)
+                    .put("latinChars", latin)
+                    .put("confidence", confidence?.takeIf { it.isFinite() })
+                    .put("candidateMatch", evaluation.match.name)
+                    .put("usedTransliteration", evaluation.usedTransliteration)
+                    .toString()
+            ))
+        }
+    }
+
+    /** Record ASR lifecycle quality without retaining audio, text, or error details. */
+    fun recordSpeechRecognitionStatus(status: String) {
+        val prompt = mutableState.value.prompt ?: return
+        if (prompt.answerMode != AnswerMode.SPEAK) return
+        val safeStatus = status.takeIf {
+            it in setOf("attempt_started", "permission_denied", "empty_result", "result", "error")
+        } ?: return
+        viewModelScope.launch {
+            repository.recordTelemetry(
+                telemetryForPrompt("speech_recognition_status", prompt).copy(
+                    metadataJson = JSONObject().put("status", safeStatus).toString()
+                )
+            )
+        }
+    }
+
     fun setCorrectionAnswer(value: String) {
         mutableCorrectionAnswer.value = value
         mutableState.value = mutableState.value.copy(answerFeedback = null)
@@ -805,6 +939,29 @@ class ReviewViewModel @javax.inject.Inject constructor(
         val prompt = state.prompt ?: return
         answerRevealedAt = clock.now()
         val typed = mutableTypedAnswer.value
+        if (prompt.answerMode == AnswerMode.SPEAK && typed == SPEECH_SELF_CHECK_MARKER) {
+            mutableState.value = mutableState.value.copy(
+                revealed = true,
+                isAnswerCorrect = null,
+                answerMatch = null,
+                answerFeedback = "Self-check: compare what you said with the answer, then rate your recall.",
+                suggestedRating = null,
+                feedbackSequence = mutableState.value.feedbackSequence + 1,
+                feedbackCorrect = false
+            )
+            dispatchSession(SessionEvent.Reveal)
+            viewModelScope.launch {
+                repository.recordTelemetry(telemetryForPrompt("answer_revealed", prompt).copy(
+                    responseMs = (clock.now() - promptShownAt).coerceAtLeast(0),
+                    wasRevealed = true,
+                    typedLength = 0,
+                    metadataJson = pedagogyMetadata(prompt)
+                        .put("evidenceStatus", "SELF_REPORTED")
+                        .toString()
+                ))
+            }
+            return
+        }
         val evaluation = evaluatePromptAnswer(prompt, typed)
         mutableState.value = mutableState.value.copy(
             revealed = true,
@@ -821,7 +978,11 @@ class ReviewViewModel @javax.inject.Inject constructor(
                 answerMatch = evaluation.match.name,
                 responseMs = (clock.now() - promptShownAt).coerceAtLeast(0),
                 wasRevealed = true,
-                typedLength = typed.length
+                typedLength = typed.length,
+                metadataJson = pedagogyMetadata(prompt)
+                    .put("usedTransliteration", evaluation.usedTransliteration)
+                    .put("answerScript", answerScript(typed))
+                    .toString()
             ))
         }
         if (!evaluation.accepted) {
@@ -851,7 +1012,12 @@ class ReviewViewModel @javax.inject.Inject constructor(
                         FatigueModel.estimate(responseSamples.map { it.first }, responseSamples.map { it.second }),
                         promptShownAt
                     )
-                    reviewTransactions.review(prompt.card, Rating.AGAIN, objectiveCorrect = false) to exposure
+                    reviewTransactions.review(
+                        prompt.card,
+                        Rating.AGAIN,
+                        objectiveCorrect = false,
+                        evidenceOverride = prompt.choiceEvidenceOverride()
+                    ) to exposure
                 }.onSuccess { (becameLeech, exposure) ->
                     sessionCounterDeltas.addLast(SessionCounterDelta(reviewed = 1, correct = 0))
                     mutableState.value = mutableState.value.copy(
@@ -893,29 +1059,40 @@ class ReviewViewModel @javax.inject.Inject constructor(
         queueBeforeLastReview = activeStudyQueue.toList()
         mutableState.value = mutableState.value.copy(ratingInProgress = true)
         viewModelScope.launch {
-            val remaining = activeStudyQueue.toMutableList()
-            val index = remaining.indexOfFirst { it.card.id == prompt.card.id && it.practiceOnly }
-            if (index >= 0) remaining.removeAt(index)
-            val failures = (failureCounts[prompt.card.id] ?: 0) + 1
-            failureCounts[prompt.card.id] = failures
-            repository.scaffoldPromptFor(prompt.card, failures)?.let { remaining.add(minOf(3, remaining.size), it) }
-            activeStudyQueue.clear(); activeStudyQueue += remaining
-            recordResponseSample(prompt, Rating.AGAIN)
-            repository.recordTelemetry(telemetryForPrompt("acquisition_practice", prompt).copy(
-                rating = Rating.AGAIN.name,
-                answerMatch = AnswerMatch.WRONG.name,
-                metadataJson = JSONObject().put("autoRated", true).toString()
-            ))
-            mutableCorrectionAnswer.value = ""
-            mutableState.value = mutableState.value.copy(
-                ratingInProgress = false,
-                autoRatedAgain = true,
-                correctionRequired = true,
-                correctionAccepted = false,
-                sessionCompletedCards = mutableState.value.sessionCompletedCards + 1,
-                canUndo = false
-            )
-            sessionCounterDeltas.addLast(SessionCounterDelta(reviewed = 0, correct = 0))
+            try {
+                val remaining = activeStudyQueue.toMutableList()
+                val index = remaining.indexOfFirst { it.card.id == prompt.card.id && it.practiceOnly }
+                if (index >= 0) remaining.removeAt(index)
+                val failures = (failureCounts[prompt.card.id] ?: 0) + 1
+                val scaffold = repository.scaffoldPromptFor(prompt.card, failures)
+                scaffold?.let { remaining.add(minOf(3, remaining.size), it) }
+                failureCounts[prompt.card.id] = failures
+                activeStudyQueue.clear(); activeStudyQueue += remaining
+                recordResponseSample(prompt, Rating.AGAIN)
+                repository.recordTelemetry(telemetryForPrompt("acquisition_practice", prompt).copy(
+                    rating = Rating.AGAIN.name,
+                    answerMatch = AnswerMatch.WRONG.name,
+                    metadataJson = JSONObject().put("autoRated", true).toString()
+                ))
+                mutableCorrectionAnswer.value = ""
+                mutableState.value = mutableState.value.copy(
+                    ratingInProgress = false,
+                    autoRatedAgain = true,
+                    correctionRequired = true,
+                    correctionAccepted = false,
+                    sessionCompletedCards = mutableState.value.sessionCompletedCards + 1,
+                    canUndo = false
+                )
+                sessionCounterDeltas.addLast(SessionCounterDelta(reviewed = 0, correct = 0))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                queueBeforeLastReview = null
+                mutableState.value = mutableState.value.copy(
+                    ratingInProgress = false,
+                    statusMessage = safeUserMessage(error, "Could not continue practice.")
+                )
+            }
         }
     }
 
@@ -929,8 +1106,15 @@ class ReviewViewModel @javax.inject.Inject constructor(
         }
         // A LESSON is a teaching screen, not a graded card — keep it out of the
         // sitting's accuracy so the percentage reflects real recall.
+        val matcherDisputed = isSelfRatedMatcherDispute(
+            prompt.answerMode,
+            mutableState.value.isAnswerCorrect,
+            rating
+        )
         val countable = prompt.card.cardType != com.sibirskyspeak.data.CardType.LESSON &&
-            prompt.answerMode != AnswerMode.LESSON
+            prompt.answerMode != AnswerMode.LESSON &&
+            mutableState.value.isAnswerCorrect != null &&
+            !matcherDisputed
         val wasCorrect = mutableState.value.isAnswerCorrect == true
         val delta = SessionCounterDelta(
             reviewed = if (countable) 1 else 0,
@@ -950,7 +1134,8 @@ class ReviewViewModel @javax.inject.Inject constructor(
                     rating,
                     objectiveCorrect = if (countable) wasCorrect else null,
                     instructionalExposure = prompt.answerMode == AnswerMode.LESSON &&
-                        prompt.card.cardType == CardType.RU_TO_MEANING
+                        prompt.card.cardType == CardType.RU_TO_MEANING,
+                    evidenceOverride = prompt.choiceEvidenceOverride()
                 ) to exposure
             }.onSuccess { (becameLeech, exposure) ->
                 sessionCounterDeltas.addLast(delta)
@@ -1036,6 +1221,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
         queueBeforeLastReview = if (rating == Rating.AGAIN) activeStudyQueue.toList() else null
         mutableState.value = mutableState.value.copy(ratingInProgress = true)
         viewModelScope.launch {
+            try {
             val remaining = activeStudyQueue.toMutableList().also { list ->
                 val index = list.indexOfFirst { it === prompt || (it.card.id == prompt.card.id && it.supportOnly == prompt.supportOnly && it.practiceOnly == prompt.practiceOnly) }
                 if (index >= 0) list.removeAt(index)
@@ -1049,12 +1235,10 @@ class ReviewViewModel @javax.inject.Inject constructor(
             } else if (prompt.practiceOnly) {
                 if (success) {
                     val count = (acquisitionSuccesses[prompt.card.id] ?: 1) + 1
-                    acquisitionSuccesses[prompt.card.id] = count
                     val committedAt = if (answerRevealedAt > 0) answerRevealedAt else clock.now()
                     val responseMs = (committedAt - promptShownAt).coerceAtLeast(0)
                     val fast = responseMs <= FAST_RECALL_MS
                     val fastStreak = if (fast) (acquisitionFastStreak[prompt.card.id] ?: 0) + 1 else 0
-                    acquisitionFastStreak[prompt.card.id] = fastStreak
                     // A fixed quota of acquisitionTarget() reps treats a word the
                     // learner nails instantly the same as one they barely scrape by on
                     // — which is exactly what read as "constantly on repeat" even for
@@ -1070,10 +1254,12 @@ class ReviewViewModel @javax.inject.Inject constructor(
                             ))
                         }
                     }
+                    acquisitionSuccesses[prompt.card.id] = count
+                    acquisitionFastStreak[prompt.card.id] = fastStreak
                 } else {
-                    acquisitionFastStreak.remove(prompt.card.id)
                     val scaffold = repository.scaffoldPromptFor(prompt.card, (failureCounts[prompt.card.id] ?: 0) + 1)
                     scaffold?.let { remaining.add(minOf(3, remaining.size), it) }
+                    acquisitionFastStreak.remove(prompt.card.id)
                 }
                 repository.recordTelemetry(telemetryForPrompt("acquisition_practice", prompt).copy(rating = rating.name))
             }
@@ -1090,6 +1276,15 @@ class ReviewViewModel @javax.inject.Inject constructor(
             dispatchSession(SessionEvent.ReviewCommitted(activeStudyQueue.firstOrNull()?.card?.id, reviewed = 0, correct = 0))
             if (!success) sessionCounterDeltas.addLast(SessionCounterDelta(reviewed = 0, correct = 0))
             if (success) loadSession(preserveStudyQueue = true)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                queueBeforeLastReview = null
+                mutableState.value = mutableState.value.copy(
+                    ratingInProgress = false,
+                    statusMessage = safeUserMessage(error, "Could not continue practice.")
+                )
+            }
         }
     }
 
@@ -1160,39 +1355,21 @@ class ReviewViewModel @javax.inject.Inject constructor(
         if (!fatigueAdjusted && responseSamples.size >= 4) {
             val fatigue = FatigueModel.estimate(responseSamples.map { it.first }, responseSamples.map { it.second })
             if (fatigue >= 0.65) {
-                val before = activeStudyQueue.size
-                val removableNew = activeStudyQueue.count { it.card.state == com.sibirskyspeak.data.CardState.NEW && it.card.reps == 0 }
-                val configuredTarget = settings.sessionSize.coerceAtLeast(1)
-                val requiredRemaining = (configuredTarget - mutableState.value.sessionCompletedCards).coerceAtLeast(0)
-                val nonNewRemaining = activeStudyQueue.size - removableNew
-                // Fatigue protection may discard surplus optional new material, but
-                // never remove the only cards that could satisfy the learner's
-                // explicitly selected session dose. Previously a 40-card session
-                // could lose all of its new cards after only four observations and
-                // then look legitimately complete on the next reload.
-                val removableSurplus = (removableNew - (requiredRemaining - nonNewRemaining).coerceAtLeast(0))
-                    .coerceAtLeast(0)
-                // Backlog mode already suppresses new material. Avoid a warning and
-                // telemetry event when fatigue protection would change nothing.
-                if (removableSurplus == 0) return
-                var removedBudget = removableSurplus
-                val iterator = activeStudyQueue.listIterator()
-                while (iterator.hasNext() && removedBudget > 0) {
-                    val candidate = iterator.next()
-                    if (candidate.card.state == com.sibirskyspeak.data.CardState.NEW && candidate.card.reps == 0) {
-                        iterator.remove()
-                        removedBudget -= 1
-                    }
-                }
-                val removed = before - activeStudyQueue.size
+                // Fatigue is a pacing signal, never an implicit stop. Earlier builds
+                // deleted optional new cards here, announced that the session was
+                // wrapping up, then refilled from the still-scheduled plan.
                 fatigueAdjusted = true
                 mutableState.value = mutableState.value.copy(
                     fatigueAdjusted = true,
-                    statusMessage = if (removed > 0) "Good place to stop: optional new material moved to tomorrow. Finish on the next easy win." else "Good place to stop: no more new material this sitting."
+                    statusMessage = "Pace adjusted: easier reviews will move forward while you keep going."
                 )
                 viewModelScope.launch { repository.recordTelemetry(TelemetryEvent(
                     eventType = "fatigue_adjustment", sessionId = telemetrySessionId,
-                    metadataJson = JSONObject().put("removedNew", removed).put("variant", settings.learningExperimentVariant).toString()
+                    metadataJson = JSONObject()
+                        .put("removedNew", 0)
+                        .put("queuePreserved", true)
+                        .put("variant", settings.learningExperimentVariant)
+                        .toString()
                 )) }
             }
         }
@@ -1233,7 +1410,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
             // English cue with no Russian shown, so Russian's genuinely free word
             // order must not be penalized — grade word-order-free instead of the
             // normal fixed-string comparison.
-            AnswerMode.RUSSIAN_TYPED, AnswerMode.AUDIO_ONLY, AnswerMode.SPEAK ->
+            AnswerMode.RUSSIAN_TYPED, AnswerMode.AUDIO_ONLY ->
                 if (prompt.card.cardType == CardType.NOVEL_PRODUCE) {
                     evaluateWordOrderFreeRussianAnswer(prompt.expectedAnswer, actual)
                 } else if (prompt.card.cardType == CardType.SPEAK_SENTENCE) {
@@ -1248,6 +1425,12 @@ class ReviewViewModel @javax.inject.Inject constructor(
                         allowTypos = prompt.card.cardType !in STRICT_FORM_CARD_TYPES
                     )
                 }
+            AnswerMode.SPEAK -> evaluateRussianAnswer(
+                expected = prompt.expectedAnswer,
+                actual = actual,
+                allowTypos = prompt.card.cardType !in STRICT_FORM_CARD_TYPES,
+                allowTransliteration = true
+            )
             AnswerMode.RUSSIAN_STRESS_TYPED -> evaluateRussianAnswer(
                 prompt.expectedAnswer,
                 actual,
@@ -1312,45 +1495,29 @@ class ReviewViewModel @javax.inject.Inject constructor(
                 live = live,
                 inputs = mpcInputs
             )
-            // Accumulated (not overwritten) across possibly multiple STOP/GRACE events in
-            // one sitting — a grace attempt can fail too, re-tripping a later stop — so
-            // this must reflect everything deferred all sitting, not just the latest
-            // event. startStudySession resets it to 0, so nothing leaks across sessions.
-            fun accumulateDeferred(justDeferred: Int) = mutableState.value.stoppedQueueRemaining + justDeferred
             when (decision) {
                 MpcAction.GRACE -> {
-                    // The card that just failed hasn't had its one extra attempt yet —
-                    // abandoning it here (like a plain STOP would) leaves it with an
-                    // extra lapse and zero correction, so it just fails again next time
-                    // and re-trips this same stop. distinctBy is required: recoveryQueueAfter
-                    // queues two entries for the same failed card (a repair copy and a
-                    // "final recovery check" copy) — without deduping, both would count
-                    // as this card's one grace rep.
+                    // Move one repair entry forward without deleting the second
+                    // recovery check or any unrelated assigned prompt.
                     val gracedCardId = mpcInputs.justFailedUngracedCardId!!
                     graceGrantedCardIds += gracedCardId
-                    val graceEntries = updated.filter { it.card.id == gracedCardId }.distinctBy { it.card.id }
-                    val totalDeferred = accumulateDeferred(updated.size - graceEntries.size)
-                    updated.clear()
-                    updated += graceEntries
+                    updated.moveFirstMatchToFront { it.card.id == gracedCardId }
                     mutableState.value = mutableState.value.copy(
-                        sessionStoppedEarly = mutableState.value.sessionStoppedEarly || totalDeferred > 0,
-                        stoppedQueueRemaining = totalDeferred,
-                        statusMessage = "Finishing the card you just missed before wrapping up" +
-                            if (totalDeferred > 0) "; $totalDeferred more deferred because accuracy/load made more practice low-value today." else "."
+                        statusMessage = "Let's correct that card once, then keep going."
                     )
                 }
                 MpcAction.STOP -> {
-                    val totalDeferred = accumulateDeferred(updated.size)
-                    updated.clear()
-                    mutableState.value = mutableState.value.copy(
-                        sessionStoppedEarly = mutableState.value.sessionStoppedEarly || (next != null),
-                        stoppedQueueRemaining = totalDeferred,
-                        statusMessage = if (next != null) {
-                            "Protected stop: $totalDeferred prompts deferred because accuracy/load made more practice low-value today."
-                        } else {
-                            "Session complete."
-                        }
-                    )
+                    // A non-empty assigned queue is continuous. STOP is only a
+                    // natural empty-queue result; defensively recover if a future
+                    // controller emits it while work is still present.
+                    if (next != null) {
+                        recoveryWindowRemaining = RECOVERY_WINDOW_SIZE
+                        updated.remove(next)
+                        updated.add(0, next)
+                        mutableState.value = mutableState.value.copy(
+                            statusMessage = "Switching to an easier review mix while you keep going."
+                        )
+                    }
                 }
                 MpcAction.STRETCH -> {
                     val existing = updated.mapTo(HashSet()) { it.card.id }
@@ -1405,6 +1572,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
                         .put("debtLimit", mpcInputs.debtLimit)
                         .put("pReturn", mpcInputs.pReturn)
                         .put("hasNext", next != null)
+                        .put("queuePreserved", queueBeforeDecision <= updated.size || decision == MpcAction.STRETCH)
                         .put("selectorFallback", selectorFallback)
                         .toString()
                 ))
@@ -1439,14 +1607,16 @@ class ReviewViewModel @javax.inject.Inject constructor(
 
     private fun pedagogyMetadata(prompt: ReviewPrompt): JSONObject {
         val profile = CardPedagogy.profile(prompt.card.cardType)
+        val effectiveEvidence = prompt.choiceEvidenceOverride() ?: profile.evidence
         return JSONObject()
             .put("learningStage", CardPedagogy.stage(prompt).name)
             .put("learningFacet", profile.facet.name)
-            .put("evidenceStrength", profile.evidence.name)
+            .put("evidenceStrength", effectiveEvidence.name)
             .put("cognitiveCost", profile.cognitiveCost)
             .put("promptChars", prompt.prompt.length)
             .put("answerChars", prompt.expectedAnswer.length)
             .put("sentenceWords", prompt.exampleSentence?.let { Regex("""\p{L}+""").findAll(it).count() } ?: 0)
+            .put("choiceArchetype", prompt.choiceArchetype?.name)
             .put("supportOnly", prompt.supportOnly)
             .put("practiceOnly", prompt.practiceOnly)
     }
@@ -1466,6 +1636,11 @@ class ReviewViewModel @javax.inject.Inject constructor(
             responseMs <= 3_000 -> "instant_recall"
             else -> "self_rated_easy"
         }
+        val matcherDisputed = isSelfRatedMatcherDispute(
+            prompt.answerMode,
+            mutableState.value.answerMatch?.let { it != AnswerMatch.WRONG },
+            rating
+        )
         repository.recordTelemetry(telemetryForPrompt("review_committed", prompt).copy(
             rating = rating.name,
             answerMatch = mutableState.value.answerMatch?.name,
@@ -1482,9 +1657,17 @@ class ReviewViewModel @javax.inject.Inject constructor(
                 .put("suggestedRating", mutableState.value.suggestedRating?.name)
                 .put("experimentVariant", settings.learningExperimentVariant)
                 .put("ratingDecisionMs", if (answerRevealedAt > 0) (clock.now() - answerRevealedAt).coerceAtLeast(0) else JSONObject.NULL)
+                .put("responseEndpoint", "ANSWER_REVEAL")
+                .put("labelSource", if (mutableState.value.answerMatch == null) "SELF_REPORT" else "MATCHER")
+                .put("answerScript", answerScript(mutableTypedAnswer.value))
+                .put("evidenceStatus", if (matcherDisputed) "MATCHER_DISPUTED" else "OBJECTIVE")
                 .toString()
         ))
-        val actualRecall = mutableState.value.answerMatch?.let { it != AnswerMatch.WRONG }
+        // Good/Easy after a failed SPEAK transcript disputes the recognizer; it is
+        // not evidence that the learner failed to remember the answer.
+        val actualRecall = mutableState.value.answerMatch
+            ?.takeUnless { matcherDisputed }
+            ?.let { it != AnswerMatch.WRONG }
         if (actualRecall != null && calibrationExposure != null) {
             repository.recordSuccessCalibrationSample(
                 card = prompt.card,
@@ -1494,17 +1677,30 @@ class ReviewViewModel @javax.inject.Inject constructor(
             )
         }
         if (actualRecall != null && !autoRated) {
-            val predictedRecall = rating != Rating.AGAIN
-            repository.recordTelemetry(telemetryForPrompt("calibration_sample", prompt).copy(
+            val selfRatedRecall = rating != Rating.AGAIN
+            repository.recordTelemetry(telemetryForPrompt("self_rating_alignment_sample", prompt).copy(
                 rating = rating.name,
                 answerMatch = mutableState.value.answerMatch?.name,
                 responseMs = responseMs,
                 metadataJson = pedagogyMetadata(prompt)
-                    .put("predictedRecall", predictedRecall)
-                    .put("actualRecall", actualRecall)
-                    .put("calibrated", predictedRecall == actualRecall)
+                    .put("selfRatedRecall", selfRatedRecall)
+                    .put("matcherRecall", actualRecall)
+                    .put("agreed", selfRatedRecall == actualRecall)
+                    .put("notModelCalibration", true)
                     .toString()
             ))
+        }
+    }
+
+    private fun answerScript(value: String): String {
+        val cyrillic = value.any { it in '\u0400'..'\u04FF' }
+        val latin = value.any { it in 'a'..'z' || it in 'A'..'Z' }
+        return when {
+            cyrillic && latin -> "MIXED"
+            cyrillic -> "CYRILLIC"
+            latin -> "LATIN"
+            value.isBlank() -> "EMPTY"
+            else -> "OTHER"
         }
     }
 
@@ -1723,6 +1919,30 @@ class ReviewViewModel @javax.inject.Inject constructor(
         }
     }
 
+    fun saveReaderWordGloss(gloss: String) {
+        val token = mutableState.value.selectedToken ?: return
+        val recommendation = mutableState.value.currentReaderRecommendation() ?: return
+        viewModelScope.launch {
+            val saved = repository.saveReaderWordGloss(token.surface, gloss)
+            if (saved == null) {
+                mutableState.value = mutableState.value.copy(statusMessage = "Add a meaning before starting this word.")
+                return@launch
+            }
+            val refreshedTexts = repository.readerTexts()
+            val selected = refreshedTexts.firstOrNull { it.text.id == recommendation.text.id } ?: recommendation
+            val tokens = repository.readerTokens(selected.text)
+            val refreshedToken = tokens.firstOrNull { it.normalized == token.normalized }
+            mutableState.value = mutableState.value.copy(
+                allReaderTexts = refreshedTexts,
+                readerRecommendation = recommendNextReader(refreshedTexts),
+                readerTokens = tokens,
+                selectedToken = refreshedToken,
+                lookupResult = "${token.surface} = ${saved.translation}. Added to Learning.",
+                statusMessage = "${token.surface} now has a meaning and will enter practice."
+            )
+        }
+    }
+
     /**
      * Sentence-mining from the reader: take the selected word and the sentence it
      * appears in, store that sentence as the word's example, and pull it into study.
@@ -1851,7 +2071,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
     /**
      * Phase G6 / P6.5: after a study session finishes, offer a quick exit-ticket
      * check for the most recently completed unit (the frontier unit as soon as it
-     * first crosses the mastery threshold) — a lightweight surface, never a lock.
+     * first crosses the mastery threshold) — a dedicated assessment room, never a lock.
      * Skips units already offered this app session or that already have a
      * recorded ExitTicketResult (so re-finishing a session doesn't nag repeatedly).
      */
@@ -1909,7 +2129,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
         }
     }
 
-    private fun maybeOfferExitTicket() {
+    private fun maybeStartAssignedCapstone() {
         val mastery = mutableState.value.sessionPlan?.unitMastery.orEmpty()
         val completed = mastery.lastOrNull { it.progress >= 0.80 && it.vocabularyTotal + it.grammarTotal > 0 } ?: return
         val completedUnit = completed.unit
@@ -1926,42 +2146,22 @@ class ReviewViewModel @javax.inject.Inject constructor(
                 return@launch
             }
             mutableState.value = mutableState.value.copy(
-                exitTicketOfferUnit = completedUnit,
-                exitTicketOfferBand = completed.band,
-                exitTicketOfferCanDo = session.canDoLabel
+                exitTicketSession = session,
+                exitTicketIndex = 0,
+                exitTicketResults = emptyList(),
+                exitTicketFeedback = null,
+                exitTicketComplete = false,
+                exitTicketSelectedAnswer = null,
+                exitTicketPendingCorrect = null,
+                exitTicketAnswerInProgress = false
             )
+            exitTicketItemShownAt = clock.now()
             runCatching {
                 repository.recordTelemetry(TelemetryEvent(
-                    eventType = "exit_ticket_offered", sessionId = telemetrySessionId,
+                    eventType = "route_capstone_started", sessionId = telemetrySessionId,
                     metadataJson = JSONObject().put("unit", completedUnit).toString()
                 ))
             }
-        }
-    }
-
-    /** Learner tapped "quick check" — assembles and starts the mixed proof session. */
-    fun startExitTicket() {
-        val unit = mutableState.value.exitTicketOfferUnit ?: return
-        val band = mutableState.value.exitTicketOfferBand
-        viewModelScope.launch {
-            runCatching { repository.buildExitTicketSession(unit, band) }
-                .onSuccess { session ->
-                    if (session == null) { dismissExitTicketOffer(); return@onSuccess }
-                    mutableState.value = mutableState.value.copy(
-                        exitTicketSession = session,
-                        exitTicketIndex = 0,
-                        exitTicketResults = emptyList(),
-                        exitTicketFeedback = null,
-                        exitTicketComplete = false
-                    )
-                    runCatching {
-                        repository.recordTelemetry(TelemetryEvent(
-                            eventType = "exit_ticket_started", sessionId = telemetrySessionId,
-                            metadataJson = JSONObject().put("unit", unit).put("items", session.items.size).toString()
-                        ))
-                    }
-                }
-                .onFailure { mutableState.value = mutableState.value.copy(statusMessage = safeUserMessage(it, "Could not start quick check.")) }
         }
     }
 
@@ -1969,50 +2169,97 @@ class ReviewViewModel @javax.inject.Inject constructor(
         val current = mutableState.value
         val session = current.exitTicketSession ?: return
         val item = session.items.getOrNull(current.exitTicketIndex) ?: return
-        val correct = repository.gradeExitTicketAnswer(item, answer)
-        val results = current.exitTicketResults + correct
-        val nextIndex = current.exitTicketIndex + 1
-        val done = nextIndex >= session.items.size
-        mutableState.value = mutableState.value.copy(
-            exitTicketIndex = nextIndex,
-            exitTicketResults = results,
-            exitTicketFeedback = if (correct) "Correct." else "Not quite — ${item.expectedAnswer}",
-            exitTicketComplete = done
+        if (current.exitTicketAnswerInProgress || current.exitTicketPendingCorrect != null) return
+        if (answer !in item.choices) return
+        mutableState.value = current.copy(
+            exitTicketSelectedAnswer = answer,
+            exitTicketAnswerInProgress = true
         )
-        if (done) viewModelScope.launch {
-            runCatching { repository.completeExitTicket(session, results) }
-            exitTicketOfferedUnits += "${session.band}:${session.unit}"
-            mutableState.value = mutableState.value.copy(exitTicketOfferUnit = null, exitTicketOfferBand = null, exitTicketOfferCanDo = null)
+        viewModelScope.launch {
+            val grade = runCatching { repository.gradeExitTicketItem(item, answer) }
+                .getOrElse {
+                    mutableState.value = mutableState.value.copy(
+                        exitTicketAnswerInProgress = false,
+                        exitTicketSelectedAnswer = null,
+                        statusMessage = safeUserMessage(it, "Could not check that response.")
+                    )
+                    return@launch
+                }
+            val results = current.exitTicketResults + grade.correct
+            mutableState.value = mutableState.value.copy(
+                exitTicketResults = results,
+                exitTicketFeedback = grade.feedback,
+                exitTicketPendingCorrect = grade.correct,
+                exitTicketAnswerInProgress = false
+            )
             runCatching {
                 repository.recordTelemetry(TelemetryEvent(
-                    eventType = "exit_ticket_completed", sessionId = telemetrySessionId,
+                    eventType = "capstone_item_answered",
+                    sessionId = telemetrySessionId,
+                    noteId = item.noteId,
                     metadataJson = JSONObject()
                         .put("unit", session.unit)
-                        .put("correct", results.count { it })
-                        .put("total", results.size)
+                        .put("band", session.band)
+                        .put("kind", item.kind)
+                        .put("index", current.exitTicketIndex)
+                        .put("correct", grade.correct)
+                        .put("response_ms", (clock.now() - exitTicketItemShownAt).coerceAtLeast(0L))
+                        .put("response_mode", "multiple_choice")
                         .toString()
                 ))
             }
         }
     }
 
-    /** Dismisses the offer banner with zero friction — this must never block the
-     * learner from continuing normally (Phase G6 requirement). */
-    fun dismissExitTicketOffer() {
-        val unit = mutableState.value.exitTicketOfferUnit
-        val band = mutableState.value.exitTicketOfferBand ?: "A1"
-        if (unit != null) {
-            exitTicketOfferedUnits += "$band:$unit"
-            viewModelScope.launch {
-                runCatching {
-                    repository.recordTelemetry(TelemetryEvent(
-                        eventType = "exit_ticket_dismissed", sessionId = telemetrySessionId,
-                        metadataJson = JSONObject().put("unit", unit).toString()
-                    ))
+    /** Advances only after the learner has seen feedback for the selected answer. */
+    fun continueExitTicket() {
+        val current = mutableState.value
+        val session = current.exitTicketSession ?: return
+        if (current.exitTicketPendingCorrect == null || current.exitTicketAnswerInProgress) return
+        val nextIndex = current.exitTicketIndex + 1
+        val done = nextIndex >= session.items.size
+        if (!done) {
+            mutableState.value = current.copy(
+                exitTicketIndex = nextIndex,
+                exitTicketFeedback = null,
+                exitTicketSelectedAnswer = null,
+                exitTicketPendingCorrect = null
+            )
+            exitTicketItemShownAt = clock.now()
+            return
+        }
+        mutableState.value = current.copy(exitTicketAnswerInProgress = true)
+        viewModelScope.launch {
+            runCatching { repository.completeExitTicket(session, current.exitTicketResults) }
+                .onFailure {
+                    mutableState.value = mutableState.value.copy(
+                        exitTicketAnswerInProgress = false,
+                        statusMessage = safeUserMessage(it, "Could not save the capstone result.")
+                    )
+                    return@launch
                 }
+            mutableState.value = mutableState.value.copy(
+                exitTicketIndex = session.items.size,
+                exitTicketComplete = true,
+                exitTicketSelectedAnswer = null,
+                exitTicketPendingCorrect = null,
+                exitTicketAnswerInProgress = false
+            )
+            exitTicketOfferedUnits += "${session.band}:${session.unit}"
+            runCatching {
+                repository.recordTelemetry(TelemetryEvent(
+                    eventType = "exit_ticket_completed",
+                    sessionId = telemetrySessionId,
+                    metadataJson = JSONObject()
+                        .put("unit", session.unit)
+                        .put("band", session.band)
+                        .put("correct", current.exitTicketResults.count { it })
+                        .put("total", current.exitTicketResults.size)
+                        .put("response_mode", "multiple_choice")
+                        .toString()
+                ))
             }
         }
-        mutableState.value = mutableState.value.copy(exitTicketOfferUnit = null, exitTicketOfferBand = null, exitTicketOfferCanDo = null)
     }
 
     /** Marks the pending content-update report as shown so it never nags again. */
@@ -2022,15 +2269,30 @@ class ReviewViewModel @javax.inject.Inject constructor(
         viewModelScope.launch { runCatching { repository.markCurriculumMigrationReportShown(report.id) } }
     }
 
-    /** Closes an in-progress or completed exit-ticket mini-session panel. */
+    /** Closes the in-progress or completed capstone room. */
     fun closeExitTicket() {
         mutableState.value = mutableState.value.copy(
             exitTicketSession = null,
             exitTicketIndex = 0,
             exitTicketResults = emptyList(),
             exitTicketFeedback = null,
-            exitTicketComplete = false
+            exitTicketComplete = false,
+            exitTicketSelectedAnswer = null,
+            exitTicketPendingCorrect = null,
+            exitTicketAnswerInProgress = false
         )
+    }
+
+    fun skipCyrillicFoundation() {
+        viewModelScope.launch {
+            runCatching { repository.graduateLiteracyFoundation(clock.now()) }
+                .onSuccess { noteIds ->
+                    activeStudyQueue.removeAll { it.note.id in noteIds }
+                    mutableState.value = mutableState.value.copy(statusMessage = "Cyrillic foundation skipped. Continuing your route.")
+                    loadSession(preserveStudyQueue = true)
+                }
+                .onFailure { mutableState.value = mutableState.value.copy(statusMessage = safeUserMessage(it, "Could not skip the Cyrillic foundation.")) }
+        }
     }
 
     private suspend fun openReaderTextNow(id: Long, inSession: Boolean) {
@@ -2272,8 +2534,23 @@ class ReviewViewModel @javax.inject.Inject constructor(
 
     fun exportFullState() {
         viewModelScope.launch {
-            val exported = repository.exportFullState()
-            mutableState.value = mutableState.value.copy(exportText = exported, statusMessage = "Full backup: ${exported.lines().filter { it.isNotBlank() }.size} notes with SRS state")
+            try {
+                val saved = repository.backupNow()
+                if (saved) settings.lastBackupAt = clock.now()
+                mutableState.value = mutableState.value.copy(
+                    statusMessage = if (saved) {
+                        "Full backup saved and validated."
+                    } else {
+                        "Nothing to back up yet."
+                    }
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                mutableState.value = mutableState.value.copy(
+                    statusMessage = safeUserMessage(error, "Full backup failed.")
+                )
+            }
         }
     }
 
@@ -2368,16 +2645,12 @@ class ReviewViewModel @javax.inject.Inject constructor(
             activeStudyQueue.clear()
             activeStudyQueue += refreshed
         }
-        // A normal sitting is a refillable daily target, not a one-shot adaptive
-        // slice. If the first slice runs out before 40 completed cards, append the
-        // fresh plan instead of publishing a misleading session-complete screen.
-        val sessionTarget = settings.sessionSize.coerceAtLeast(1)
-        val shouldRefillSession = preserveStudyQueue && studySessionActive && activeStudyQueue.isEmpty() &&
-            current.sessionCompletedCards < sessionTarget && freshPlan.reviewQueue.isNotEmpty()
-        if (shouldRefillSession) {
-            activeStudyQueue += freshPlan.reviewQueue
-            sessionOriginCardIds += freshPlan.reviewQueue.map { it.card.id }
-        }
+        // A session is the bounded queue the learner agreed to at Start. Do not
+        // silently refill it from a newly-built plan when the final card is rated.
+        // The physical-device telemetry caught a six-card recovery session growing
+        // to forty remaining cards after it had already begun. Daily goals can still
+        // offer another session from the completion screen, but a sitting must have
+        // a stable, truthful finish line.
         val plan = if (preserveStudyQueue && studySessionActive) {
             freshPlan.copy(reviewQueue = activeStudyQueue.toList())
         } else freshPlan
@@ -2445,6 +2718,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
         val freshIds = settings.newlyUnlocked(unlockedIds)
         val freshAchievements = plan.gamification.achievements.filter { it.id in freshIds }
         val previousPromptId = current.prompt?.card?.id
+        val previousPromptShownAt = promptShownAt
         mutableState.value = ReviewUiState(
             prompt = promptForStep(step, plan),
             reviewedToday = repository.reviewedToday(),
@@ -2483,6 +2757,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
             readerFontScale = settings.readerFontScale,
             backupTreeUri = settings.backupTreeUri,
             automaticPublicBackupEnabled = settings.automaticPublicBackupEnabled,
+            onlineGlossLookupEnabled = settings.onlineGlossLookupEnabled,
             externalBackupEncryptionConfigured = repository.isExternalBackupEncryptionConfigured(),
             contentProvenance = repository.curriculumProvenance(),
             backupLastSuccessAt = settings.lastBackupAt,
@@ -2539,6 +2814,9 @@ class ReviewViewModel @javax.inject.Inject constructor(
         mutableCorrectionAnswer.value = ""
         val nextPrompt = mutableState.value.prompt
         if (nextPrompt != null && nextPrompt.card.id != previousPromptId) {
+            val transitionMs = if (previousPromptId != null && previousPromptShownAt > 0L) {
+                (clock.now() - previousPromptShownAt).coerceAtLeast(0L)
+            } else null
             promptShownAt = clock.now()
             answerRevealedAt = 0L
             repository.recordTelemetry(telemetryForPrompt("card_shown", nextPrompt).copy(
@@ -2546,8 +2824,26 @@ class ReviewViewModel @javax.inject.Inject constructor(
                     .put("state", nextPrompt.card.state.name)
                     .put("reps", nextPrompt.card.reps)
                     .put("lapses", nextPrompt.card.lapses)
+                    .put("fromCardId", previousPromptId ?: JSONObject.NULL)
+                    .put("transitionMs", transitionMs ?: JSONObject.NULL)
                     .toString()
             ))
+            if (previousPromptId != null) {
+                repository.recordTelemetry(TelemetryEvent(
+                    eventType = "card_transition",
+                    sessionId = telemetrySessionId,
+                    cardId = nextPrompt.card.id,
+                    noteId = nextPrompt.card.noteId,
+                    cardType = nextPrompt.card.cardType.name,
+                    responseMs = transitionMs,
+                    sessionRemaining = activeStudyQueue.size,
+                    metadataJson = JSONObject()
+                        .put("fromCardId", previousPromptId)
+                        .put("toCardId", nextPrompt.card.id)
+                        .put("status", "ok")
+                        .toString()
+                ))
+            }
             viewModelScope.launch {
                 repository.recordBanditExposure(
                     card = nextPrompt.card,
@@ -2569,12 +2865,14 @@ class ReviewViewModel @javax.inject.Inject constructor(
             }
         }
         if (preserveStudyQueue && studySessionActive && activeStudyQueue.isEmpty()) {
-            // Per-facet retention at session end, so a weak aggregate (e.g. 78%) can be
-            // traced to the quiz types actually dragging it down rather than guessed at.
-            val retentionByType = JSONObject()
+            // This is a rolling mature-card diagnostic, not the current sitting's
+            // denominator. Name and window metadata must say so: the old
+            // "retentionByCardType" label made a 72-review sitting appear to contain
+            // 137 attempts and corrupted downstream telemetry interpretation.
+            val rollingRetentionByType = JSONObject()
             runCatching {
                 repository.retentionByCardType().forEach { row ->
-                    retentionByType.put(
+                    rollingRetentionByType.put(
                         row.cardType.name,
                         JSONObject().put("n", row.total).put("retained", row.retained)
                     )
@@ -2588,7 +2886,17 @@ class ReviewViewModel @javax.inject.Inject constructor(
                     .put("reviewed", mutableState.value.sessionReviewed)
                     .put("correct", mutableState.value.sessionCorrect)
                     .put("actions", mutableState.value.sessionCompletedCards)
-                    .put("retentionByCardType", retentionByType)
+                    .put("sessionProgressCompleted", mutableState.value.sessionProgressCompleted)
+                    .put("sessionProgressTotal", mutableState.value.sessionProgressTotal)
+                    .put("sessionTarget", settings.sessionSize)
+                    .put("deferredPrompts", mutableState.value.stoppedQueueRemaining)
+                    .put("stoppedEarly", mutableState.value.sessionStoppedEarly)
+                    .put("dailyReviewed", plan.gamification.reviewedToday)
+                    .put("dailyGoal", plan.gamification.dailyGoal)
+                    .put("dailyProgress", if (plan.gamification.dailyGoal > 0) plan.gamification.reviewedToday.toDouble() / plan.gamification.dailyGoal else 1.0)
+                    .put("dailyStatus", plan.completion.status.name)
+                    .put("rollingRetentionWindowDays", 30)
+                    .put("rollingRetentionByCardType", rollingRetentionByType)
                     .toString()
             ))
             val fatigue = FatigueModel.estimate(responseSamples.map { it.first }, responseSamples.map { it.second })
@@ -2622,7 +2930,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
                 statusMessage = status
             )
             dispatchSession(SessionEvent.Clear)
-            maybeOfferExitTicket()
+            maybeStartAssignedCapstone()
         } else if (preserveStudyQueue && studySessionActive) {
             maybeStartScheduledReading()
         }
@@ -2807,7 +3115,9 @@ class ReviewViewModel @javax.inject.Inject constructor(
         val now = clock.now()
         val offset = java.util.TimeZone.getDefault().getOffset(now).toLong()
         val day = (now + offset) / (24L * 60 * 60 * 1000)
-        if (settings.lastFluencyForecastDay == day) return
+        // A zero cached pace is a legacy/stale result, not a valid forecast. Allow
+        // one repair run even if the old build already stamped today's day bucket.
+        if (settings.lastFluencyForecastDay == day && settings.lastStablePaceWordsPerDay > 0.0) return
         settings.lastFluencyForecastDay = day
         viewModelScope.launch(computeDispatcher) {
             val forecast = runCatching { repository.getFluencyForecast() }.getOrNull() ?: return@launch
@@ -3139,12 +3449,15 @@ class ReviewViewModel @javax.inject.Inject constructor(
     }
 
     /** Keep the frozen queue resumable, but make pauses visible in telemetry. */
-    fun recordStudyScreenExit() {
+    fun recordStudyScreenExit(reason: String = "lifecycle_stop") {
         if (!studySessionActive) return
         if (studyPausedAt == null) studyPausedAt = clock.now()
         dispatchSession(SessionEvent.Pause(studyPausedAt ?: clock.now()))
         val signature = "$telemetrySessionId:${activeStudyQueue.size}:${mutableState.value.sessionCompletedCards}"
-        if (lastPauseSignature == signature) return
+        // Lifecycle callbacks can repeat without learner input; collapse those, but
+        // always retain an explicit Back/Finish action even if the screen was already
+        // paused by the lifecycle immediately beforehand.
+        if (lastPauseSignature == signature && reason == "lifecycle_stop") return
         lastPauseSignature = signature
         viewModelScope.launch {
             repository.recordTelemetry(TelemetryEvent(
@@ -3156,6 +3469,10 @@ class ReviewViewModel @javax.inject.Inject constructor(
                     .put("actions", mutableState.value.sessionCompletedCards)
                     .put("dailyStatus", mutableState.value.sessionPlan?.completion?.status?.name)
                     .put("dueCount", mutableState.value.dailyPlan?.let { it.dueVocab + it.dueGrammar })
+                    .put("exitReason", reason)
+                    .put("sessionTarget", settings.sessionSize)
+                    .put("dailyReviewed", mutableState.value.sessionPlan?.gamification?.reviewedToday)
+                    .put("dailyGoal", mutableState.value.sessionPlan?.gamification?.dailyGoal)
                     .toString()
             ))
         }
@@ -3330,8 +3647,10 @@ internal fun recoveryQueueAfter(
             com.sibirskyspeak.data.CardType.RU_TO_MEANING -> "Repair: reconnect this form with its meaning"
             else -> "Repair: retrieve the word again without support"
         })
+        // One delayed, scaffolded retry is enough. The old second "final recovery"
+        // copy doubled work after every miss and could make a 40-card session grow
+        // without a useful upper bound.
         remaining.add(minOf(6, remaining.size), repair)
-        remaining += current.copy(queueReason = "Final recovery check before the session ends")
     } else if (
         current.answerMode == AnswerMode.LESSON &&
         current.card.cardType == com.sibirskyspeak.data.CardType.RU_TO_MEANING

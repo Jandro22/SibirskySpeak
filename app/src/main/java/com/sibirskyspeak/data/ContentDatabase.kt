@@ -177,6 +177,11 @@ interface ContentDao {
     @Query("SELECT * FROM root_family WHERE root = (SELECT root FROM root_family WHERE lemma = :lemma LIMIT 1) ORDER BY lemma LIMIT :limit")
     suspend fun familyForLemma(lemma: String, limit: Int = 16): List<ContentRootFamily>
 
+    /** Legacy heuristic rows built by stripping ambiguous one-letter prefixes.
+     * They are ignored for transfer and removed from persisted learner mastery. */
+    @Query("SELECT DISTINCT root FROM root_family WHERE LENGTH(prefix) = 1")
+    suspend fun singleLetterPrefixRoots(): List<String>
+
     @Query("SELECT emoji FROM emoji_map WHERE lemma = :lemma")
     suspend fun emojiForLemma(lemma: String): String?
 
@@ -199,11 +204,19 @@ interface ContentDao {
         SELECT b.sent_id, s.ru_stressed, s.ru_plain, s.en, b.unit_min, b.band, b.token_count, b.grammar_feats
         FROM sentence_bank b JOIN sentence s ON s.id = b.sent_id
         WHERE b.unit_min <= :unitMax
+          AND (CASE b.band
+                WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2
+                WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5
+                ELSE 99 END) <=
+              (CASE :bandMax
+                WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2
+                WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5
+                ELSE 5 END)
           AND (:requiredFeat IS NULL OR b.grammar_feats LIKE '%' || :requiredFeat || '%')
           AND (:requiredLemma IS NULL OR EXISTS (SELECT 1 FROM lemma_index li WHERE li.sentence_id=b.sent_id AND li.lemma=:requiredLemma))
         ORDER BY b.unit_min DESC, s.rating DESC LIMIT :limit
     """)
-    suspend fun sentencesFor(unitMax: Int, requiredLemma: String? = null, requiredFeat: String? = null, limit: Int = 20): List<BankSentence>
+    suspend fun sentencesFor(unitMax: Int, bandMax: String = "C2", requiredLemma: String? = null, requiredFeat: String? = null, limit: Int = 20): List<BankSentence>
 
     @Query("SELECT * FROM frame WHERE concept = :conceptId ORDER BY id")
     suspend fun framesForConcept(conceptId: String): List<ContentFrame>
@@ -223,7 +236,10 @@ interface ContentDao {
         ContentRootFamily::class, ContentEmoji::class, SemanticNeighbor::class, ContentMeta::class,
         ParadigmForm::class, MorphAnalysisRow::class, SentenceBankRow::class, ContentFrame::class,
         ContentDialogue::class, ContentDialogueNode::class],
-    version = 6,
+    // Content is immutable learner-independent data. Bump this whenever the
+    // bundled corpus is regenerated so createFromAsset + destructive fallback
+    // replaces stale installed content.db files without touching AppDatabase.
+    version = 7,
     exportSchema = true
 )
 abstract class ContentDatabase : RoomDatabase() {

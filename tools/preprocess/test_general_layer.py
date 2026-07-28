@@ -6,7 +6,7 @@ will treat it as the reading-matrix (vocab/comprehension only, no morphology dri
 """
 import json
 
-from general_layer import SOURCE, _full_table, general_rows
+from general_layer import SOURCE, _full_table, _studyable_example, general_rows
 from russian_morph import strip_stress
 
 ROWS = general_rows(set())  # no domain lemmas to exclude → full layer
@@ -30,6 +30,8 @@ def test_examples_are_aligned_pairs():
             # Russian sentence should actually contain Cyrillic.
             assert any("а" <= ch.lower() <= "я" or ch == "ё" for ch in r["exampleSentence"]), \
                 f"{r['lemma']} example not Cyrillic: {r['exampleSentence']!r}"
+            assert _studyable_example(r["exampleSentence"], r["exampleTranslation"]), \
+                f"{r['lemma']} example contains corruption or an embedded English tail"
 
 
 def test_examples_are_not_mojibake():

@@ -3,6 +3,8 @@ package com.sibirskyspeak.data
 import com.sibirskyspeak.scheduler.FsrsScheduler
 import com.sibirskyspeak.review.TemporarySessionMode
 import com.sibirskyspeak.review.TemporarySessionPolicy
+import com.sibirskyspeak.review.AnswerMode
+import com.sibirskyspeak.review.ChoiceArchetype
 import com.sibirskyspeak.learning.EvidenceEvent
 import com.sibirskyspeak.learning.EvidenceStrength
 import com.sibirskyspeak.learning.FluencySimEngine
@@ -21,7 +23,63 @@ import java.util.TimeZone
 
 class LearningRepositoryTest {
     @Test
-    fun configuredFullDoseKeepsEnoughCardsEvenWhenAdaptiveCapacityIsSmaller() = runTest {
+    fun calibrationEligibilityExcludesMatcherDisputesAndCapsRepeatedCards() {
+        val repeated = (1L..7L).map { at ->
+            TelemetryEvent(timestamp = at, eventType = "success_calibration_sample", cardId = 1L)
+        }
+        val disputedSample = TelemetryEvent(
+            timestamp = 100L,
+            eventType = "success_calibration_sample",
+            cardId = 2L
+        )
+        val disputedReview = TelemetryEvent(
+            timestamp = 110L,
+            eventType = "review_committed",
+            cardId = 2L,
+            answerMode = AnswerMode.ENGLISH.name,
+            answerMatch = "WRONG",
+            rating = Rating.GOOD.name
+        )
+        val validSample = TelemetryEvent(
+            timestamp = 200L,
+            eventType = "success_calibration_sample",
+            cardId = 3L
+        )
+
+        val eligible = eligibleSuccessCalibrationEvents(
+            repeated + disputedSample + disputedReview + validSample
+        )
+
+        assertEquals(6, eligible.size)
+        assertEquals(5, eligible.count { it.cardId == 1L })
+        assertTrue(eligible.none { it.cardId == 2L })
+        assertTrue(eligible.any { it.cardId == 3L })
+    }
+
+    @Test
+    fun historicalMatcherRepairDropsOnlyDerivedItemDifficultyAndIsIdempotent() = runTest {
+        val model = FakeLearningModelDao().apply {
+            difficulties[10L] = ItemDifficulty(10L, observations = 4)
+            difficulties[11L] = ItemDifficulty(11L, observations = 4)
+        }
+        val fixture = RepoFixture(withTelemetry = true, learningModelDao = model)
+        fixture.telemetry!!.events += TelemetryEvent(
+            timestamp = 1_000L,
+            eventType = "review_committed",
+            cardId = 10L,
+            answerMode = AnswerMode.SPEAK.name,
+            answerMatch = "WRONG",
+            rating = Rating.GOOD.name
+        )
+
+        assertEquals(1, fixture.repository.repairHistoricalMatcherDisputes())
+        assertNull(model.difficulties[10L])
+        assertNotNull(model.difficulties[11L])
+        assertEquals(0, fixture.repository.repairHistoricalMatcherDisputes())
+    }
+
+    @Test
+    fun configuredFullDoseIsACeilingRatherThanAnAdaptiveSafetyOverride() = runTest {
         val bootstrap = (1..48).joinToString("\n") { index ->
             "{\"russian\":\"word$index\",\"lemma\":\"word$index\",\"pos\":\"noun\",\"translation\":\"word $index\",\"tier\":0,\"unit\":1}"
         }
@@ -33,7 +91,11 @@ class LearningRepositoryTest {
 
         val plan = fixture.repository.sessionPlan(includeReaderInsights = false)
 
-        assertTrue("a configured 40-card dose must not collapse to the adaptive proposal", plan.reviewQueue.size >= 40)
+        assertTrue("cold start should still produce useful work", plan.reviewQueue.isNotEmpty())
+        assertTrue(
+            "the configured maximum must not force 40 fresh cards past the adaptive plan",
+            plan.reviewQueue.size < 40
+        )
     }
 
     @Test
@@ -151,7 +213,8 @@ class LearningRepositoryTest {
             GrammarConcepts.IDIOM.id
         )
 
-        assertEquals(upperConceptIds, ConceptDrills.coveredConceptIds())
+        assertTrue(ConceptDrills.coveredConceptIds().containsAll(upperConceptIds))
+        assertEquals(GrammarConcepts.ALL.map { it.id }.toSet(), ConceptDrills.coveredConceptIds())
         listOf(
             GrammarConcepts.CONDITIONAL, GrammarConcepts.RELATIVE, GrammarConcepts.NUMERAL_CASE,
             GrammarConcepts.PARTICIPLE_ACTIVE, GrammarConcepts.PARTICIPLE_PASSIVE,
@@ -234,6 +297,51 @@ class LearningRepositoryTest {
         assertEquals(1, fixture.repository.syncBootstrapTextbookNotes())
         assertEquals(0, fixture.repository.syncBootstrapTextbookNotes())
         assertEquals(1, fixture.notes.notes.count { it.lemma == "textbook::privet" })
+    }
+
+    @Test
+    fun textbookSyncRefreshesTeachingContentWithoutReplacingLearnerRow() = runTest {
+        val fixture = RepoFixture(
+            bootstrapNotes = """
+                {"russian":"\u0441\u0434\u0430\u0442\u044c","lemma":"tb_\u0441\u0434\u0430\u0442\u044c","pos":"verb","translation":"pass an exam; turn in","exampleSentence":"\u041e\u043d \u0441\u0434\u0430\u043b \u044d\u043a\u0437\u0430\u043c\u0435\u043d.","exampleTranslation":"He passed the exam.","declensionJson":"{\"INF\":\"\u0441\u0434\u0430\u0442\u044c\"}","tier":0,"unit":5,"tags":"textbook vocab"}
+            """.trimIndent()
+        )
+        val existingId = fixture.notes.insert(
+            Note(
+                russian = "\u0441\u0434\u0430\u0442\u044c",
+                lemma = "tb_\u0441\u0434\u0430\u0442\u044c",
+                translation = "turn in",
+                partOfSpeech = "word",
+                exampleSentence = "\u0421\u0434\u0430\u044e \u043a\u0432\u0430\u0440\u0442\u0438\u0440\u0443.",
+                declensionJson = "{\"INF\":\"tb_\u0441\u0434\u0430\u0442\u044c\"}",
+                tags = "textbook vocab"
+            )
+        )
+
+        assertEquals(0, fixture.repository.syncBootstrapTextbookNotes())
+
+        val refreshed = fixture.notes.getByLemma("tb_\u0441\u0434\u0430\u0442\u044c")
+        assertEquals(existingId, refreshed?.id)
+        assertEquals("pass an exam; turn in", refreshed?.translation)
+        assertEquals("He passed the exam.", refreshed?.exampleTranslation)
+        assertEquals("{\"INF\":\"\u0441\u0434\u0430\u0442\u044c\"}", refreshed?.declensionJson)
+    }
+
+    @Test
+    fun learnerContentRepairWidensOnlyTheKnownLegacyGloss() = runTest {
+        val fixture = RepoFixture()
+        fixture.notes.insert(
+            Note(
+                russian = "\u0432\u043e\u0442",
+                lemma = "\u0432\u043e\u0442",
+                translation = "here is",
+                partOfSpeech = "particle"
+            )
+        )
+
+        assertEquals(1, fixture.repository.repairLearnerContent())
+        assertEquals("here; here is", fixture.notes.getByLemma("\u0432\u043e\u0442")?.translation)
+        assertEquals(0, fixture.repository.repairLearnerContent())
     }
 
     @Test
@@ -468,6 +576,22 @@ class LearningRepositoryTest {
         assertEquals(1, fixture.logs.logs.size)
         val expectedSource = if (prompt.card.queue == Queue.GRAMMAR) ReviewSource.GRAMMAR_DRILL else ReviewSource.SRS_REVIEW
         assertEquals(expectedSource, fixture.logs.logs.first().source)
+    }
+
+    @Test
+    fun acquisitionPracticeKeepsMeaningRecallSimpleAcrossEarlyRepeats() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """{"russian":"дом","lemma":"дом","pos":"noun","translation":"house","tier":0,"exampleSentence":"Это дом.","exampleTranslation":"This is a house."}"""
+        )
+        val card = fixture.cards.cards.first { it.cardType == CardType.RU_TO_MEANING }
+
+        val repeat = fixture.repository.practicePromptFor(card, round = 2)
+
+        assertNotNull(repeat)
+        assertEquals(AnswerMode.ENGLISH, repeat?.answerMode)
+        assertEquals("дом", repeat?.prompt)
+        assertFalse(repeat?.prompt.orEmpty().contains("In context:"))
     }
 
     @Test
@@ -837,6 +961,26 @@ class LearningRepositoryTest {
     }
 
     @Test
+    fun parallelReaderTranslationRoundTripsThroughFullStateBackup() = runTest {
+        val source = RepoFixture()
+        source.repository.addReaderText(
+            title = "Parallel",
+            body = "Анна читает. Потом она спит.",
+            source = "story:test",
+            translationBody = "Anna reads. Then she sleeps."
+        )
+        val payload = source.repository.exportFullState()
+
+        val restored = RepoFixture()
+        restored.repository.importJsonLines(payload)
+
+        assertEquals(
+            "Anna reads. Then she sleeps.",
+            restored.readers.texts.single { it.title == "Parallel" }.translationBody
+        )
+    }
+
+    @Test
     fun curriculumProvenanceComesFromBundledManifestAndCachesSafely() = runTest {
         val fixture = RepoFixture(
             bootstrapManifest = """{"provenance":{"sources":[{"id":"custom","attribution":"Curated source","license":"CC0"}]}}"""
@@ -1062,7 +1206,7 @@ class LearningRepositoryTest {
             .filter { it.gramConcept == "GENDER" && it.cardType != CardType.LESSON }
             .map { it.id }
             .toSet()
-        assertEquals("fixture should have two drills sharing the GENDER concept", 2, genderDrillIds.size)
+        assertEquals("fixture should include generated, baseline, and manual GENDER drills", 3, genderDrillIds.size)
         assertTrue("the manually-inserted card should be one of the two", secondDrillId in genderDrillIds)
         // Probation deterministically admits the lower-id drill — which one that is
         // isn't the point here, only that exactly one of the two gets in.
@@ -1117,7 +1261,7 @@ class LearningRepositoryTest {
         val afterWordEncounter = fixture.repository.sessionPlan(now = 4_000L).reviewQueue
         assertTrue(
             "grammar should become eligible after one word encounter",
-            afterWordEncounter.any { it.card.cardType == CardType.GENDER_ID }
+            afterWordEncounter.any { it.card.gramConcept == "GENDER" && it.card.queue == Queue.GRAMMAR }
         )
     }
 
@@ -1127,6 +1271,7 @@ class LearningRepositoryTest {
         fixture.repository.importJsonLines(
             """
             {"russian":"Numbers and nouns","lemma":"lesson_numeral_case","pos":"lesson","translation":"Numbers and nouns","conceptId":"NUMERAL_CASE","tier":0,"unit":26,"generalFreqRank":0}
+            {"russian":"два дома","lemma":"два_дома","pos":"phrase","translation":"two houses","tier":0,"unit":26,"generalFreqRank":1}
             """.trimIndent()
         )
 
@@ -1147,7 +1292,11 @@ class LearningRepositoryTest {
 
         fixture.repository.review(before.first { it.card.cardType == CardType.LESSON }.card, Rating.GOOD, now = 1_000L)
 
-        val after = fixture.repository.sessionPlan(now = 2_000L).reviewQueue
+        val afterLesson = fixture.repository.sessionPlan(now = 2_000L).reviewQueue
+        assertFalse(afterLesson.any { it.card.cardType == CardType.CONCEPT_DRILL })
+        fixture.repository.review(afterLesson.first { it.card.queue == Queue.VOCAB }.card, Rating.GOOD, now = 3_000L)
+
+        val after = fixture.repository.sessionPlan(now = 4_000L).reviewQueue
         assertTrue(after.any { it.card.cardType == CardType.CONCEPT_DRILL })
     }
 
@@ -1249,7 +1398,7 @@ class LearningRepositoryTest {
     }
 
     @Test
-    fun syncMissingChunkCardsOnlyMintsChunksForMatureRecognition() = runTest {
+    fun launchMaintenanceDoesNotMintUnglossedChunks() = runTest {
         val fixture = RepoFixture(contentDao = FakeContentDao(
             chunksByLemma = mapOf("диван" to listOf(ContentCollocation("диван", "на диване", 8)))
         ))
@@ -1270,16 +1419,56 @@ class LearningRepositoryTest {
 
         fixture.repository.seedIfEmpty()
 
-        assertTrue(
-            "mature word should gain a chunk card from the collocation table",
+        assertFalse(
+            "a collocation without an authored gloss must not become a review card",
             fixture.cards.cards.any { it.cardType == CardType.CHUNK }
         )
-        val chunkNote = fixture.notes.notes.first { it.partOfSpeech == "chunk" }
-        assertEquals(matureNoteId, chunkNote.chunkParentNoteId)
-        assertEquals("на диване", chunkNote.russian)
-        // The immature word's own lemma ("стол") has no collocations configured in
-        // this fixture, but the real assertion is behavioral: nothing links to it.
-        assertFalse(fixture.notes.notes.any { it.chunkParentNoteId == immatureNoteId })
+    }
+
+    @Test
+    fun launchMaintenanceRetiresCaseLabelsAndPurgesInvalidRootMastery() = runTest {
+        val model = FakeLearningModelDao().also {
+            it.upsertMastery(ConceptMastery("root:тена", observations = 4))
+            it.upsertMastery(ConceptMastery("root:стена", observations = 2))
+        }
+        val fixture = RepoFixture(
+            contentDao = FakeContentDao(legacySingleLetterRoots = listOf("тена")),
+            learningModelDao = model
+        )
+        val noteId = fixture.notes.insert(
+            Note(
+                russian = "вини́тельный",
+                lemma = "tb_винительный",
+                translation = "Accusative",
+                partOfSpeech = "word",
+                tags = "textbook vocab"
+            )
+        )
+        fixture.cards.insert(Card(noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB))
+        fixture.cards.insert(Card(noteId = noteId, cardType = CardType.SENTENCE_BUILD, queue = Queue.VOCAB))
+        val existentialId = fixture.notes.insert(
+            Note(
+                russian = "есть",
+                lemma = "есть",
+                translation = "there is, there are",
+                partOfSpeech = "verb"
+            )
+        )
+        fixture.cards.insert(Card(noteId = existentialId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB))
+        fixture.cards.insert(Card(noteId = existentialId, cardType = CardType.VERB_FORM, queue = Queue.GRAMMAR))
+        fixture.cards.insert(Card(noteId = existentialId, cardType = CardType.TRANSFORM, queue = Queue.VOCAB))
+
+        fixture.repository.seedIfEmpty()
+
+        assertTrue(fixture.cards.cards.filter { it.noteId == noteId }.all { it.suspended })
+        assertFalse(model.masteries.containsKey("root:тена"))
+        assertTrue(model.masteries.containsKey("root:стена"))
+        assertFalse(fixture.cards.cards.first {
+            it.noteId == existentialId && it.cardType == CardType.RU_TO_MEANING
+        }.suspended)
+        assertTrue(fixture.cards.cards.filter {
+            it.noteId == existentialId && it.cardType in setOf(CardType.VERB_FORM, CardType.TRANSFORM)
+        }.all { it.suspended })
     }
 
     @Test
@@ -1620,7 +1809,50 @@ class LearningRepositoryTest {
         val changed = fixture.repository.setWordStatusBatch(listOf("novoe", "novoe"), WordStatus.LEARNING)
 
         assertEquals(1, changed)
-        assertEquals(WordStatus.LEARNING, fixture.notes.getByLemma("novoe")?.status)
+        assertEquals(WordStatus.NEW, fixture.notes.getByLemma("novoe")?.status)
+    }
+
+    @Test
+    fun savingReaderGlossMovesUnknownWordIntoLearningWithCards() = runTest {
+        val fixture = RepoFixture()
+
+        fixture.repository.setWordStatus("novoe", WordStatus.LEARNING, now = 1_000L)
+        val pending = fixture.notes.getByLemma("novoe")!!
+        assertEquals(WordStatus.NEW, pending.status)
+        assertEquals("lookup pending", pending.translation)
+
+        val saved = fixture.repository.saveReaderWordGloss("novoe", "a new word", now = 2_000L)!!
+
+        assertEquals(WordStatus.LEARNING, saved.status)
+        assertEquals("a new word", saved.translation)
+        assertTrue(fixture.cards.cards.any { it.noteId == saved.id && it.queue == Queue.VOCAB })
+    }
+
+    @Test
+    fun dailyTargetSeparatesCardsFromReadingButCountsBothAsLearningActions() = runTest {
+        val now = System.currentTimeMillis()
+        val fixture = RepoFixture(config = { LearningConfig(dailyGoal = 2) })
+        val noteId = fixture.notes.insert(Note(russian = "слово", lemma = "слово", translation = "word", partOfSpeech = "noun"))
+        val cardId = fixture.cards.insert(Card(noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB))
+        fixture.logs.insert(
+            ReviewLog(
+                cardId = cardId,
+                reviewDatetime = now,
+                rating = Rating.GOOD,
+                stateBefore = CardState.REVIEW,
+                scheduledDays = 1,
+                elapsedDays = 1,
+                source = ReviewSource.SRS_REVIEW
+            )
+        )
+        fixture.readingActivities.insert(ReadingActivity(readerTextId = 1L, completedAt = now, mistakes = 0, intervalDays = 2))
+
+        val stats = fixture.repository.gamificationStats(now)
+
+        assertEquals(1, stats.reviewedToday)
+        assertEquals(1, stats.readingToday)
+        assertEquals(2, stats.learningActionsToday)
+        assertTrue(stats.goalReached)
     }
 
     @Test
@@ -2048,6 +2280,16 @@ class LearningRepositoryTest {
         assertTrue("expected a production item", "production" in kinds)
         assertTrue("expected a listening item", "listening" in kinds)
         assertTrue("expected a reading item drawn from a note with an example sentence", "reading" in kinds)
+        assertFalse("typed composition must never appear in a capstone", "composition" in kinds)
+        assertTrue("every capstone response must be tap-only", session.items.all { it.choices.size >= 2 })
+        assertTrue(
+            "the correct choice must occur exactly once",
+            session.items.all { item -> item.choices.count { it.equals(item.expectedAnswer, ignoreCase = true) } == 1 }
+        )
+        assertTrue(
+            "correct answers must not be hard-coded into the first position",
+            session.items.any { item -> !item.choices.first().equals(item.expectedAnswer, ignoreCase = true) }
+        )
         // Every item's noteId must belong to unit 1 — never unit 2's inventory.
         val unitOneIds = setOf(
             fixture.notes.getByLemma("дом")!!.id,
@@ -2070,6 +2312,95 @@ class LearningRepositoryTest {
     }
 
     @Test
+    fun dialogueOnlyCurriculumUnitStillBuildsATapOnlyCapstone() = runTest {
+        val id = "b1_unit_030_dialogue"
+        val dialogue = ContentDialogue(id, 30, "handle a situation", "Travel problem")
+        val learnerTurns = listOf(
+            "Мне нужна помощь." to "I need help.",
+            "Где вокзал?" to "Where is the station?",
+            "Спасибо за помощь." to "Thank you for the help."
+        )
+        val nodes = (1..6).map { index ->
+            val learner = index % 2 == 0
+            val pair = learnerTurns[((index - 1) / 2).coerceIn(0, learnerTurns.lastIndex)]
+            ContentDialogueNode(
+                id = "$id:$index", dialogueId = id,
+                speaker = if (learner) "learner" else "npc",
+                ru = if (learner) pair.first else "Что вы скажете?",
+                en = if (learner) pair.second else "Respond in Russian: ${pair.second}",
+                acceptableJson = if (learner) "[\"${pair.first}\"]" else null,
+                nextIdsJson = if (index == 6) "[]" else "[\"$id:${index + 1}\"]"
+            )
+        }
+        val fixture = RepoFixture(
+            contentDao = FakeContentDao(dialogues = listOf(dialogue), dialogueNodes = mapOf(id to nodes))
+        )
+        fixture.repository.importJsonLines(
+            """
+            {"russian":"помощь","lemma":"помощь","pos":"noun","translation":"help","tier":0,"unit":29,"cefrLevel":"B1","exampleSentence":"Мне нужна помощь.","exampleTranslation":"I need help."}
+            {"russian":"Unit lesson","lemma":"lesson_b1_30","pos":"lesson","translation":"Travel problems","tier":0,"unit":30,"cefrLevel":"B1"}
+            """.trimIndent()
+        )
+
+        val session = fixture.repository.buildExitTicketSession(30, "B1")
+
+        assertNotNull(session)
+        assertTrue(session!!.items.size >= 4)
+        assertEquals(3, session.items.count { it.kind == "dialogue" })
+        assertTrue(session.items.all { it.choices.size >= 2 })
+    }
+
+    @Test
+    fun unitCapstoneIncludesEveryLearnerTurnFromItsExactBandDialogue() = runTest {
+        val id = "a1_unit_005_dialogue"
+        val dialogue = ContentDialogue(id, 5, "use unit language", "Unit role-play")
+        val nodes = (1..6).map { index ->
+            val learner = index % 2 == 0
+            ContentDialogueNode(
+                id = "$id:$index", dialogueId = id,
+                speaker = if (learner) "learner" else "npc",
+                ru = if (learner) "Я читаю книгу." else "Что вы скажете?",
+                en = if (learner) "I am reading a book." else "Respond in Russian",
+                acceptableJson = if (learner) "[\"Я читаю книгу.\"]" else null,
+                nextIdsJson = if (index == 6) "[]" else "[\"$id:${index + 1}\"]"
+            )
+        }
+        val fixture = RepoFixture(contentDao = FakeContentDao(dialogues = listOf(dialogue), dialogueNodes = mapOf(id to nodes)))
+        fixture.repository.importJsonLines(
+            """
+            {"russian":"книга","lemma":"книга","pos":"noun","translation":"book","tier":0,"unit":5,"cefrLevel":"A1","exampleSentence":"Я читаю книгу.","exampleTranslation":"I am reading a book."}
+            {"russian":"дом","lemma":"дом","pos":"noun","translation":"house","tier":0,"unit":5,"cefrLevel":"A1","exampleSentence":"Это мой дом.","exampleTranslation":"This is my house."}
+            {"russian":"чай","lemma":"чай","pos":"noun","translation":"tea","tier":0,"unit":5,"cefrLevel":"A1","exampleSentence":"Я пью чай.","exampleTranslation":"I drink tea."}
+            """.trimIndent()
+        )
+
+        val session = fixture.repository.buildExitTicketSession(5, "A1")!!
+
+        assertEquals(3, session.items.count { it.kind == "dialogue" })
+        assertTrue(session.items.filter { it.kind == "dialogue" }.all { it.acceptableAnswers.isNotEmpty() })
+        assertTrue(session.items.all { it.choices.size >= 2 })
+    }
+
+    @Test
+    fun skippingCyrillicGraduatesOnlyFoundationLessons() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """
+            {"russian":"А Б В","lemma":"lesson_cyrillic","pos":"lesson","translation":"Cyrillic","tier":0,"unit":0,"cefrLevel":"A1","tags":"lesson literacy a1"}
+            {"russian":"мат мать","lemma":"lesson_hard_soft","pos":"lesson","translation":"Hard and soft","tier":0,"unit":0,"cefrLevel":"A1","tags":"lesson phonology a1"}
+            {"russian":"Gender","lemma":"lesson_gender","pos":"lesson","translation":"Gender","conceptId":"GENDER","tier":0,"unit":1,"cefrLevel":"A1","tags":"lesson a1"}
+            """.trimIndent()
+        )
+
+        val skipped = fixture.repository.graduateLiteracyFoundation(now = 123L)
+
+        assertEquals(1, skipped.size)
+        val skippedCards = fixture.cards.cards.filter { it.noteId in skipped && it.cardType == CardType.LESSON }
+        assertTrue(skippedCards.all { it.state == CardState.GRADUATED && it.lastReview == 123L })
+        assertTrue(fixture.cards.cards.any { it.noteId !in skipped && it.cardType == CardType.LESSON && it.state == CardState.NEW })
+    }
+
+    @Test
     fun completeExitTicketRecordsResultAndFeedsEvidenceForEveryInvolvedNote() = runTest {
         val fixture = RepoFixture()
         fixture.repository.importJsonLines(
@@ -2087,6 +2418,33 @@ class LearningRepositoryTest {
         assertEquals(1, results.size)
         assertEquals(1, results.first().unit)
         assertTrue(results.first().recognition)
+    }
+
+    @Test
+    fun completeExitTicketAggregatesEveryFacetItemInsteadOfOnlyTheFirst() = runTest {
+        val fixture = RepoFixture()
+        val items = listOf(
+            ExitTicketItem("recognition", null, "дом", "house"),
+            ExitTicketItem("production", null, "house", "дом"),
+            ExitTicketItem("dialogue", null, "turn 1", "ответ 1"),
+            ExitTicketItem("dialogue", null, "turn 2", "ответ 2"),
+            ExitTicketItem("dialogue", null, "turn 3", "ответ 3"),
+            ExitTicketItem("transfer", null, "goal", "response"),
+            ExitTicketItem("listening", null, "listen", "meaning"),
+            ExitTicketItem("reading", null, "read", "meaning")
+        )
+        val session = ExitTicketSession(1, "A1", "use the unit", items)
+
+        fixture.repository.completeExitTicket(
+            session,
+            listOf(true, false, true, false, false, false, false, true)
+        )
+
+        val result = fixture.repository.exitTicketResults().single()
+        assertTrue(result.recognition)
+        assertFalse("one early dialogue success must not hide four later form misses", result.production)
+        assertFalse(result.listening)
+        assertTrue(result.reading)
     }
 
     @Test
@@ -2188,39 +2546,29 @@ class LearningRepositoryTest {
     """.trimIndent()
 
     @Test
-    fun syncMissingPhonologyCardsOnlyMintsForMatureRecognitionOfAShippedForm() = runTest {
+    fun syncMissingPhonologyCardsMintsOntoTheAssignedFoundationLesson() = runTest {
         val fixture = RepoFixture(bootstrapPhonology = phonologyJson)
-        val matureId = fixture.notes.insert(
-            Note(russian = "быть", lemma = "быть", translation = "to be", partOfSpeech = "verb", tier = 0, unit = 1)
-        )
-        val otherId = fixture.notes.insert(
-            Note(russian = "бить", lemma = "бить", translation = "to hit", partOfSpeech = "verb", tier = 0, unit = 1)
-        )
-        fixture.cards.insert(
-            Card(noteId = matureId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB,
-                state = CardState.REVIEW, reps = 3, consecutiveCorrect = 2)
-        )
-        fixture.cards.insert(
-            Card(noteId = otherId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB,
-                state = CardState.REVIEW, reps = 3, consecutiveCorrect = 2)
+        val foundationId = fixture.notes.insert(
+            Note(russian = "мат · мать", lemma = "lesson_hard_soft", translation = "Hard and soft", partOfSpeech = "lesson", tier = 0, unit = 0, tags = "lesson phonology a1")
         )
 
         fixture.repository.seedIfEmpty()
 
-        val minted = fixture.cards.cards.filter { it.noteId == matureId && it.cardType == CardType.PHONOLOGY_MINIMAL_PAIR }
+        val minted = fixture.cards.cards.filter { it.noteId == foundationId && it.cardType == CardType.PHONOLOGY_MINIMAL_PAIR }
         assertEquals(1, minted.size)
-        assertEquals("бить", minted.first().gramContextCue)
+        assertEquals("быть\u001Fбить", minted.first().gramContextCue)
     }
 
     @Test
     fun syncMissingPhonologyCardsSkipsAudioPackGatedItems() = runTest {
-        val fixture = RepoFixture(bootstrapPhonology = phonologyJson)
-        val matureId = fixture.notes.insert(
-            Note(russian = "Это дом?", lemma = "это дом", translation = "is this a house?", partOfSpeech = "phrase", tier = 0, unit = 1)
-        )
-        fixture.cards.insert(
-            Card(noteId = matureId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB,
-                state = CardState.REVIEW, reps = 3, consecutiveCorrect = 2)
+        val audioOnly = """
+            {"schemaVersion":1,"items":[
+                {"id":"audio_pair","band":"A1","kind":"MINIMAL_PAIR","forms":["том","дом"],"requiresAudioPack":true}
+            ]}
+        """.trimIndent()
+        val fixture = RepoFixture(bootstrapPhonology = audioOnly)
+        fixture.notes.insert(
+            Note(russian = "мат · мать", lemma = "lesson_hard_soft", translation = "Hard and soft", partOfSpeech = "lesson", tier = 0, unit = 0, tags = "lesson phonology a1")
         )
 
         fixture.repository.seedIfEmpty()
@@ -2229,19 +2577,15 @@ class LearningRepositoryTest {
     }
 
     @Test
-    fun syncMissingPhonologyCardsSkipsImmatureRecognition() = runTest {
+    fun syncMissingPhonologyCardsDoesNotDependOnVocabularyMaturity() = runTest {
         val fixture = RepoFixture(bootstrapPhonology = phonologyJson)
-        val immatureId = fixture.notes.insert(
-            Note(russian = "быть", lemma = "быть", translation = "to be", partOfSpeech = "verb", tier = 0, unit = 1)
-        )
-        fixture.cards.insert(
-            Card(noteId = immatureId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB,
-                state = CardState.NEW, reps = 0, consecutiveCorrect = 0)
+        fixture.notes.insert(
+            Note(russian = "мат · мать", lemma = "lesson_hard_soft", translation = "Hard and soft", partOfSpeech = "lesson", tier = 0, unit = 0, tags = "lesson phonology a1")
         )
 
         fixture.repository.seedIfEmpty()
 
-        assertFalse(fixture.cards.cards.any { it.cardType == CardType.PHONOLOGY_MINIMAL_PAIR })
+        assertTrue(fixture.cards.cards.any { it.cardType == CardType.PHONOLOGY_MINIMAL_PAIR })
     }
 
     @Test
@@ -2653,6 +2997,114 @@ class LearningRepositoryTest {
     }
 
     @Test
+    fun versionedReviewCannotApplyTheSameScheduleTwice() = runTest {
+        val fixture = RepoFixture()
+        val noteId = fixture.notes.insert(Note(russian = "дом", lemma = "дом", translation = "house", partOfSpeech = "noun"))
+        val cardId = fixture.cards.insert(Card(
+            noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB,
+            state = CardState.REVIEW, stability = 5.0, difficulty = 5.0, due = 0L, lastReview = 0L
+        ))
+        val stale = fixture.cards.cards.first { it.id == cardId }
+
+        fixture.repository.review(stale, Rating.GOOD, now = 86_400_000L, rejectIfAlreadyReviewed = true)
+        var rejected = false
+        try {
+            fixture.repository.review(stale, Rating.GOOD, now = 86_400_001L, rejectIfAlreadyReviewed = true)
+        } catch (_: IllegalStateException) {
+            rejected = true
+        }
+
+        assertTrue("a delayed second tap must be rejected", rejected)
+        assertEquals(1, fixture.logs.logs.count { it.cardId == cardId })
+        assertEquals(1, fixture.cards.cards.first { it.id == cardId }.reps)
+    }
+
+    @Test
+    fun inlineReplySkipsACardThatIsNotDueOrWasAlreadyReviewed() = runTest {
+        val fixture = RepoFixture()
+        val noteId = fixture.notes.insert(Note(russian = "дом", lemma = "дом", translation = "house", partOfSpeech = "noun"))
+        val cardId = fixture.cards.insert(Card(
+            noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB,
+            state = CardState.REVIEW, stability = 5.0, difficulty = 5.0, due = 1_000L, lastReview = 0L
+        ))
+
+        assertNull(fixture.repository.gradeInlineEnglish(cardId, "house", now = 999L))
+        assertEquals(true, fixture.repository.gradeInlineEnglish(cardId, "house", now = 1_000L))
+        assertNull(fixture.repository.gradeInlineEnglish(cardId, "house", now = 1_001L))
+        assertEquals(1, fixture.logs.logs.count { it.cardId == cardId })
+    }
+
+    @Test
+    fun weakEvidenceNeverPersistsDifficultyOutsideFsrsDomain() = runTest {
+        val fixture = RepoFixture()
+        val noteId = fixture.notes.insert(Note(russian = "скажи", lemma = "сказать", translation = "say", partOfSpeech = "verb"))
+        val cardId = fixture.cards.insert(Card(noteId = noteId, cardType = CardType.SPEAK, queue = Queue.VOCAB))
+        val fresh = fixture.cards.cards.first { it.id == cardId }
+
+        fixture.repository.review(fresh, Rating.GOOD, now = 1_000L, objectiveCorrect = true)
+
+        val updated = fixture.cards.cards.first { it.id == cardId }
+        assertTrue("difficulty must remain a valid FSRS value", updated.difficulty in 1.0..10.0)
+        assertTrue(updated.stability.isFinite() && updated.stability > 0.0)
+    }
+
+    @Test
+    fun releasingLeechUsesLiveRowAndClearsEveryScheduleField() = runTest {
+        val fixture = RepoFixture()
+        val noteId = fixture.notes.insert(Note(russian = "слово", lemma = "слово", translation = "word", partOfSpeech = "noun"))
+        val cardId = fixture.cards.insert(Card(
+            noteId = noteId, cardType = CardType.CASE_FILL, queue = Queue.GRAMMAR,
+            state = CardState.RELEARNING, suspended = true, lapses = 9, reps = 20,
+            stability = 8.0, difficulty = 7.0, elapsedDays = 12, scheduledDays = 9,
+            due = 123L, lastReview = 100L, gramContextCue = "STALE"
+        ))
+        val stale = fixture.cards.cards.first { it.id == cardId }
+        fixture.cards.update(stale.copy(gramContextCue = "LIVE", reps = 21, scheduledDays = 11))
+
+        fixture.repository.releaseLeech(stale, now = 5_000L)
+
+        val released = fixture.cards.cards.first { it.id == cardId }
+        assertEquals("LIVE", released.gramContextCue)
+        assertEquals(CardState.NEW, released.state)
+        assertFalse(released.suspended)
+        assertEquals(0, released.reps)
+        assertEquals(0, released.lapses)
+        assertEquals(0, released.elapsedDays)
+        assertEquals(0, released.scheduledDays)
+        assertNull(released.lastReview)
+    }
+
+    @Test
+    fun historicalActivityUsesOffsetAtEachInstantAcrossDst() = runTest {
+        val previous = TimeZone.getDefault()
+        TimeZone.setDefault(TimeZone.getTimeZone("America/New_York"))
+        try {
+            val fixture = RepoFixture(config = { LearningConfig(dailyGoal = 3) })
+            val noteId = fixture.notes.insert(Note(russian = "word", lemma = "word", translation = "word", partOfSpeech = "noun"))
+            val cardId = fixture.cards.insert(Card(noteId = noteId, cardType = CardType.RU_TO_MEANING, queue = Queue.VOCAB))
+            fun log(at: String) = ReviewLog(
+                cardId = cardId, reviewDatetime = Instant.parse(at).toEpochMilli(), rating = Rating.GOOD,
+                stateBefore = CardState.REVIEW, scheduledDays = 1, elapsedDays = 1, source = ReviewSource.SRS_REVIEW
+            )
+            // 23:30 on Mar 8 (EST), then 23:30 on Mar 9 (EDT).
+            fixture.logs.insert(log("2025-03-09T04:30:00Z"))
+            fixture.logs.insert(log("2025-03-10T03:30:00Z"))
+
+            val stats = fixture.repository.gamificationStats(Instant.parse("2025-03-10T16:00:00Z").toEpochMilli())
+            assertEquals(2, stats.currentStreak)
+            assertEquals(2, stats.activeDays)
+            assertFalse(stats.achievements.first { it.id == "goal_met" }.unlocked)
+
+            fixture.logs.insert(log("2025-03-10T03:31:00Z"))
+            fixture.logs.insert(log("2025-03-10T03:32:00Z"))
+            assertTrue(fixture.repository.gamificationStats(Instant.parse("2025-03-10T16:00:00Z").toEpochMilli())
+                .achievements.first { it.id == "goal_met" }.unlocked)
+        } finally {
+            TimeZone.setDefault(previous)
+        }
+    }
+
+    @Test
     fun localDayBoundaryUsesTheOffsetAtMidnightAcrossDst() = runTest {
         val previous = TimeZone.getDefault()
         TimeZone.setDefault(TimeZone.getTimeZone("America/New_York"))
@@ -2777,6 +3229,44 @@ class LearningRepositoryTest {
         assertEquals(2, byType[CardType.RU_TO_MEANING]?.retained)
         assertEquals(2, byType[CardType.MEANING_TO_RU]?.total)
         assertEquals(1, byType[CardType.MEANING_TO_RU]?.retained)
+    }
+
+    @Test
+    fun explicitRetentionWindowDoesNotSubtractASecondWindow() = runTest {
+        val fixture = RepoFixture()
+        val noteId = fixture.notes.insert(
+            Note(
+                russian = "стол",
+                lemma = "стол",
+                translation = "table",
+                partOfSpeech = "noun",
+                status = WordStatus.LEARNING,
+                tags = ""
+            )
+        )
+        val card = Card(
+            id = fixture.cards.insert(
+                Card(
+                    noteId = noteId,
+                    cardType = CardType.RU_TO_MEANING,
+                    queue = Queue.VOCAB,
+                    state = CardState.REVIEW
+                )
+            ),
+            noteId = noteId,
+            cardType = CardType.RU_TO_MEANING,
+            queue = Queue.VOCAB,
+            state = CardState.REVIEW
+        )
+        fixture.logs.insert(matureLog(card, Rating.AGAIN).copy(reviewDatetime = 2L * 86_400_000L))
+        fixture.logs.insert(matureLog(card, Rating.GOOD).copy(reviewDatetime = 9L * 86_400_000L))
+
+        val rows = fixture.repository
+            .retentionByCardTypeSince(since = 7L * 86_400_000L)
+            .associateBy { it.cardType }
+
+        assertEquals(1, rows[CardType.RU_TO_MEANING]?.total)
+        assertEquals(1, rows[CardType.RU_TO_MEANING]?.retained)
     }
 
     @Test
@@ -2990,8 +3480,9 @@ class LearningRepositoryTest {
         // CONCEPT_APPLY / NOVEL_PRODUCE: concept introduced (LESSON graduated) with a
         // shipped frame; CONCEPT_APPLY already has reps so NOVEL_PRODUCE is unlocked.
         val lessonId = fixture.notes.insert(
-            Note(russian = "Genitive", lemma = "lesson_gen", translation = "Genitive", partOfSpeech = "lesson", conceptId = "GEN", encounterCount = 1)
+            Note(russian = "Genitive", lemma = "lesson_gen", translation = "Genitive", partOfSpeech = "lesson", conceptId = "GEN", tier = 0, unit = 1, encounterCount = 1)
         )
+        fixture.notes.insert(Note(russian = "дома", lemma = "дом_gen_cov", translation = "of the house", partOfSpeech = "noun", tier = 0, unit = 1, encounterCount = 1))
         fixture.cards.insert(Card(noteId = lessonId, cardType = CardType.LESSON, queue = Queue.GRAMMAR, gramConcept = "GEN", state = CardState.GRADUATED, reps = 1))
         // state=NEW (default): CONCEPT_APPLY is inserted directly here rather than via
         // syncMissingNovelProduceCards' auto-mint path, so it doesn't need reps>=2 —
@@ -3002,8 +3493,9 @@ class LearningRepositoryTest {
 
         // CONCEPT_DRILL: an upper-level concept ConceptDrills actually covers, LESSON graduated.
         val conditionalId = fixture.notes.insert(
-            Note(russian = "Conditional", lemma = "lesson_conditional", translation = "Conditional", partOfSpeech = "lesson", conceptId = GrammarConcepts.CONDITIONAL.id, encounterCount = 1)
+            Note(russian = "Conditional", lemma = "lesson_conditional", translation = "Conditional", partOfSpeech = "lesson", conceptId = GrammarConcepts.CONDITIONAL.id, tier = 0, unit = 2, encounterCount = 1)
         )
+        fixture.notes.insert(Note(russian = "если", lemma = "если_cond_cov", translation = "if", partOfSpeech = "conjunction", tier = 0, unit = 2, encounterCount = 1))
         fixture.cards.insert(Card(noteId = conditionalId, cardType = CardType.LESSON, queue = Queue.GRAMMAR, gramConcept = GrammarConcepts.CONDITIONAL.id, state = CardState.GRADUATED, reps = 1))
         fixture.repository.seedIfEmpty()
 
@@ -3219,23 +3711,49 @@ class LearningRepositoryTest {
     fun setLearningGoalPersistsSettingsAndFiresGoalCreatedThenGoalReplannedTelemetry() = runTest {
         val settings = com.sibirskyspeak.review.FakeSettingsStore()
         val fixture = RepoFixture(withTelemetry = true, settingsStore = settings)
+        val today = java.time.LocalDate.now().toEpochDay()
 
-        fixture.repository.setLearningGoal("C1", targetDateEpochDay = 5000)
+        fixture.repository.setLearningGoal("C1", targetDateEpochDay = today + 100)
         assertEquals("C1", settings.goalTargetLevel)
-        assertEquals(5000L, settings.goalTargetDateEpochDay)
+        assertEquals(today + 100, settings.goalTargetDateEpochDay)
         assertEquals("ACTIVE", settings.goalStatus)
         assertEquals("goal_created", fixture.telemetry!!.events.single().eventType)
 
-        fixture.repository.setLearningGoal("B2", targetDateEpochDay = 4000)
+        fixture.repository.setLearningGoal("B2", targetDateEpochDay = today + 120)
         assertEquals("B2", settings.goalTargetLevel)
         assertEquals("goal_replanned", fixture.telemetry.events.last().eventType)
+    }
+
+    @Test
+    fun setLearningGoalRejectsUnknownLevelAndPastDate() = runTest {
+        val settings = com.sibirskyspeak.review.FakeSettingsStore()
+        val fixture = RepoFixture(settingsStore = settings)
+        val today = java.time.LocalDate.now().toEpochDay()
+
+        var rejected = false
+        try {
+            fixture.repository.setLearningGoal("Z9", today + 30)
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue(rejected)
+        assertEquals("", settings.goalTargetLevel)
+
+        rejected = false
+        try {
+            fixture.repository.setLearningGoal("A1", today - 1)
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue(rejected)
+        assertEquals("", settings.goalTargetLevel)
     }
 
     @Test
     fun abandonLearningGoalClearsSettingsAndFiresTelemetry() = runTest {
         val settings = com.sibirskyspeak.review.FakeSettingsStore()
         val fixture = RepoFixture(withTelemetry = true, settingsStore = settings)
-        fixture.repository.setLearningGoal("B2", targetDateEpochDay = 5000)
+        fixture.repository.setLearningGoal("B2", targetDateEpochDay = System.currentTimeMillis() / (24L * 60 * 60 * 1000) + 100)
 
         fixture.repository.abandonLearningGoal()
 
@@ -3258,7 +3776,7 @@ class LearningRepositoryTest {
     fun currentGoalStatusStaysActiveBelowTheMilestoneAndFlipsToAchievedAtOrAboveIt() = runTest {
         val settings = com.sibirskyspeak.review.FakeSettingsStore()
         val fixture = RepoFixture(withTelemetry = true, settingsStore = settings)
-        fixture.repository.setLearningGoal("A1", targetDateEpochDay = 10_000)
+        fixture.repository.setLearningGoal("A1", targetDateEpochDay = System.currentTimeMillis() / (24L * 60 * 60 * 1000) + 100)
         val forecast = FluencySimEngine.SimResult(null, null, null, null, null, null, stablePace = 3.0, finalReviewLoad = 0)
 
         // No notes imported yet: well below A1's 700-word milestone.
@@ -3282,5 +3800,34 @@ class LearningRepositoryTest {
         val eventCountAfterFirstAchievement = fixture.telemetry.events.size
         fixture.repository.currentGoalStatus(forecast)
         assertEquals(eventCountAfterFirstAchievement, fixture.telemetry.events.size)
+    }
+    @Test
+    fun earlyVocabularyRecallUsesObjectiveChoiceThenFadesToTypedMeaning() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """
+            {"russian":"дом","lemma":"choice-house","pos":"noun","translation":"house","tier":0,"unit":1,"generalFreqRank":100}
+            {"russian":"стол","lemma":"choice-table","pos":"noun","translation":"table","tier":0,"unit":1,"generalFreqRank":110}
+            {"russian":"окно","lemma":"choice-window","pos":"noun","translation":"window","tier":0,"unit":1,"generalFreqRank":120}
+            {"russian":"книга","lemma":"choice-book","pos":"noun","translation":"book","tier":0,"unit":1,"generalFreqRank":130}
+            """.trimIndent()
+        )
+        val note = fixture.notes.getByLemma("choice-house")!!
+        val card = fixture.cards.cards.first {
+            it.noteId == note.id && it.cardType == CardType.RU_TO_MEANING
+        }
+        fixture.cards.update(card.copy(state = CardState.LEARNING, reps = 1))
+
+        val supported = fixture.repository.promptForCard(card, now = 86_400_000L)!!
+        assertEquals(AnswerMode.CHOICE, supported.answerMode)
+        assertEquals(ChoiceArchetype.MEANING_RECOGNITION, supported.choiceArchetype)
+        assertEquals(4, supported.choices.size)
+        assertTrue(supported.expectedAnswer in supported.choices)
+
+        fixture.cards.update(card.copy(state = CardState.REVIEW, reps = 3))
+        val faded = fixture.repository.promptForCard(card, now = 2L * 86_400_000L)!!
+        assertEquals(AnswerMode.ENGLISH, faded.answerMode)
+        assertTrue(faded.choices.isEmpty())
+        assertNull(faded.choiceArchetype)
     }
 }

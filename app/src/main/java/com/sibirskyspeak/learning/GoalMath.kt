@@ -16,7 +16,9 @@ data class GoalStatus(
     val targetLevel: String,
     val targetDateEpochDay: Long,
     val paceRatio: Double,
-    val state: GoalTrackState
+    val state: GoalTrackState,
+    val requiredPace: Double = 0.0,
+    val currentPace: Double = 0.0
 )
 
 /**
@@ -35,35 +37,45 @@ object GoalMath {
      * reachable within the real ceiling, not a made-up one.
      */
     const val PRESSURE_CEILING = 1.35
+    val VALID_LEVELS: Set<String> = setOf("A1", "A2", "B1", "B2", "C1", "C2")
+
+    fun normalizeLevel(level: String): String = level.trim().uppercase()
+
+    /** Maps the live projection gap to the same bounded pressure used by pacing. */
+    fun pressureFor(paceRatio: Double): Double = paceRatio
+        .takeIf(Double::isFinite)
+        ?.let { (1.0 / it.coerceAtLeast(0.05)).coerceIn(1.0, PRESSURE_CEILING) }
+        ?: 1.0
 
     /** Words/day needed to reach [milestone] from [totalKnown] by [targetDateEpochDay]. */
     fun requiredPace(milestone: Int, totalKnown: Int, targetDateEpochDay: Long, nowEpochDay: Long): Double {
         val wordsNeeded = (milestone - totalKnown).coerceAtLeast(0)
-        val daysRemaining = (targetDateEpochDay - nowEpochDay).coerceAtLeast(1)
+        val daysRemaining = (targetDateEpochDay - nowEpochDay).coerceAtLeast(1L)
         return wordsNeeded.toDouble() / daysRemaining
     }
 
     fun feasibility(requiredPace: Double, currentStablePace: Double): GoalFeasibility {
+        val safeRequired = requiredPace.takeIf { it.isFinite() && it >= 0.0 } ?: Double.POSITIVE_INFINITY
         val safePace = currentStablePace.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         val verdict = when {
-            requiredPace <= safePace -> GoalVerdict.COMFORTABLE
-            requiredPace <= safePace * PRESSURE_CEILING -> GoalVerdict.STRETCH
+            safeRequired <= safePace -> GoalVerdict.COMFORTABLE
+            safeRequired <= safePace * PRESSURE_CEILING -> GoalVerdict.STRETCH
             else -> GoalVerdict.UNSUSTAINABLE
         }
-        return GoalFeasibility(requiredPace, safePace, verdict)
+        return GoalFeasibility(safeRequired, safePace, verdict)
     }
 
     /** >1 = ahead of schedule, <1 = behind. Infinite/undefined required pace (goal
      * already met) reads as comfortably ahead rather than an unusable number. */
     fun paceRatio(currentStablePace: Double, requiredPace: Double): Double {
-        if (requiredPace <= 0.0) return 1.0
+        if (!requiredPace.isFinite() || requiredPace <= 0.0) return 1.0
         val safePace = currentStablePace.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
-        return safePace / requiredPace
+        return (safePace / requiredPace).takeIf(Double::isFinite) ?: 0.0
     }
 
     fun trackState(paceRatio: Double): GoalTrackState = when {
-        paceRatio >= 0.95 -> GoalTrackState.ON_TRACK
-        paceRatio >= 0.75 -> GoalTrackState.DRIFTING
+        paceRatio.isFinite() && paceRatio >= 0.95 -> GoalTrackState.ON_TRACK
+        paceRatio.isFinite() && paceRatio >= 0.75 -> GoalTrackState.DRIFTING
         else -> GoalTrackState.OFF_TRACK
     }
 }

@@ -8,6 +8,8 @@ data class ReaderText(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val title: String,
     val body: String,
+    /** Optional sentence-aligned English companion for bilingual/parallel reading. */
+    val translationBody: String? = null,
     val source: String = "local",
     val createdAt: Long = System.currentTimeMillis()
 )

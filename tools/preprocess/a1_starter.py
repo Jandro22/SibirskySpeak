@@ -84,7 +84,7 @@ UNITS = [
              [("Вот ру́сский стол.", "Here is a Russian table.")]),
         ],
         "words": [
-            ("вот", "particle", "here is", "Вот кни́га.", "Here is the book.",
+            ("вот", "particle", "here; here is", "Вот кни́га.", "Here is the book.",
              [("Вот стол.", "Here is a table.")]),
             ("мой", "pronoun", "my", "Э́то мой стол.", "This is my table.",
              [("Вот мой стул.", "Here is my chair.")]),
@@ -118,8 +118,8 @@ UNITS = [
              [("Вот тот телефо́н.", "Here is that phone.")]),
             ("твой", "pronoun", "your, yours (sg. informal)", "Э́то твой телефо́н.", "This is your phone.",
              [("Вот твой стул.", "Here is your chair.")]),
-            ("ведь", "conjunction", "after all, you know", "Э́то ведь хорошо́.", "This is good, after all.",
-             [("Вот ведь стол.", "Here is the table, after all.")]),
+            ("ведь", "conjunction", "after all", "Э́то ведь хорошо́.", "This is good, after all.",
+             []),
         ],
     },
     {
@@ -134,7 +134,7 @@ UNITS = [
         "concept": "ADJ_AGREE",
         "adjs": [
             ("тёплый", "warm", "Э́то тёплая вода́.", "This is warm water.",
-             [("Вот тёплый стол.", "Here is a warm table.")]),
+             [("Э́то тёплая ко́мната.", "This is a warm room.")]),
             ("холо́дный", "cold", "Э́то холо́дная ко́мната.", "This is a cold room.",
              [("Вот холо́дное окно́.", "Here is a cold window.")]),
             ("друго́й", "other, another", "Вот тёплый стул, а вот друго́й стул.", "Here is a warm chair, and here is another chair.",
@@ -615,9 +615,40 @@ UNITS = [
 ]
 
 
+def a1_foundation_rows():
+    """Concept-free route lessons for learners who do not yet read Cyrillic."""
+    return [
+        {
+            "russian": "А а · Б б · В в · Г г · Д д · Е е · Ё ё · Ж ж · З з · И и · Й й · К к · Л л · М м · Н н · О о · П п · Р р · С с · Т т · У у · Ф ф · Х х · Ц ц · Ч ч · Ш ш · Щ щ · Ъ · Ы ы · Ь · Э э · Ю ю · Я я",
+            "lemma": "lesson_cyrillic", "pos": "lesson", "translation": "Cyrillic: read by sound, not appearance",
+            "exampleTranslation": "Learn the Russian sound of each letter. The look-alikes are the first trap: В = v, Н = n, Р = rolled/trilled r, С = s, У = oo, and Х = kh. Read words aloud with the speaker button; do not transliterate them into Latin letters.",
+            "generalFreqRank": 0, "tier": 0, "unit": 0, "cefrLevel": "A1", "tags": "lesson literacy a1",
+        },
+        {
+            "russian": "мо́локо · вода́ · хорошо́", "lemma": "lesson_stress", "pos": "lesson",
+            "translation": "Word stress and ё",
+            "exampleTranslation": "Russian stress can fall on different syllables and can move between forms. The acute mark in this course shows the stressed vowel but is normally omitted in everyday writing. Ё is always stressed; unstressed е is written without dots in most ordinary text.",
+            "generalFreqRank": 1, "tier": 0, "unit": 0, "cefrLevel": "A1", "tags": "lesson phonology a1",
+        },
+        {
+            "russian": "мат · мать · быть · бить", "lemma": "lesson_hard_soft", "pos": "lesson",
+            "translation": "Hard and soft consonants",
+            "exampleTranslation": "Most consonants have a hard and a soft version. Е, ё, и, ю, я usually soften the consonant before them; ь marks softness without adding a vowel. Ъ separates a consonant from a following iotated vowel. Listen for the contrast before trying to imitate it.",
+            "generalFreqRank": 2, "tier": 0, "unit": 0, "cefrLevel": "A1", "tags": "lesson phonology a1",
+        },
+        {
+            "russian": "молоко́ · дуб — дубы́ · что [што]", "lemma": "lesson_connected_sound", "pos": "lesson",
+            "translation": "How written Russian changes in speech",
+            "exampleTranslation": "Unstressed о often sounds closer to а; final voiced consonants become voiceless (дуб ends with a p-like sound); and common words can reduce in connected speech (что is commonly pronounced што). Keep the spelling, learn the sound through repeated listening, and copy whole phrases rather than isolated letters.",
+            "generalFreqRank": 3, "tier": 0, "unit": 0, "cefrLevel": "A1", "tags": "lesson phonology a1",
+        },
+    ]
+
+
 def a1_rows():
     """All tier-0 A1 notes (lessons first within each unit) in curriculum order."""
-    return build_level(UNITS, "A1")
+    literacy = a1_foundation_rows()
+    return literacy + build_level(UNITS, "A1", rank_start=len(literacy))
 
 
 def a1_reader_texts():

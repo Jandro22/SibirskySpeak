@@ -114,7 +114,7 @@ def test_aspect_pairs_are_symmetric_and_have_aktionsart():
 def test_lesson_concepts_exist_in_app():
     kt = GRAMMAR_CONCEPTS_KT.read_text(encoding="utf-8")
     app_ids = set(re.findall(r'id = "([A-Z0-9_]+)"', kt)) | set(re.findall(r'StagedSpec\("([A-Z0-9_]+)"', kt))
-    lesson_ids = {n["conceptId"] for n in all_rows() if n["pos"] == "lesson"}
+    lesson_ids = {n["conceptId"] for n in all_rows() if n["pos"] == "lesson" and n.get("conceptId")}
     missing = lesson_ids - app_ids
     assert not missing, f"lesson concepts not in GrammarConcepts.kt: {missing}"
 

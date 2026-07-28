@@ -182,8 +182,24 @@ object ConceptDrills {
         )
     }
 
-    private val byId = drills.associateBy { it.id }
-    private val byConcept = drills.groupBy { it.conceptId }
+    /** Every taught concept needs at least one exact productive retrieval path.
+     * Rich authored sets above remain primary; this uses the concept's authored,
+     * controlled example rather than leaving a lesson-only concept untestable. */
+    private val baselineProduction = GrammarConcepts.ALL
+        .filter { concept -> drills.none { it.conceptId == concept.id } }
+        .map { concept ->
+            ConceptDrill(
+                id = "BASELINE_${concept.id}",
+                conceptId = concept.id,
+                prompt = "Express this in Russian:\n${concept.exampleEn}",
+                expectedAnswer = concept.exampleRu,
+                explanation = concept.hint
+            )
+        }
+
+    private val allDrills = drills + baselineProduction
+    private val byId = allDrills.associateBy { it.id }
+    private val byConcept = allDrills.groupBy { it.conceptId }
 
     fun byId(id: String?): ConceptDrill? = id?.let(byId::get)
 

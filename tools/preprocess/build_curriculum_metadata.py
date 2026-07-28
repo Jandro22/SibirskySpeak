@@ -61,15 +61,22 @@ def can_do_for(band, unit):
 def completeness():
     db = sqlite3.connect(ASSETS / "tatoeba.db")
     try:
-        total = dict(db.execute("SELECT band, COUNT(*) FROM sentence_bank GROUP BY band"))
+        exact = dict(db.execute("SELECT band, COUNT(*) FROM sentence_bank GROUP BY band"))
         all_sentences = db.execute("SELECT COUNT(*) FROM sentence").fetchone()[0]
     except sqlite3.OperationalError:
-        total, all_sentences = {}, 0
+        exact, all_sentences = {}, 0
     finally:
         db.close()
-    return {band: {"parseableSentences": count, "corpusSentences": all_sentences,
-                   "percent": round(100.0 * count / all_sentences, 2) if all_sentences else 0.0}
-            for band, count in sorted(total.items())}
+    cumulative = 0
+    result = {}
+    for band in ("A1", "A2", "B1", "B2", "C1", "C2"):
+        cumulative += exact.get(band, 0)
+        result[band] = {
+            "parseableSentences": cumulative,
+            "corpusSentences": all_sentences,
+            "percent": round(100.0 * cumulative / all_sentences, 2) if all_sentences else 0.0,
+        }
+    return result
 
 def main():
     rows = all_rows()
@@ -91,6 +98,8 @@ def main():
     # JSON is a strict subset of YAML and avoids adding a runtime/build dependency.
     (HERE / "units.yaml").write_text(json.dumps({"schemaVersion": 1, "units": units}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (ASSETS / "units.json").write_text(json.dumps({"units": units}, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
+    from generate_dialogues import generate
+    generate(HERE / "units.yaml", ASSETS / "bootstrap_notes.jsonl", HERE / "dialogues.json")
     metrics = completeness()
     (ASSETS / "curriculum_completeness.json").write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     for shipped_asset in ("phonology.json", "transformations.json"):

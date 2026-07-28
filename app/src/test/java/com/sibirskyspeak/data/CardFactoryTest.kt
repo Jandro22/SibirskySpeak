@@ -12,6 +12,15 @@ import org.junit.Test
  */
 class CardFactoryTest {
     @Test
+    fun everyGrammarConceptHasANonBlankProductiveRetrievalTask() {
+        GrammarConcepts.ALL.forEach { concept ->
+            val drills = ConceptDrills.forConcept(concept.id)
+            assertTrue("${concept.id} has no productive drill", drills.isNotEmpty())
+            assertTrue("${concept.id} has a blank drill", drills.all { it.prompt.isNotBlank() && it.expectedAnswer.isNotBlank() })
+        }
+    }
+
+    @Test
     fun lessonNoteProducesOnlyALessonCardPlusItsConceptDrills() {
         val note = Note(id = 1, russian = "", translation = "", partOfSpeech = "lesson", lemma = "GENDER_LESSON", conceptId = "GENDER")
         val cards = CardFactory.cardsFor(note)
@@ -25,6 +34,23 @@ class CardFactoryTest {
         val cards = CardFactory.cardsFor(note)
         assertTrue(cards.any { it.cardType == CardType.RU_TO_MEANING })
         assertTrue(cards.any { it.cardType == CardType.MEANING_TO_RU })
+    }
+
+    @Test
+    fun existentialEstDoesNotGenerateEatConjugationCards() {
+        val note = Note(
+            id = 1,
+            russian = "есть",
+            lemma = "есть",
+            translation = "there is, there are",
+            partOfSpeech = "verb",
+            declensionJson = """{"verbForms":{"INF":"есть","PRES_1SG":"ем","PAST_M":"ел"}}"""
+        )
+
+        val cards = CardFactory.cardsFor(note)
+
+        assertTrue(cards.any { it.cardType == CardType.RU_TO_MEANING })
+        assertFalse(cards.any { it.cardType == CardType.VERB_FORM })
     }
 
     @Test

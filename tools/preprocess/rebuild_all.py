@@ -41,6 +41,9 @@ def main() -> int:
         ("Compiling curriculum notes (initial build)", "build_bootstrap.py"),
         ("Running lexicon verification", "verify_lexicon.py"),
         ("Re-compiling curriculum notes (final build)", "build_bootstrap.py"),
+        ("Rebuilding the graded sentence bank", "build_sentence_bank.py"),
+        ("Refreshing curriculum metadata from the graded sentence bank", "build_curriculum_metadata.py"),
+        ("Rebuilding the complete unit-dialogue database", "build_dialogues.py"),
     ]
     total_steps = len(steps) + 1  # + the informational reader-gap report below
     for step, (description, script) in enumerate(steps):

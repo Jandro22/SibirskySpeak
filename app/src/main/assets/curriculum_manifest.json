@@ -1,24 +1,24 @@
 {
   "assets": {
-    "dialogues": "3a3b6d3b621d50a7",
+    "dialogues": "1ef4f97e7a778cad",
     "frames": "0de953603faf3195",
-    "phonology": "4cceb38d399c3cdb",
+    "phonology": "181d4fcd5739c36e",
     "stories": "f10e652f00f46c23:540694ad66a28266",
     "transformations": "f493258ec052e1d5",
     "units": "d3026b7c0968c312"
   },
-  "contentChecksum": "ecb3d88ba2014c6c97982fa52f5594bb67ab4c5546187e3f8556a639a890ab37",
-  "curriculumVersion": "2026-07-g12-ecb3d88b",
+  "contentChecksum": "48bc0563d3bdd7c4f0fd098e6cc8b1ec2ae59b6b6f1d04c9a237a383ad5dd8b3",
+  "curriculumVersion": "2026-07-g12-48bc0563",
   "noteCountsByBand": {
-    "A1": 685,
-    "A2": 638,
+    "A1": 689,
+    "A2": 632,
     "B1": 1112,
     "B2": 1558,
     "C1": 1189,
     "C2": 4261
   },
   "noteCountsByTier": {
-    "0": 6385,
+    "0": 6383,
     "1": 2345,
     "2": 713
   },

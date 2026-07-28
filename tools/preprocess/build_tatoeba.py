@@ -205,7 +205,10 @@ def linked_english(links: Path, russian_ids: set[int]) -> dict[int, int]:
 
 
 def root_parts(lemma: str) -> tuple[str, str, str]:
-    prefix = next((p for p in PREFIXES if lemma.startswith(p) and len(lemma) - len(p) >= 4), "")
+    # A one-letter guess is far too ambiguous without a morphology dictionary:
+    # "стена" is not с+тена and "слово" is not с+лово. Prefer no family link to
+    # transferring mastery between unrelated words.
+    prefix = next((p for p in PREFIXES if len(p) > 1 and lemma.startswith(p) and len(lemma) - len(p) >= 4), "")
     body = lemma[len(prefix):]
     suffix = next((s for s in SUFFIXES if body.endswith(s) and len(body) - len(s) >= 3), "")
     root = body[:-len(suffix)] if suffix else body

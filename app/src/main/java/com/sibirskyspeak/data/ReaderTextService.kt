@@ -7,8 +7,20 @@ class ReaderTextService(
     private val scheduleDao: ReadingScheduleDao? = null,
     private val bookmarkDao: ReaderBookmarkDao? = null
 ) {
-    suspend fun add(title: String, body: String, source: String = "local"): Long {
-        val id = textDao.insert(ReaderText(title = title.ifBlank { "Imported Text" }, body = body, source = source.trim().ifBlank { "local" }))
+    suspend fun add(
+        title: String,
+        body: String,
+        source: String = "local",
+        translationBody: String? = null
+    ): Long {
+        val id = textDao.insert(
+            ReaderText(
+                title = title.ifBlank { "Imported Text" },
+                body = body,
+                translationBody = translationBody?.trim()?.takeIf { it.isNotBlank() },
+                source = source.trim().ifBlank { "local" }
+            )
+        )
         scheduleDao?.insert(ReadingSchedule(readerTextId = id))
         return id
     }

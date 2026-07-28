@@ -23,6 +23,38 @@ MOJIBAKE = ("Ð", "Ñ", "Ã", "â€")
 # is a reliable signature of a broken CP1251 decode somewhere upstream.
 MOJIBAKE_CYRILLIC = re.compile("[ѐђ-џЀЂ-Џ]")
 PLACEHOLDERS = ("todo", "tbd", "translation missing", "{t}", "{inf}")
+FOREIGN_GLOSS_MARKERS = (
+    "debido a", "situación desfavorable", "không màng đến", "chuẩn đoán",
+    "tỷ trọng", "mật độ", "đăng ký", "khinh suất",
+)
+
+
+def _studyable_example(ru: str, en: str) -> bool:
+    """Reject corruption that would make any shipped card teach bad text."""
+    if not ru.strip() or not en.strip():
+        return False
+    if not any("\u0400" <= ch <= "\u04FF" for ch in ru):
+        return False
+    if not any("A" <= ch <= "Z" or "a" <= ch <= "z" for ch in en):
+        return False
+    if ru.count('"') % 2 or en.count('"') % 2:
+        return False
+    if any(ord(ch) == 0xFFFD or 0x80 <= ord(ch) <= 0x9F for ch in ru + en):
+        return False
+    if re.search(r"[\u0400-\u04FF]\u20AC[\u0400-\u04FF]", ru):
+        return False
+    token_re = re.compile(r"[A-Za-z\u0400-\u04FF]+(?:[-'][A-Za-z\u0400-\u04FF]+)*")
+    lower_ascii_words = 0
+    for match in token_re.finditer(ru):
+        token = match.group(0)
+        latin = any("A" <= ch <= "Z" or "a" <= ch <= "z" for ch in token)
+        letters = "".join(ch for ch in token if ch.isascii() and ch.isalpha())
+        in_quote = ru[:match.start()].count('"') % 2 == 1
+        if latin and len(letters) >= 3 and not token[0].isupper() and not token.isupper() and not in_quote:
+            lower_ascii_words += 1
+    if lower_ascii_words >= 3:
+        return False
+    return True
 
 
 def checksum(note: dict) -> str:
@@ -50,6 +82,21 @@ def machine_problems(notes: list[dict]) -> list[str]:
             for key in ("exampleSentence", "exampleTranslation"):
                 if not str(note.get(key, "")).strip():
                     problems.append(f"{label}: missing {key}")
+        for suffix in ("", "2", "3"):
+            if note.get("pos") == "lesson":
+                continue
+            ru = str(note.get(f"exampleSentence{suffix}", ""))
+            en = str(note.get(f"exampleTranslation{suffix}", ""))
+            if bool(ru.strip()) != bool(en.strip()):
+                problems.append(f"{label}: incomplete example pair {suffix or '1'}")
+            elif ru.strip() and not _studyable_example(ru, en):
+                problems.append(f"{label}: corrupted or mixed-language example {suffix or '1'}")
+        second_ru = str(note.get("secondSenseExample", ""))
+        second_en = str(note.get("secondSenseExampleTranslation", ""))
+        if bool(second_ru.strip()) != bool(second_en.strip()):
+            problems.append(f"{label}: incomplete second-sense example")
+        elif second_ru.strip() and not _studyable_example(second_ru, second_en):
+            problems.append(f"{label}: corrupted second-sense example")
         searchable = " ".join(str(v) for v in note.values() if isinstance(v, (str, int)))
         lowered = searchable.lower()
         if any(marker in searchable for marker in MOJIBAKE):
@@ -58,6 +105,8 @@ def machine_problems(notes: list[dict]) -> list[str]:
             problems.append(f"{label}: mojibake Cyrillic (Macedonian/Serbian code points) detected")
         if any(marker in lowered for marker in PLACEHOLDERS):
             problems.append(f"{label}: placeholder text detected")
+        if any(marker in lowered for marker in FOREIGN_GLOSS_MARKERS):
+            problems.append(f"{label}: foreign-language gloss metadata detected")
         identity = (str(note.get("lemma", "")).lower(), str(note.get("pos", "")), str(note.get("translation", "")).lower())
         if identity in identities:
             problems.append(f"{label}: duplicate lemma/POS/meaning")

@@ -1,5 +1,12 @@
 SIBIRSKYSPEAK — CONTEXT-FIRST CONTENT ENGINE + LEARNING-EFFICIENCY PLAN
-(Tatoeba-backed, on-device, free. Status: plan / not yet implemented.)
+(Tatoeba-backed, on-device, free.)
+
+⚠ SUPERSEDED — historical record only. This plan's "Status: not yet
+implemented" is stale: the Tatoeba/paradigm/lemma-index machinery it proposes
+(build_paradigms.py, mine_examples.py, the example-mining and collocation
+pipeline) is live, current infrastructure — see CLAUDE.md's "Content pipeline"
+and Architecture sections for what actually exists today. Read this doc only
+for the reasoning behind decisions already made, not as a spec to implement.
 
 =====================================================================
 0. WHY — grounded in the live learner state (device, DB v15, 2026-06-29)

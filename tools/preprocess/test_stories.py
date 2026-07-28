@@ -1,4 +1,5 @@
 import json
+import math
 import re
 from pathlib import Path
 
@@ -39,7 +40,9 @@ def test_chapter_vocabulary_stays_within_the_gloss_budget():
     for doc in _stories():
         for chapter in doc["chapters"]:
             unknown = unknown_words(chapter["body"], morph, vocab)
-            assert len(unknown) <= 3, f"{doc['seriesId']} ch.{chapter['chapter']}: unglossed words {unknown}"
+            word_count = len(WORD.findall(chapter["body"]))
+            budget = max(3, math.ceil(word_count * 0.25)) if chapter.get("translation") else 3
+            assert len(unknown) <= budget, f"{doc['seriesId']} ch.{chapter['chapter']}: unglossed words {unknown}"
 
 
 def test_series_validation_helper_rejects_a_broken_chapter_sequence():
@@ -68,6 +71,19 @@ def test_bundled_reader_texts_include_the_story_installment():
     assert any(row.get("cast") == ["Денис", "Ирина"] for row in story_rows)
 
 
+def test_parallel_story_set_spans_the_curriculum():
+    rows = [
+        json.loads(line)
+        for line in (ROOT / "app/src/main/assets/bootstrap_reader_texts.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    parallel = [row for row in rows if row.get("translationBody")]
+    assert len(parallel) >= 10
+    bands = {row["title"].split(" · ", 1)[0] for row in parallel}
+    assert {"A1", "A2", "B1", "B2", "C1"} <= bands
+    assert all(row["body"].strip() and row["translationBody"].strip() for row in parallel)
+
+
 def test_authored_target_rank_matches_measured_coverage():
     notes = load_ranked_tier0_notes()
     morph = pymorphy3.MorphAnalyzer()
@@ -75,7 +91,8 @@ def test_authored_target_rank_matches_measured_coverage():
         vocab = known_lemmas_at_rank(notes, doc["targetMaxRank"])
         for chapter in doc["chapters"]:
             score = coverage(WORD_RE.findall(chapter["body"]), vocab, morph)
-            assert score >= 0.90, (
+            minimum = 0.75 if chapter.get("translation") else 0.90
+            assert score >= minimum, (
                 f"{doc['seriesId']} ch.{chapter['chapter']} declares rank "
                 f"{doc['targetMaxRank']} but measures {score:.1%}"
             )

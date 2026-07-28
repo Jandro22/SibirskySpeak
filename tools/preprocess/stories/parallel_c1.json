@@ -1,0 +1,22 @@
+{
+  "seriesId": "parallel_c1",
+  "band": "C1",
+  "title": "Точка зрения",
+  "targetMaxRank": 12000,
+  "format": "parallel mini-story",
+  "topic": "public reasoning",
+  "chapters": [
+    {
+      "chapter": 1,
+      "title": "Городское обсуждение",
+      "body": "На открытом обсуждении жители спорили о том, следует ли ограничить движение машин в центре. Сторонники проекта подчёркивали, что воздух станет чище, тогда как владельцы магазинов опасались снижения числа покупателей. Представитель города признал, что обе стороны приводят веские доводы, и предложил временный эксперимент. Решение не устранило разногласия, однако позволило проверить предположения на практике. Через полгода участники договорились снова оценить результаты.",
+      "translation": "At an open discussion, residents argued about whether car traffic in the center should be restricted. Supporters of the project emphasized that the air would become cleaner, while shop owners feared a decline in the number of customers. A city representative acknowledged that both sides were making strong arguments and proposed a temporary trial. The decision did not eliminate the disagreement, but it made it possible to test the assumptions in practice. The participants agreed to evaluate the results again after six months."
+    },
+    {
+      "chapter": 2,
+      "title": "Цена уверенности",
+      "body": "Готовя доклад, Ольга обнаружила, что главный вывод её исследования зависит от одного спорного показателя. Она могла не упоминать об этом ограничении, поскольку большинство слушателей всё равно его не заметило бы. Однако такая уверенность была бы обманчивой. Ольга изменила заключение, подробно описала сомнение и предложила несколько возможных объяснений. Доклад стал менее эффектным, зато обсуждение оказалось содержательнее. Коллеги оценили честность и помогли найти способ проверить гипотезу.",
+      "translation": "While preparing a presentation, Olga discovered that the main conclusion of her research depended on one disputed indicator. She could have omitted this limitation because most listeners would not have noticed it anyway. Such confidence, however, would have been misleading. Olga revised the conclusion, described the uncertainty in detail, and suggested several possible explanations. The presentation became less dramatic, but the discussion proved more substantive. Her colleagues appreciated her honesty and helped find a way to test the hypothesis."
+    }
+  ]
+}

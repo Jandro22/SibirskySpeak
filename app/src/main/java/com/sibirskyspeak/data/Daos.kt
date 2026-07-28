@@ -36,6 +36,23 @@ data class CardDashboardCounts(
     val dueGrammar: Int
 )
 
+/** Compact curriculum-progress projections. Keeping this aggregation in SQLite
+ * avoids materializing and filtering every card row during each plan build. */
+data class UnitVocabProgressRow(
+    val band: String,
+    val unit: Int,
+    val total: Int,
+    val mastered: Int,
+    val introduced: Int
+)
+
+data class UnitGrammarObjectiveProgressRow(
+    val band: String,
+    val unit: Int,
+    val objective: String,
+    val mastered: Int
+)
+
 data class ReviewCategoryRatingRow(
     val cardType: CardType,
     val gramCase: String?,
@@ -342,6 +359,27 @@ interface CardDao {
     @Query("UPDATE cards SET suspended = 1 WHERE cardType = 'ASPECT_SELECT' AND gramContextCue IN ('RESULT', 'SINGLE_EVENT') AND suspended = 0")
     suspend fun suspendDeprecatedAspectCueCards(): Int
 
+    @Query("""
+        UPDATE cards SET suspended = 1
+        WHERE suspended = 0
+          AND cardType IN ('VERB_FORM', 'TRANSFORM')
+          AND noteId IN (
+              SELECT id FROM notes
+              WHERE lemma = 'есть' AND translation LIKE 'there is%'
+          )
+    """)
+    suspend fun suspendExistentialHomographMorphologyCards(): Int
+
+    @Query("""
+        UPDATE cards SET suspended = 1
+        WHERE cardType = 'CHUNK' AND suspended = 0
+          AND noteId IN (
+              SELECT id FROM notes
+              WHERE partOfSpeech = 'chunk' AND TRIM(translation) = ''
+          )
+    """)
+    suspend fun suspendUnglossedChunkCards(): Int
+
     @Query("SELECT * FROM cards WHERE queue = 'GRAMMAR'")
     suspend fun getAllGrammarCards(): List<Card>
 
@@ -392,6 +430,9 @@ interface CardDao {
     @Query("SELECT * FROM cards WHERE noteId IN (:noteIds)")
     suspend fun getCardsForNotes(noteIds: List<Long>): List<Card>
 
+    @Query("SELECT * FROM cards WHERE gramConcept = :concept AND cardType != 'LESSON'")
+    suspend fun getCardsForConcept(concept: String): List<Card>
+
     @Query("SELECT * FROM cards WHERE id IN (:cardIds)")
     suspend fun getByIds(cardIds: List<Long>): List<Card>
 
@@ -408,6 +449,44 @@ interface CardDao {
 
     @Query("SELECT * FROM cards WHERE queue = 'VOCAB'")
     suspend fun getAllVocabCards(): List<Card>
+
+    @Query("""
+        SELECT COALESCE(n.cefrLevel, 'A1') AS band,
+               n.unit AS unit,
+               COUNT(*) AS total,
+               SUM(CASE WHEN c.state = 'GRADUATED'
+                              OR (c.reps >= 2 AND c.consecutiveCorrect >= 2)
+                        THEN 1 ELSE 0 END) AS mastered,
+               SUM(CASE WHEN c.state != 'NEW' THEN 1 ELSE 0 END) AS introduced
+        FROM cards c
+        JOIN notes n ON n.id = c.noteId
+        WHERE n.tier = 0
+          AND n.unit IS NOT NULL
+          AND n.status != 'IGNORED'
+          AND c.cardType = 'RU_TO_MEANING'
+          AND c.suspended = 0
+        GROUP BY COALESCE(n.cefrLevel, 'A1'), n.unit
+    """)
+    suspend fun unitVocabProgress(): List<UnitVocabProgressRow>
+
+    @Query("""
+        SELECT COALESCE(n.cefrLevel, 'A1') AS band,
+               n.unit AS unit,
+               COALESCE(c.gramConcept, c.cardType || ':' || c.noteId) AS objective,
+               MAX(CASE WHEN c.reps >= 2 AND c.consecutiveCorrect >= 2
+                        THEN 1 ELSE 0 END) AS mastered
+        FROM cards c
+        JOIN notes n ON n.id = c.noteId
+        WHERE n.tier = 0
+          AND n.unit IS NOT NULL
+          AND n.status NOT IN ('KNOWN', 'IGNORED')
+          AND c.queue = 'GRAMMAR'
+          AND c.cardType != 'LESSON'
+          AND c.suspended = 0
+        GROUP BY COALESCE(n.cefrLevel, 'A1'), n.unit,
+                 COALESCE(c.gramConcept, c.cardType || ':' || c.noteId)
+    """)
+    suspend fun unitGrammarObjectiveProgress(): List<UnitGrammarObjectiveProgressRow>
 
     @Query("""
         SELECT DISTINCT noteId
@@ -499,6 +578,9 @@ interface NoteDao {
     @Query("SELECT * FROM notes WHERE id = :id")
     suspend fun getById(id: Long): Note?
 
+    @Query("SELECT * FROM notes WHERE id IN (:ids)")
+    suspend fun getByIds(ids: List<Long>): List<Note>
+
     @Query("SELECT * FROM notes WHERE lemma = :lemma LIMIT 1")
     suspend fun getByLemma(lemma: String): Note?
 
@@ -560,7 +642,7 @@ interface NoteDao {
 @Dao
 interface ReviewLogDao {
     @Insert
-    suspend fun insert(log: ReviewLog)
+    suspend fun insert(log: ReviewLog): Long
 
     @Insert
     suspend fun insertAll(logs: List<ReviewLog>)
@@ -577,7 +659,7 @@ interface ReviewLogDao {
     @Query("SELECT rating FROM review_logs WHERE reviewDatetime >= :since AND source IN ('SRS_REVIEW','GRAMMAR_DRILL') ORDER BY reviewDatetime DESC, id DESC LIMIT :limit")
     suspend fun recentDirectRatingsSince(since: Long, limit: Int = 200): List<Rating>
 
-    @Query("SELECT COUNT(*) FROM review_logs WHERE cardId = :cardId AND reviewDatetime >= :dayStart AND source IN ('READING','LISTENING','PRODUCTION')")
+    @Query("SELECT COUNT(*) FROM review_logs WHERE cardId = :cardId AND reviewDatetime >= :dayStart AND source IN ('READING','LISTENING','PRODUCTION','CAPSTONE_CHOICE')")
     suspend fun passiveEvidenceCountSince(cardId: Long, dayStart: Long): Int
 
     @Query("SELECT COUNT(*) FROM review_logs WHERE reviewDatetime >= :since AND source IN ('SRS_REVIEW','GRAMMAR_DRILL')")
@@ -663,15 +745,20 @@ interface ReviewLogDao {
     """)
     suspend fun getReviewedCardsSince(since: Long): List<Card>
 
-    // Removes the most recent log row for a card. Used by the undo path to roll
-    // back a review (the matching Card row is restored separately from a snapshot).
-    @Query("DELETE FROM review_logs WHERE id = (SELECT MAX(id) FROM review_logs WHERE cardId = :cardId)")
-    suspend fun deleteLatestForCard(cardId: Long)
+    // Undo deletes the exact row returned by @Insert. "Latest for card" is unsafe:
+    // passive reading/listening evidence may be recorded after the direct review.
+    @Query("DELETE FROM review_logs WHERE id = :id")
+    suspend fun deleteById(id: Long)
 
     // Distinct local-day buckets that have at least one review, newest first.
     // Used for streak and active-day stats without loading every log row.
     @Query("SELECT DISTINCT (reviewDatetime + :tzOffset) / :dayMillis AS day FROM review_logs WHERE source IN ('SRS_REVIEW','GRAMMAR_DRILL') ORDER BY day DESC")
     suspend fun reviewDayBuckets(tzOffset: Long, dayMillis: Long): List<Long>
+
+    /** Raw activity instants are bucketed in Kotlin with ZoneRules. A single SQL
+     * offset cannot represent historical DST transitions (or a timezone move). */
+    @Query("SELECT reviewDatetime FROM review_logs WHERE source IN ('SRS_REVIEW','GRAMMAR_DRILL') ORDER BY reviewDatetime ASC")
+    suspend fun recallActivityTimestamps(): List<Long>
 
     // Per-day review counts (not just presence/absence) since :sinceDay, for the
     // GitHub/Anki-style activity heatmap — StreakCard needs intensity, not just a
@@ -906,6 +993,9 @@ interface ReadingActivityDao {
     @Query("SELECT DISTINCT (completedAt + :tzOffset) / :dayMillis FROM reading_activities ORDER BY 1 DESC")
     suspend fun dayBuckets(tzOffset: Long, dayMillis: Long): List<Long>
 
+    @Query("SELECT completedAt FROM reading_activities ORDER BY completedAt ASC")
+    suspend fun activityTimestamps(): List<Long>
+
     @Query("UPDATE reading_activities SET readerTextId = :targetId WHERE readerTextId = :sourceId")
     suspend fun moveToText(sourceId: Long, targetId: Long): Int
 }
@@ -920,6 +1010,9 @@ interface TelemetryDao {
 
     @Query("SELECT * FROM telemetry_events ORDER BY timestamp DESC LIMIT :limit")
     suspend fun recent(limit: Int = 1000): List<TelemetryEvent>
+
+    @Query("SELECT * FROM telemetry_events WHERE eventType IN (:eventTypes) ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun recentByTypes(eventTypes: List<String>, limit: Int): List<TelemetryEvent>
 
     /** Every recorded event, oldest first — used by the full-state backup export. */
     @Query("SELECT * FROM telemetry_events ORDER BY timestamp ASC")
@@ -975,6 +1068,9 @@ interface LearningModelDao {
 
     @Query("DELETE FROM item_difficulty WHERE cardId = :cardId")
     suspend fun deleteDifficulty(cardId: Long): Int
+
+    @Query("DELETE FROM item_difficulty WHERE cardId IN (:cardIds)")
+    suspend fun deleteDifficulties(cardIds: List<Long>): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertMastery(value: ConceptMastery)

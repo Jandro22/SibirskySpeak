@@ -48,6 +48,8 @@ class BackupManager(context: Context) {
     private val previous = File(dir, "full_state_previous.jsonl")
 
     private val publicMirrorEnabled: Boolean
+        // Public Downloads is enabled by default for this single-user app; the
+        // setting remains available for learners who prefer app-private recovery.
         get() = prefs.getBoolean("automatic_public_backup_enabled", true)
 
     /** Whether external mirrors will be written as authenticated encrypted payloads. */

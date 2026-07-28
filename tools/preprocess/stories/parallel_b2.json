@@ -1,0 +1,22 @@
+{
+  "seriesId": "parallel_b2",
+  "band": "B2",
+  "title": "Неочевидный выбор",
+  "targetMaxRank": 8500,
+  "format": "parallel mini-story",
+  "topic": "judgment and media",
+  "chapters": [
+    {
+      "chapter": 1,
+      "title": "Предложение о работе",
+      "body": "Ирина получила предложение от крупной компании, где зарплата была заметно выше. Тем не менее новая должность требовала частых поездок и почти не оставляла свободного времени. Ирина составила список преимуществ и недостатков, но цифры не помогли принять решение. После разговора с бывшей коллегой она поняла, что ценит самостоятельность больше, чем престиж. В итоге Ирина отказалась от предложения и начала искать другой вариант.",
+      "translation": "Irina received an offer from a large company where the salary was considerably higher. Nevertheless, the new position required frequent travel and left almost no free time. Irina made a list of advantages and disadvantages, but the numbers did not help her decide. After speaking with a former colleague, she realized that she valued independence more than prestige. In the end, Irina declined the offer and began looking for another option."
+    },
+    {
+      "chapter": 2,
+      "title": "Громкий заголовок",
+      "body": "Денис увидел в сети громкий заголовок и почти сразу отправил статью друзьям. Один из них спросил, кто провёл исследование и где опубликованы данные. Денис перечитал текст внимательнее и заметил, что автор ссылался только на чужие слова. Он нашёл первоначальный отчёт, который содержал гораздо более осторожные выводы. После этого Денис удалил сообщение и признал, что поспешил. Теперь он проверяет источник, прежде чем делиться новостью.",
+      "translation": "Denis saw a sensational headline online and almost immediately sent the article to his friends. One of them asked who had conducted the study and where the data had been published. Denis reread the text more carefully and noticed that the author referred only to other people's words. He found the original report, which contained much more cautious conclusions. After that, Denis deleted the message and admitted that he had acted too quickly. Now he checks the source before sharing news."
+    }
+  ]
+}

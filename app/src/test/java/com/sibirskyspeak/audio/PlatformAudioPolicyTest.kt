@@ -26,4 +26,15 @@ class PlatformAudioPolicyTest {
         assertTrue(chunks.first().endsWith("."))
         assertEquals("Второе предложение.", chunks.last())
     }
+
+    @Test
+    fun ttsVoicePolicyUsesOnlyOfflineRussianVoicesAndRanksQualityFirst() {
+        val voices = listOf(
+            TtsVoiceDescriptor("ru-low", "ru", "RU", quality = 200, latency = 100, requiresNetwork = false),
+            TtsVoiceDescriptor("ru-network", "ru", "RU", quality = 500, latency = 500, requiresNetwork = true),
+            TtsVoiceDescriptor("en-high", "en", "US", quality = 500, latency = 100, requiresNetwork = false),
+            TtsVoiceDescriptor("ru-high", "ru", "RU", quality = 400, latency = 200, requiresNetwork = false)
+        )
+        assertEquals(listOf("ru-high", "ru-low"), rankedRussianVoiceNames(voices))
+    }
 }

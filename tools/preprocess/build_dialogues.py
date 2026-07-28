@@ -53,7 +53,7 @@ def build(db_path: Path, dialogues_path: Path, room_schema: Path) -> dict:
     db.executemany("INSERT INTO dialogue_node VALUES(?,?,?,?,?,?,?)", node_rows)
     schema = json.loads(room_schema.read_text(encoding="utf-8"))
     db.execute("INSERT OR REPLACE INTO room_master_table VALUES(42, ?)", (schema["database"]["identityHash"],))
-    db.execute("PRAGMA user_version=6")
+    db.execute("PRAGMA user_version=7")
     db.commit()
     db.execute("VACUUM")
     db.close()
@@ -64,7 +64,7 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser()
     p.add_argument("--db", type=Path, default=ROOT / "app/src/main/assets/tatoeba.db")
     p.add_argument("--dialogues", type=Path, default=Path(__file__).parent / "dialogues.json")
-    p.add_argument("--room-schema", type=Path, default=ROOT / "app/schemas/com.sibirskyspeak.data.ContentDatabase/6.json")
+    p.add_argument("--room-schema", type=Path, default=ROOT / "app/schemas/com.sibirskyspeak.data.ContentDatabase/7.json")
     return p
 
 

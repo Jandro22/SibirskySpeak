@@ -69,7 +69,7 @@ class GenerativePaceWorldModelTest {
         assertEquals(123L, updated.getValue("vocab").updatedAt)
     }
 
-    @Test fun `live MPC stops tired sessions and stretches only strong safe flow`() {
+    @Test fun `live MPC recovers tired sessions without stopping and stretches only strong safe flow`() {
         val firstMiss = LiveSessionState(shown = 1, recent = listOf(2_000L to false))
         assertEquals(MpcAction.CARD, SessionMpcController.decide(true, firstMiss, MpcInputs(fatigue = 0.4)))
 
@@ -77,10 +77,10 @@ class GenerativePaceWorldModelTest {
         // First sign of sustained struggle this sitting: try a confidence-rebuild
         // window instead of ejecting outright.
         assertEquals(MpcAction.RECOVER, SessionMpcController.decide(true, tired, MpcInputs(fatigue = 0.9)))
-        // Recovery already tried and exhausted (still struggling after the window) —
-        // only now is this a real stop.
+        // Continued struggle opens another confidence-rebuild window; a non-empty
+        // assigned queue must never be converted into an adaptive stop.
         val recoveryExhausted = tired.copy(recoveryAttempted = true)
-        assertEquals(MpcAction.STOP, SessionMpcController.decide(true, recoveryExhausted, MpcInputs(fatigue = 0.9)))
+        assertEquals(MpcAction.RECOVER, SessionMpcController.decide(true, recoveryExhausted, MpcInputs(fatigue = 0.9)))
         // Still inside an active recovery window: let it play out rather than
         // re-triggering another RECOVER every card.
         val insideRecoveryWindow = tired.copy(recoveryWindowRemaining = 2)
@@ -126,10 +126,9 @@ class GenerativePaceWorldModelTest {
                 MpcInputs(fatigue = 0.9, minimumSessionCards = SettingsStore.DAILY_CARD_TARGET)
             )
         )
-        // Once the configured target is actually complete, the safety stop remains
-        // available if severe struggle persists.
+        // Even beyond the configured target, remaining scheduled work stays intact.
         assertEquals(
-            MpcAction.STOP,
+            MpcAction.RECOVER,
             SessionMpcController.decide(
                 true,
                 tired.copy(shown = SettingsStore.DAILY_CARD_TARGET + 1, recoveryAttempted = true),
@@ -138,7 +137,7 @@ class GenerativePaceWorldModelTest {
         )
     }
 
-    @Test fun `live MPC grants one grace attempt to the card that just failed before stopping`() {
+    @Test fun `live MPC grants one grace attempt without stopping the assigned queue`() {
         val tired = LiveSessionState(shown = 6, recent = listOf(1_000L to true, 2_000L to false, 2_200L to false, 2_400L to false))
         // Same inputs as the plain-STOP case, except this rating's card hasn't had its
         // grace attempt yet — the controller should offer it one more try instead of
@@ -154,10 +153,10 @@ class GenerativePaceWorldModelTest {
             MpcAction.RECOVER,
             SessionMpcController.decide(true, tired, MpcInputs(fatigue = 0.9, justFailedUngracedCardId = null))
         )
-        // Once recovery has already been tried and exhausted, the same inputs are a
-        // real stop.
+        // Once recovery has already been tried, persistent struggle schedules
+        // another recovery window instead of discarding the queue.
         assertEquals(
-            MpcAction.STOP,
+            MpcAction.RECOVER,
             SessionMpcController.decide(true, tired.copy(recoveryAttempted = true), MpcInputs(fatigue = 0.9, justFailedUngracedCardId = null))
         )
         // No card in the queue at all always stops outright, even with a grace
@@ -348,7 +347,7 @@ class GenerativePaceWorldModelTest {
             PaceInputs(capacity = CapacityBelief(6.0, 4.0), recentAccuracy = 0.65, fatigue = 0.8)
         )
         assertEquals(0, tired.newItemBudget)
-        assertEquals(StopPolicy.EARLY_STOP, tired.stretchStopPolicy)
+        assertEquals(StopPolicy.RECOVERY_PACING, tired.stretchStopPolicy)
         // No cards means there is no valid insertion position; the old [1, 1]
         // sentinel caused a phantom checkpoint in an otherwise empty session.
         assertTrue(tired.readingInserts.isEmpty())
@@ -395,6 +394,38 @@ class GenerativePaceWorldModelTest {
             evidence = AdaptiveEvidence(completedSessions = 60, calibratedObservations = 240, capacitySigma = 2.0)
         )
         assertEquals("personal evidence should execute the learned capacity", 1, learned.capacity)
+        assertEquals("a learned zero new budget is a safety stop", 0, learned.newBudget)
+    }
+
+    @Test fun `recovery zero new budget survives calibration drift trust cap`() {
+        val recovery = Pace(
+            targetMinutes = 8.0,
+            newItemBudget = 0,
+            reviewBudget = 28,
+            targetRetention = 0.90,
+            targetDifficulty = 0.8,
+            productionRatio = 0.20,
+            readingInserts = emptyList(),
+            stretchStopPolicy = StopPolicy.RECOVERY_PACING,
+            debtRatio = 0.90,
+            pReturn = 0.36
+        )
+
+        val adopted = PaceController.adoptForSessionSettings(
+            pace = recovery,
+            configuredSessionSize = 40,
+            configuredNewCardsPerDay = 26,
+            configuredRetention = 0.90,
+            evidence = AdaptiveEvidence(
+                completedSessions = 22,
+                calibratedObservations = 373,
+                capacitySigma = 2.13,
+                calibrationDrifted = true
+            )
+        )
+
+        assertEquals(0, adopted.newBudget)
+        assertTrue(adopted.capacity > 0)
     }
 
     @Test fun `adaptive trust grows gradually and drift caps it`() {

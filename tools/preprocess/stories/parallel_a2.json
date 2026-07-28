@@ -1,0 +1,22 @@
+{
+  "seriesId": "parallel_a2",
+  "band": "A2",
+  "title": "Планы меняются",
+  "targetMaxRank": 4500,
+  "format": "parallel mini-story",
+  "topic": "plans and travel",
+  "chapters": [
+    {
+      "chapter": 1,
+      "title": "Автобус опоздал",
+      "body": "В субботу Мария хотела поехать к сестре, которая живёт в другом городе. Она приехала на вокзал рано, но автобус опоздал на сорок минут. Сначала Мария нервничала, потом купила кофе и позвонила сестре. Когда автобус наконец приехал, водитель быстро проверил билеты. К вечеру Мария уже была у сестры.",
+      "translation": "On Saturday Maria wanted to visit her sister, who lives in another city. She arrived at the station early, but the bus was forty minutes late. At first Maria was nervous; then she bought coffee and called her sister. When the bus finally arrived, the driver checked the tickets quickly. By evening Maria was already at her sister's home."
+    },
+    {
+      "chapter": 2,
+      "title": "Новый план",
+      "body": "Пётр собирался встретиться с друзьями в кафе, однако утром кафе закрылось из-за ремонта. Он написал всем и предложил встретиться у реки. Друзья взяли еду, тёплую одежду и мяч. Днём пошёл небольшой дождь, но никто не ушёл. Они играли, разговаривали и смеялись. Домой все вернулись поздно, но довольные.",
+      "translation": "Pyotr was planning to meet his friends at a café, but the café closed for repairs that morning. He wrote to everyone and suggested meeting by the river. The friends brought food, warm clothes, and a ball. A little rain began in the afternoon, but nobody left. They played, talked, and laughed. Everyone returned home late but happy."
+    }
+  ]
+}

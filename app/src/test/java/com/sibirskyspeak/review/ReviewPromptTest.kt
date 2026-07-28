@@ -20,6 +20,21 @@ class ReviewPromptTest {
     }
 
     @Test
+    fun selfRatedRecognitionDisputesDoNotBecomeObjectiveFailures() {
+        assertTrue(isSelfRatedMatcherDispute(AnswerMode.ENGLISH, false, Rating.GOOD))
+        assertTrue(isSelfRatedMatcherDispute(AnswerMode.SPEAK, false, Rating.EASY))
+        assertFalse(isSelfRatedMatcherDispute(AnswerMode.ENGLISH, false, Rating.AGAIN))
+        assertFalse(isSelfRatedMatcherDispute(AnswerMode.RUSSIAN_TYPED, false, Rating.GOOD))
+        assertFalse(isSelfRatedMatcherDispute(AnswerMode.ENGLISH, true, Rating.GOOD))
+    }
+
+    @Test
+    fun generatedPlaceholderMemoryHooksAreHiddenButAuthoredHooksRemain() {
+        assertEquals(null, usableMemoryHook("Picture table saying «стол» out loud."))
+        assertEquals("Imagine a study desk by the window.", usableMemoryHook(" Imagine a study desk by the window. "))
+    }
+
+    @Test
     fun beginnerCorpusExampleWaitsUntilTransferStage() {
         val note = Note(
             id = 7, russian = "окно", lemma = "окно", translation = "window", partOfSpeech = "noun", cefrLevel = "A1",
@@ -59,7 +74,7 @@ class ReviewPromptTest {
     }
 
     @Test
-    fun failedCardReturnsAfterSixInterveningCardsAndAtTheEnd() {
+    fun failedCardReturnsOnceAfterSixInterveningCards() {
         val failed = simplePrompt(1, CardType.MEANING_TO_RU)
         val repair = simplePrompt(99, CardType.RU_TO_MEANING)
         val queue = listOf(failed) + (2L..10L).map { simplePrompt(it) }
@@ -68,8 +83,8 @@ class ReviewPromptTest {
 
         assertEquals(99L, updated[6].card.id)
         assertTrue(updated[6].queueReason.orEmpty().startsWith("Repair:"))
-        assertEquals(1L, updated.last().card.id)
-        assertTrue(updated.last().queueReason.orEmpty().contains("Final recovery"))
+        assertEquals(1, updated.count { it.card.id == 99L })
+        assertEquals(0, updated.count { it.card.id == 1L })
     }
 
     @Test
@@ -703,7 +718,7 @@ class ReviewPromptTest {
     }
 
     @Test
-    fun advancedSentenceBuildUsesRussianWordBankInsteadOfEnglishTranslation() {
+    fun sentenceBuildAlwaysShowsAnEnglishMeaningCue() {
         val card = Card(noteId = 1, cardType = CardType.SENTENCE_BUILD, queue = Queue.GRAMMAR)
         val note = Note(
             id = 1,
@@ -718,10 +733,9 @@ class ReviewPromptTest {
 
         val prompt = buildPrompt(card, note, emptyMap())
 
-        assertTrue(prompt.prompt.contains("\u0421\u043e\u0431\u0435\u0440\u0438\u0442\u0435"))
-        val bank = prompt.prompt.substringAfter('\n').split(" / ").toSet()
-        assertEquals(setOf("\u042f", "\u043f\u044c\u044e", "\u043c\u043e\u043b\u043e\u043a\u043e"), bank)
-        assertFalse(prompt.prompt.contains("I drink milk"))
+        assertEquals("Build this sentence in Russian.\nMeaning: I drink milk.", prompt.prompt)
+        assertTrue(prompt.prompt.contains("I drink milk"))
+        assertFalse(prompt.prompt.contains(" / "))
         assertEquals("\u042f \u043f\u044c\u044e \u043c\u043e\u043b\u043e\u043a\u043e.", prompt.expectedAnswer)
     }
 

@@ -72,7 +72,7 @@ if (!$SkipSdkInstall) {
     Write-Host "Accepting Android SDK licenses"
     "y`ny`ny`ny`ny`ny`ny`ny`ny`ny`n" | & $SdkManager --licenses
     Write-Host "Installing Android SDK packages"
-    & $SdkManager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+    & $SdkManager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "extras;google;usb_driver"
 }
 
 Write-Host "Android build tools are ready."

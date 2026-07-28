@@ -53,13 +53,20 @@ def test_every_vocab_note_has_a_real_sentence_gloss():
         assert len(en.split()) >= 2, f"{note['lemma']} gloss is not a sentence: {en!r}"
 
 
+def test_learner_problem_cards_use_clear_senses_and_natural_examples():
+    notes = {n["lemma"]: n for n in a1_rows()}
+    assert notes["ведь"]["translation"] == "after all"
+    assert notes["ведь"].get("exampleSentence2") is None
+    assert notes["тёплый"]["exampleTranslation2"] == "This is a warm room."
+
+
 # Controlled-vocabulary checking for A1 is covered (cumulatively, across all levels)
 # by test_curriculum.test_cumulative_controlled_vocabulary, which has a more robust
 # morphological expander. This file keeps the A1-specific structural checks.
 
 
 def test_all_grammar_concepts_have_a_lesson_note():
-    lesson_concepts = {n["conceptId"] for n in a1_rows() if n["pos"] == "lesson"}
+    lesson_concepts = {n["conceptId"] for n in a1_rows() if n["pos"] == "lesson" and n.get("conceptId")}
     for u in UNITS:
         if u.get("concept"):
             assert u["concept"] in lesson_concepts

@@ -3,6 +3,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Speaking practice: on-device speech recognition for pronunciation drills. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Optional reader gloss assist; disabled by default and never required. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <queries>
         <intent>
             <action android:name="android.speech.RecognitionService" />
@@ -23,7 +25,8 @@
         <profileable android:shell="true" tools:targetApi="29" />
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

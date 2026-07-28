@@ -1,5 +1,6 @@
 package com.sibirskyspeak.data
 
+import com.sibirskyspeak.learning.EvidenceStrength
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -39,6 +40,29 @@ class ArchitectureHardeningTest {
         fixture.repository.undoLastReview()
         assertNull(fixture.evidence.get(noteId))
         assertTrue(fixture.logs.logs.isEmpty())
+    }
+
+    @Test fun undoDeletesTheCommittedReviewRatherThanANewerPassiveLog() = runTest {
+        val fixture = RepoFixture()
+        val noteId = fixture.repository.addNote(Note(russian = "word", lemma = "word", translation = "word", partOfSpeech = "noun"))
+        val card = fixture.cards.cards.first { it.noteId == noteId }
+            .copy(state = CardState.REVIEW, reps = 1, stability = 1.0)
+        fixture.cards.update(card)
+        fixture.repository.review(card, Rating.GOOD, now = 100)
+        fixture.logs.insert(ReviewLog(
+            cardId = card.id,
+            reviewDatetime = 101,
+            rating = Rating.GOOD,
+            stateBefore = CardState.REVIEW,
+            scheduledDays = 1,
+            elapsedDays = 0,
+            source = ReviewSource.READING,
+            evidenceStrength = EvidenceStrength.PRACTICE
+        ))
+
+        fixture.repository.undoLastReview()
+
+        assertEquals(listOf(ReviewSource.READING), fixture.logs.logs.map { it.source })
     }
 
     @Test fun restorePreviewRejectsTruncationAndReportsFullStateShape() = runTest {

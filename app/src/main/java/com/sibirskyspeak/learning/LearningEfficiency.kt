@@ -458,7 +458,7 @@ data class MpcInputs(
     // just-rated card succeeded, or already had its grace rep. Abandoning a card right
     // after it fails (rather than letting it graduate like a card that fails once and
     // then succeeds normally would) just defers an uncorrected lapse to next time, which
-    // re-trips the same stop — see MpcAction.GRACE.
+    // repeats the same uncorrected lapse — see MpcAction.GRACE.
     val justFailedUngracedCardId: Long? = null
 )
 
@@ -494,11 +494,10 @@ object SessionMpcController {
             // Already inside a confidence-rebuild window: let it play out on easy
             // material rather than re-triggering another decision every card.
             struggling && live.recoveryWindowRemaining > 0 -> MpcAction.CARD
-            // First sign of sustained struggle this sitting: try recovery instead
-            // of ejecting outright. Only escalate to STOP once recovery has
-            // already been tried and exhausted without accuracy coming back.
+            // Re-open a confidence-rebuild window whenever struggle persists. STOP
+            // is reserved for hasCard=false above; a non-empty queue is continuous.
             struggling && !live.recoveryAttempted -> MpcAction.RECOVER
-            struggling -> MpcAction.STOP
+            struggling -> MpcAction.RECOVER
             stretchUtility > 0.9 -> MpcAction.STRETCH
             else -> MpcAction.CARD
         }

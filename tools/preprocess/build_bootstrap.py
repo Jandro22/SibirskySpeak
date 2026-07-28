@@ -12,6 +12,9 @@ from __future__ import annotations
 import json
 import re
 import hashlib
+import os
+import time
+import uuid
 from pathlib import Path
 
 from russian_morph import (decline_adjective, decline_noun,
@@ -21,6 +24,37 @@ import domain_wordlist as wl
 
 ASSETS = Path(__file__).resolve().parents[2] / "app" / "src" / "main" / "assets"
 HERE = Path(__file__).resolve().parent
+
+# Real, bundled Tatoeba examples selected to match the exact textbook sense and
+# surface the learner is reviewing. These replace unrelated Wiktionary senses
+# that the learner history showed were actively confusing.
+TEXTBOOK_EXAMPLE_OVERRIDES = {
+    "сдать": {
+        "ru": "Я слы́шал, он сдал экза́мен.",
+        "en": "I heard that he passed the exam.",
+        "source": "Tatoeba via bundled content database",
+        "reference": "https://tatoeba.org/en/sentences/show/6444275",
+    },
+    "попасть": {
+        "ru": "Как мне попа́сть на другу́ю сто́рону?",
+        "en": "How do I get to the other side?",
+        "source": "Tatoeba via bundled content database",
+        "reference": "https://tatoeba.org/en/sentences/show/2784307",
+    },
+    "визитка": {
+        "ru": "Да́йте ему мою визи́тку, пожа́луйста.",
+        "en": "Give him my business card, please.",
+        "source": "Tatoeba via bundled content database",
+        "reference": "https://tatoeba.org/en/sentences/show/9004284",
+    },
+    "миндальный": {
+        "ru": "Мне нра́вится минда́льное молоко́.",
+        "en": "I like almond milk.",
+        "source": "Tatoeba via bundled content database",
+        "reference": "https://tatoeba.org/en/sentences/show/7740763",
+    },
+}
+TEXTBOOK_REVERIFY_LEMMAS = {"tb_дешево", "tb_гид", "tb_сдать"}
 
 
 def load_domain_freq():
@@ -431,9 +465,24 @@ def promote_to_course(general, target=6500, per_unit=40, start_unit=100):
 
 def write_jsonl(path: Path, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="\n") as fh:
-        for row in rows:
-            fh.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+    # Sync providers can briefly lock an existing generated asset immediately
+    # after the initial build. Write a sibling file and atomically replace it,
+    # retrying only the short replace window instead of losing the whole rebuild.
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary.open("w", encoding="utf-8", newline="\n") as fh:
+            for row in rows:
+                fh.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+        for attempt in range(10):
+            try:
+                os.replace(temporary, path)
+                break
+            except OSError:
+                if attempt == 9:
+                    raise
+                time.sleep(0.25 * (attempt + 1))
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def finalize_notes(notes):
@@ -460,9 +509,18 @@ def finalize_notes(notes):
             ensure_ascii=False, separators=(",", ":"),
         )
         if note.get("pos") != "lesson" and verified and verified_identity not in verified:
-            if not note.get("authored"):
+            # Textbook rows are freshly re-verified in the next rebuild step.
+            # Rejecting a corrected gloss here removed it from the initial asset,
+            # so verify_lexicon never got a chance to approve the correction.
+            if not note.get("authored") and str(note.get("lemma", "")) not in TEXTBOOK_REVERIFY_LEMMAS:
                 continue
-        if note.get("pos") != "lesson" and (not note.get("exampleSentence") or not note.get("exampleTranslation")):
+        textbook_example = TEXTBOOK_EXAMPLE_OVERRIDES.get(key(note)) if str(note.get("lemma", "")).startswith("tb_") else None
+        if textbook_example:
+            note["exampleSentence"] = textbook_example["ru"]
+            note["exampleTranslation"] = textbook_example["en"]
+            note["exampleSource"] = textbook_example["source"]
+            note["exampleReference"] = textbook_example["reference"]
+        elif note.get("pos") != "lesson" and (not note.get("exampleSentence") or not note.get("exampleTranslation")):
             example = examples.get(key(note))
             if example:
                 note["exampleSentence"] = example["ru"]
@@ -534,7 +592,9 @@ def apply_phase3_enrichment(notes):
     for note in notes:
         if note.get("pos") == "lesson":
             continue
-        lemma = paradigm_norm(note.get("lemma") or note.get("russian", ""))
+        stored_lemma = note.get("lemma") or note.get("russian", "")
+        morphology_lemma = stored_lemma[3:] if stored_lemma.startswith("tb_") else stored_lemma
+        lemma = paradigm_norm(morphology_lemma)
         current = {normalize_text(note.get(k, "")) for k in ("exampleSentence", "exampleSentence2", "exampleSentence3") if note.get(k)}
         slots = [("exampleSentence2", "exampleTranslation2"), ("exampleSentence3", "exampleTranslation3")]
         for candidate in mined.get(lemma, []):
@@ -568,7 +628,7 @@ def apply_phase3_enrichment(notes):
             # text, and even with norm() recomposing its own output, a
             # defensive raw-spelling parse (matching build_paradigms.py's
             # documented safe pattern) avoids ever depending on that.
-            raw_spelling = note.get("lemma") or note.get("russian", "")
+            raw_spelling = morphology_lemma
             parses = [p for p in morph.parse(raw_spelling) if paradigm_norm(p.normal_form) == lemma]
             if parses:
                 parse = parses[0]
@@ -625,7 +685,8 @@ def main():
         import a1_starter, a2_starter, b1_starter, b2_starter, c1_starter, c2_starter
         seen = set()
         a1_notes = (
-            build_level(a1_starter.UNITS, "A1", seen)
+            a1_starter.a1_foundation_rows()
+            + build_level(a1_starter.UNITS, "A1", seen, rank_start=len(a1_starter.a1_foundation_rows()))
             + build_level(a2_starter.UNITS, "A2", seen)
             + build_level(b1_starter.UNITS, "B1", seen)
             + build_level(b2_starter.UNITS, "B2", seen)

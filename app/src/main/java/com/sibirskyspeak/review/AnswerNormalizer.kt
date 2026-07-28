@@ -12,10 +12,30 @@ enum class AnswerMatch {
 data class AnswerEvaluation(
     val match: AnswerMatch,
     val expected: String,
-    val message: String? = null
+    val message: String? = null,
+    /** True when a Latin-script ASR transcript matched a Cyrillic target. */
+    val usedTransliteration: Boolean = false
 ) {
     val accepted: Boolean get() = match != AnswerMatch.WRONG
 }
+
+const val SPEECH_SELF_CHECK_MARKER = "Self-check recorded"
+
+/** Prefer the hypothesis that best matches the actual prompt, then ASR confidence. */
+fun selectBestSpeechHypothesis(
+    expected: String,
+    candidates: List<Pair<String, Float?>>
+): Pair<String, Float?>? = candidates
+    .filter { it.first.isNotBlank() }
+    .maxWithOrNull(
+        compareBy<Pair<String, Float?>> {
+            when (evaluateRussianAnswer(expected, it.first, allowTransliteration = true).match) {
+                AnswerMatch.EXACT -> 2
+                AnswerMatch.CLOSE -> 1
+                AnswerMatch.WRONG -> 0
+            }
+        }.thenBy { it.second ?: -1f }
+    )
 
 fun normalizeRussian(input: String, ignoreStress: Boolean = true): String {
     var value = input.trim().lowercase(Locale("ru"))
@@ -41,7 +61,8 @@ fun evaluateRussianAnswer(
     expected: String,
     actual: String,
     ignoreStress: Boolean = true,
-    allowTypos: Boolean = true
+    allowTypos: Boolean = true,
+    allowTransliteration: Boolean = false
 ): AnswerEvaluation {
     val normalizedActual = normalizeRussian(actual, ignoreStress)
     if (normalizedActual.isBlank()) {
@@ -54,6 +75,19 @@ fun evaluateRussianAnswer(
     val exact = normalizedExpected.firstOrNull { it.second == normalizedActual }
     if (exact != null) {
         return AnswerEvaluation(AnswerMatch.EXACT, exact.first)
+    }
+    if (allowTransliteration && normalizedActual.hasLatinLetters() && !normalizedActual.hasCyrillicLetters()) {
+        val transliterated = normalizedExpected.firstOrNull { (_, candidate) ->
+            candidate.hasCyrillicLetters() && transliterateRussian(candidate) == normalizedActual
+        }
+        if (transliterated != null) {
+            return AnswerEvaluation(
+                match = AnswerMatch.EXACT,
+                expected = transliterated.first,
+                message = "Recognized in Latin letters; accepted as Russian.",
+                usedTransliteration = true
+            )
+        }
     }
     if (!ignoreStress) {
         val stressOnlyMiss = normalizedExpected.firstOrNull { (_, candidate) ->
@@ -142,11 +176,15 @@ fun evaluateElicitedImitation(expected: String, actual: String): AnswerEvaluatio
     if (expectedWords.isEmpty() || actualWords.isEmpty()) return AnswerEvaluation(AnswerMatch.WRONG, expected)
     var searchFrom = 0
     var matched = 0
+    var usedTransliteration = false
     for (word in expectedWords) {
         var scan = searchFrom
         while (scan < actualWords.size) {
-            if (levenshteinDistance(word, actualWords[scan]) <= allowedTypoDistance(actualWords[scan], word)) {
+            val transliterationMatch = actualWords[scan].hasLatinLetters() && !actualWords[scan].hasCyrillicLetters() &&
+                word.hasCyrillicLetters() && transliterateRussian(word) == actualWords[scan]
+            if (transliterationMatch || levenshteinDistance(word, actualWords[scan]) <= allowedTypoDistance(actualWords[scan], word)) {
                 matched++
+                usedTransliteration = usedTransliteration || transliterationMatch
                 searchFrom = scan + 1
                 break
             }
@@ -155,9 +193,29 @@ fun evaluateElicitedImitation(expected: String, actual: String): AnswerEvaluatio
     }
     val ratio = matched.toDouble() / expectedWords.size
     return when {
-        ratio >= 0.95 -> AnswerEvaluation(AnswerMatch.EXACT, expected)
-        ratio >= 0.80 -> AnswerEvaluation(AnswerMatch.CLOSE, expected, message = "Close repetition (${(ratio * 100).toInt()}% of words matched).")
+        ratio >= 0.95 -> AnswerEvaluation(AnswerMatch.EXACT, expected, usedTransliteration = usedTransliteration)
+        ratio >= 0.80 -> AnswerEvaluation(AnswerMatch.CLOSE, expected, message = "Close repetition (${(ratio * 100).toInt()}% of words matched).", usedTransliteration = usedTransliteration)
         else -> AnswerEvaluation(AnswerMatch.WRONG, expected, message = "Only ${(ratio * 100).toInt()}% of words matched. Target: $expected")
+    }
+}
+
+private fun String.hasCyrillicLetters(): Boolean = any { it in '\u0400'..'\u04FF' }
+
+private fun String.hasLatinLetters(): Boolean = any { it in 'a'..'z' || it in 'A'..'Z' }
+
+/** Canonical, conservative transliteration used for ASR transcripts only. */
+private fun transliterateRussian(value: String): String = buildString(value.length * 2) {
+    value.forEach { char ->
+        append(
+            when (char.lowercaseChar()) {
+                'а' -> "a"; 'б' -> "b"; 'в' -> "v"; 'г' -> "g"; 'д' -> "d"; 'е' -> "e"
+                'ж' -> "zh"; 'з' -> "z"; 'и' -> "i"; 'й' -> "y"; 'к' -> "k"; 'л' -> "l"
+                'м' -> "m"; 'н' -> "n"; 'о' -> "o"; 'п' -> "p"; 'р' -> "r"; 'с' -> "s"
+                'т' -> "t"; 'у' -> "u"; 'ф' -> "f"; 'х' -> "kh"; 'ц' -> "ts"; 'ч' -> "ch"
+                'ш' -> "sh"; 'щ' -> "shch"; 'ъ', 'ь' -> ""; 'ы' -> "y"; 'э' -> "e"
+                'ю' -> "yu"; 'я' -> "ya"; else -> char.toString()
+            }
+        )
     }
 }
 

@@ -1,13 +1,17 @@
 # A1 Curriculum Rework — Implementation Plan
 
-> **Update — extended to C1.** The plan below describes the original A1 rework. The
-> tier-0 course has since been extended across every CEFR level (A1 → C1): notes carry
-> a `cefrLevel`, the grammar spine grew to 32 concepts (`GrammarConcepts.kt`), and the
-> content lives in per-level modules `a1_starter.py`…`c1_starter.py` sharing
-> `curriculum_common.py`, validated end-to-end by `tools/preprocess/test_curriculum.py`
-> (cumulative controlled vocabulary + real glosses). Grammar above A1 is taught via
-> lesson cards (participles, gerunds, passive, syntax, register, idiom) rather than
-> auto-drilled, since the morphology engine can't derive those forms safely.
+> **⚠ SUPERSEDED — historical record only, do not treat as current spec.**
+> Every diagnosis and fix this plan proposed has shipped. The "Update" note below
+> (32 concepts) is itself now stale — the grammar spine has grown to 112 concepts
+> (`GrammarConcepts.kt`), spans A1→C2, and its CEFR-band placement is verified
+> against actual teaching order by `tools/preprocess/test_curriculum_contract.py`.
+> Curriculum content lives in per-level modules `a1_starter.py`…`c2_starter.py`
+> sharing `curriculum_common.py`, validated end-to-end by `test_curriculum.py`.
+> Read this doc only for the *why* behind decisions already made — for current
+> state, use `CLAUDE.md`'s Architecture section or `docs/PATCH_NOTES.md`.
+>
+> _Prior update note (also stale, kept for history):_ "extended to C1... grammar
+> spine grew to 32 concepts... per-level modules a1_starter.py…c1_starter.py."
 
 ## Goal
 

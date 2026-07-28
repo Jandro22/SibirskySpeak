@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from build_tatoeba import acceptable, build
+from build_tatoeba import acceptable, build, root_parts
 
 
 def write(path: Path, rows: list[str]) -> Path:
@@ -49,6 +49,12 @@ def test_hard_filter():
     assert not acceptable("Два слова.")[0]
     assert not acceptable("HTTP://example.test нельзя открыть сейчас.")[0]
     assert not acceptable("ЭТО ОЧЕНЬ ГРОМКАЯ ФРАЗА.")[0]
+
+
+def test_root_parts_does_not_invent_one_letter_prefixes():
+    assert root_parts("стена") == ("стена", "", "")
+    assert root_parts("слово") == ("слово", "", "")
+    assert root_parts("переписать")[1] == "пере"
 
 
 def test_builds_room_asset_with_translation_cap_stress_and_audio(tmp_path: Path):

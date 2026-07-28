@@ -28,6 +28,8 @@ interface SettingsStore {
     var backupTreeUri: String
     /** Whether the automatic public Downloads mirror is allowed. */
     var automaticPublicBackupEnabled: Boolean
+    /** Whether reader lookup may use the optional no-key online gloss assist. */
+    var onlineGlossLookupEnabled: Boolean
     val lastBackupSizeBytes: Long
     val lastBackupValidatedAt: Long
     val lastDurableBackupAt: Long
@@ -119,6 +121,18 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         // this wrapper. Invalidate the parse cache so the scheduler immediately
         // observes restored personalized weights in the same process.
         prefs.registerOnSharedPreferenceChangeListener(preferenceListener)
+        // The learner explicitly wants the useful integrations available without
+        // hunting through Settings. Apply this once to existing installs whose
+        // older builds stored the previous opt-in defaults; later manual changes
+        // remain respected.
+        if (!prefs.getBoolean(KEY_DEFAULT_INTEGRATIONS_MIGRATED, false)) {
+            prefs.edit()
+                .putBoolean(KEY_REMINDER_ENABLED, true)
+                .putBoolean(KEY_AUTOMATIC_PUBLIC_BACKUP, true)
+                .putBoolean(KEY_ONLINE_GLOSS_LOOKUP, true)
+                .putBoolean(KEY_DEFAULT_INTEGRATIONS_MIGRATED, true)
+                .apply()
+        }
     }
 
     override var dailyGoal: Int
@@ -173,7 +187,7 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         set(value) = prefs.edit().putLong(KEY_LAST_WEIGHT_FIT_DAY, value).apply()
 
     override var reminderEnabled: Boolean
-        get() = prefs.getBoolean(KEY_REMINDER_ENABLED, false)
+        get() = prefs.getBoolean(KEY_REMINDER_ENABLED, true)
         set(value) = prefs.edit().putBoolean(KEY_REMINDER_ENABLED, value).apply()
 
     /** Hour of day (0-23, local) for the daily nudge. */
@@ -197,6 +211,9 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
     override var automaticPublicBackupEnabled: Boolean
         get() = prefs.getBoolean(KEY_AUTOMATIC_PUBLIC_BACKUP, true)
         set(value) = prefs.edit().putBoolean(KEY_AUTOMATIC_PUBLIC_BACKUP, value).apply()
+    override var onlineGlossLookupEnabled: Boolean
+        get() = prefs.getBoolean(KEY_ONLINE_GLOSS_LOOKUP, true)
+        set(value) = prefs.edit().putBoolean(KEY_ONLINE_GLOSS_LOOKUP, value).apply()
     override val lastBackupSizeBytes: Long get() = prefs.getLong("backup_last_size", 0L)
     override val lastBackupValidatedAt: Long get() = prefs.getLong("backup_last_validated_at", 0L)
     override val lastDurableBackupAt: Long get() = prefs.getLong("backup_last_saf_at", 0L)
@@ -327,6 +344,8 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         private const val KEY_LAST_BACKUP_AT = "last_backup_at"
         private const val KEY_BACKUP_TREE_URI = "backup_tree_uri"
         private const val KEY_AUTOMATIC_PUBLIC_BACKUP = "automatic_public_backup_enabled"
+        private const val KEY_ONLINE_GLOSS_LOOKUP = "online_gloss_lookup_enabled"
+        private const val KEY_DEFAULT_INTEGRATIONS_MIGRATED = "default_integrations_migrated"
         private const val KEY_REST_DAY_CREDITS = "rest_day_credits"
         private const val KEY_LAST_REST_AWARD_DAY = "last_rest_award_day"
         private const val KEY_LAST_INSURED_GAP_DAY = "last_insured_gap_day"

@@ -12,12 +12,13 @@ internal class FakeSettingsStore : SettingsStore {
     override var intervalModifier: Double = 1.0
     override var fsrsWeights: DoubleArray = FsrsScheduler.DEFAULT_WEIGHTS.copyOf()
     override var lastWeightFitDay: Long = Long.MIN_VALUE
-    override var reminderEnabled: Boolean = false
+    override var reminderEnabled: Boolean = true
     override var reminderHour: Int = SettingsStore.DEFAULT_REMINDER_HOUR
     override var readerFontScale: Float = 1.0f
     override var lastBackupAt: Long = 0L
     override var backupTreeUri: String = ""
     override var automaticPublicBackupEnabled: Boolean = true
+    override var onlineGlossLookupEnabled: Boolean = true
     override val lastBackupSizeBytes: Long = 0L
     override val lastBackupValidatedAt: Long = 0L
     override val lastDurableBackupAt: Long = 0L

@@ -89,7 +89,10 @@ enum class ReviewSource {
     GRAMMAR_DRILL,
     READING,
     LISTENING,
-    PRODUCTION
+    PRODUCTION,
+    /** Tap-only unit-capstone evidence. Kept distinct from spontaneous production:
+     * selecting a Russian response is cued form recognition, not typed recall. */
+    CAPSTONE_CHOICE
 }
 
 /**

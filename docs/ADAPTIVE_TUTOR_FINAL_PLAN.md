@@ -1,5 +1,12 @@
 # SibirskySpeak — Adaptive Tutor Final Plan
 
+> **⚠ SUPERSEDED — phases G1–G12 below have shipped** (see git history: "Implement
+> Adaptive Tutor roadmap phases G1-G12"). The "audit below"'s numbers (e.g. "Grammar
+> concepts: 40") are stale — the real count is 112 (`GrammarConcepts.kt`) with the
+> full `family`/`stage` schema already in place. For current state use
+> `docs/PATCH_NOTES.md` / `docs/IMPLEMENTATION_MASTERLIST.md`; read this doc only
+> for the rationale behind decisions already made.
+
 **Status:** successor roadmap to `docs/MASTER_PLAN.md`, whose Phases 0–7 are
 substantially implemented (see the audit below). This document reconciles the
 2026-07 "Adaptive AI-Generated Russian Learning System A1–C2" proposal against

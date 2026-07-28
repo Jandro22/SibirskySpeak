@@ -1,0 +1,22 @@
+{
+  "seriesId": "parallel_a1",
+  "band": "A1",
+  "title": "Два простых дня",
+  "targetMaxRank": 3000,
+  "format": "parallel mini-story",
+  "topic": "daily life",
+  "chapters": [
+    {
+      "chapter": 1,
+      "title": "Утро в городе",
+      "body": "Утром Анна открывает окно и смотрит на улицу. Сегодня тепло, поэтому она идёт в парк. В парке дети играют, а люди гуляют с собаками. Анна покупает чай и садится на скамейку. Потом она читает короткую книгу. В полдень Анна возвращается домой и готовит обед.",
+      "translation": "In the morning Anna opens the window and looks at the street. It is warm today, so she goes to the park. Children are playing in the park, and people are walking their dogs. Anna buys tea and sits on a bench. Then she reads a short book. At noon Anna returns home and makes lunch."
+    },
+    {
+      "chapter": 2,
+      "title": "Вечер с другом",
+      "body": "Вечером Иван приходит к Анне. Он приносит хлеб, сыр и яблоки. Друзья вместе готовят простой ужин. Иван режет хлеб, а Анна делает салат. После ужина они пьют чай и говорят о работе. Потом Иван идёт домой. Анна моет посуду, закрывает окно и ложится спать.",
+      "translation": "In the evening Ivan comes to Anna's home. He brings bread, cheese, and apples. The friends make a simple dinner together. Ivan slices the bread, and Anna makes a salad. After dinner they drink tea and talk about work. Then Ivan goes home. Anna washes the dishes, closes the window, and goes to bed."
+    }
+  ]
+}

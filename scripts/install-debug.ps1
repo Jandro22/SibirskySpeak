@@ -23,24 +23,93 @@ if (!(Test-Path $Apk)) {
     & (Join-Path $PSScriptRoot "build-debug.ps1")
 }
 
-$DeviceList = & $Adb devices -l | Out-String
-if ($DeviceList -match "\soffline\s") {
-    & $Adb reconnect offline | Out-Null
-    $Deadline = (Get-Date).AddSeconds(12)
-    do {
-        Start-Sleep -Milliseconds 500
-        $DeviceList = & $Adb devices -l | Out-String
-    } while ($DeviceList -notmatch "\sdevice\s" -and (Get-Date) -lt $Deadline)
+function Get-AuthorizedDevices {
+    $output = (& $Adb devices -l 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0) { return @() }
+    return @($output -split "`r?`n" | Where-Object { $_ -match "^\S+\s+device(?:\s|$)" })
 }
-$Devices = @($DeviceList -split "`r?`n" | Where-Object { $_ -match "\sdevice\s" })
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-if ([string]::IsNullOrWhiteSpace($Serial)) {
-    if ($Devices.Count -ne 1) {
-        throw "Expected exactly one authorized Android device, or pass -Serial; found $($Devices.Count)."
+
+function Select-DeviceSerial([string[]]$Devices, [string]$RequestedSerial) {
+    if (-not [string]::IsNullOrWhiteSpace($RequestedSerial)) {
+        $match = $Devices | Where-Object { ($_ -split "\s+")[0] -eq $RequestedSerial } | Select-Object -First 1
+        if ($match) { return ($match -split "\s+")[0] }
+        return $null
     }
-    $Serial = ($Devices[0] -split "\s+")[0]
-} elseif (-not ($Devices | Where-Object { ($_ -split "\s+")[0] -eq $Serial })) {
-    throw "Requested device '$Serial' is not an authorized online Android device."
+    # A running emulator must never make the normal "push to phone" workflow
+    # ambiguous. Prefer the sole physical transport; fall back to a sole emulator.
+    $physical = @($Devices | Where-Object { ($_ -split "\s+")[0] -notmatch "^emulator-" })
+    if ($physical.Count -eq 1) { return ($physical[0] -split "\s+")[0] }
+    if ($Devices.Count -eq 1) { return ($Devices[0] -split "\s+")[0] }
+    return $null
+}
+
+function Wait-ForDevice([string]$RequestedSerial, [int]$Seconds) {
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    do {
+        $devices = @(Get-AuthorizedDevices)
+        $selected = Select-DeviceSerial $devices $RequestedSerial
+        if ($selected) { return $selected }
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $deadline)
+    return $null
+}
+
+function Restart-AdbServer {
+    $priorPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $Adb reconnect offline 2>&1 | Out-Null
+        & $Adb kill-server 2>&1 | Out-Null
+        Start-Sleep -Milliseconds 500
+        & $Adb start-server 2>&1 | Out-Null
+    } finally {
+        $ErrorActionPreference = $priorPreference
+    }
+}
+
+$priorPreference = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try { & $Adb start-server 2>&1 | Out-Null } finally { $ErrorActionPreference = $priorPreference }
+$RequestedSerial = $Serial
+# If Windows has a physical Google USB device attached, pin that transport before
+# considering an emulator fallback. An offline Pixel is deliberately absent from
+# Get-AuthorizedDevices; without this pin the old selector mistook the emulator for
+# the sole target, then failed its backup check against the wrong installation.
+if ([string]::IsNullOrWhiteSpace($RequestedSerial)) {
+    $attachedPixel = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
+        Where-Object { $_.InstanceId -match "^USB\\VID_18D1" } |
+        Select-Object -First 1
+    if ($attachedPixel) {
+        $usbSerial = ($attachedPixel.InstanceId -split "\\")[-1]
+        if (-not [string]::IsNullOrWhiteSpace($usbSerial)) { $RequestedSerial = $usbSerial }
+    }
+}
+$Serial = Wait-ForDevice $RequestedSerial 5
+if (-not $Serial) {
+    Restart-AdbServer
+    $Serial = Wait-ForDevice $RequestedSerial 15
+}
+if (-not $Serial) {
+    $usbPixel = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
+        Where-Object { $_.InstanceId -match "^USB\\VID_18D1" } |
+        Select-Object -First 1
+    if ($usbPixel) {
+        # A healthy Google WinUSB node can retain a stale handle after sleep or USB
+        # renegotiation. ADB then sees only the emulator until the device node is
+        # rebound. Repair that condition automatically instead of making every
+        # install fail and asking the learner to run a separate command by hand.
+        Write-Warning "Windows sees '$($usbPixel.FriendlyName)' but ADB does not; rebinding the Pixel USB transport."
+        $repairArgs = @{}
+        if ($RequestedSerial) { $repairArgs.Serial = $RequestedSerial }
+        & (Join-Path $PSScriptRoot "repair-adb.ps1") @repairArgs | Out-Null
+        $Serial = Wait-ForDevice $RequestedSerial 15
+    }
+}
+if (-not $Serial) {
+    if ($RequestedSerial) {
+        throw "Requested device '$RequestedSerial' did not become authorized and online after restarting ADB."
+    }
+    throw "No unambiguous authorized Android target became online after restarting ADB."
 }
 # "Stay awake while charging" is a real, persistent device setting (Settings >
 # Developer options), not something scoped to this script or this app — leaving
@@ -85,10 +154,23 @@ try {
         }
     }
 
-    & $Adb -s $Serial install -r $Apk
-    if ($LASTEXITCODE -ne 0) {
-        exit $LASTEXITCODE
+    $installedSuccessfully = $false
+    for ($attempt = 1; $attempt -le 2; $attempt++) {
+        & $Adb -s $Serial install -r $Apk
+        if ($LASTEXITCODE -eq 0) {
+            $installedSuccessfully = $true
+            break
+        }
+        if ($attempt -eq 1) {
+            Write-Warning "ADB transport dropped during install; restarting it and retrying once."
+            Restart-AdbServer
+            if (-not (Wait-ForDevice $Serial 15)) {
+                & (Join-Path $PSScriptRoot "repair-adb.ps1") -Serial $Serial | Out-Null
+                if (-not (Wait-ForDevice $Serial 15)) { break }
+            }
+        }
     }
+    if (-not $installedSuccessfully) { throw "APK installation failed after ADB recovery and one retry." }
 }
 finally {
     & $Adb -s $Serial shell settings put global stay_on_while_plugged_in $PreviousStayOn | Out-Null

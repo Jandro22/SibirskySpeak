@@ -44,10 +44,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -74,7 +76,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
@@ -90,6 +91,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -99,6 +101,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -113,24 +116,53 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardOptions
 import com.sibirskyspeak.audio.RussianSpeechRecognizer
+import com.sibirskyspeak.review.SPEECH_SELF_CHECK_MARKER
+import com.sibirskyspeak.review.selectBestSpeechHypothesis
 import com.sibirskyspeak.audio.AnswerSoundEffects
 import com.sibirskyspeak.data.Note
 import com.sibirskyspeak.data.CardType
 import com.sibirskyspeak.data.Rating
 import com.sibirskyspeak.data.GamificationStats
 import com.sibirskyspeak.review.AnswerMode
-import com.sibirskyspeak.review.AnswerMatch
 import com.sibirskyspeak.review.ReviewPrompt
 import com.sibirskyspeak.review.ReviewUiState
+import com.sibirskyspeak.review.usableMemoryHook
 import com.sibirskyspeak.review.shouldAutoStartStudySession
 import com.sibirskyspeak.review.isNewVocabularyIntroduction
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 // ---------------------------------------------------------------------------
 // Study session
 // ---------------------------------------------------------------------------
+
+/** One purposeful coaching line for every persisted exercise format. */
+internal fun cardCoachLine(type: CardType): String = when (type) {
+    CardType.RU_TO_MEANING -> "Catch the meaning quickly; use the sentence before translating word by word."
+    CardType.MEANING_TO_RU -> "Pull the Russian form from memory, then say it once aloud."
+    CardType.CLOZE -> "Read the whole sentence first; let grammar and meaning predict the gap."
+    CardType.AUDIO_TO_RU -> "Listen once with your eyes relaxed; replay only after a real attempt."
+    CardType.SPEAK -> "Say it as one confident sound shape, not as separate letters."
+    CardType.DICTATION -> "Hold a short phrase in memory, then rebuild what you heard."
+    CardType.SENTENCE_BUILD -> "Build a natural message; Russian may allow more than one sensible order."
+    CardType.STRESS_MARK -> "Hear the strong syllable, then choose the matching word shape."
+    CardType.CASE_FILL -> "Find the governing cue first; the ending is the final step."
+    CardType.VERB_FORM -> "Lock onto who and when, then produce the verb as one unit."
+    CardType.ADJ_AGREE -> "Match the noun's gender, number, and case before choosing the ending."
+    CardType.GENDER_ID -> "Notice the noun ending, but remember the important exceptions."
+    CardType.ASPECT_SELECT -> "Picture the event: process, repetition, or completed whole?"
+    CardType.CONCEPT_DRILL -> "Apply the rule to this example instead of recalling the explanation."
+    CardType.LESSON -> "Find the pattern in the worked example; the next card will make you use it."
+    CardType.CONCEPT_APPLY -> "Transfer challenge: solve the fresh sentence with the rule you learned."
+    CardType.CHUNK -> "Retrieve the whole phrase as one fluent building block."
+    CardType.TRANSFORM -> "Keep the meaning stable while changing only the requested structure."
+    CardType.NOVEL_PRODUCE -> "Create a clear Russian message; communicate first, polish second."
+    CardType.SPEAK_SENTENCE -> "Listen for meaning, hold the phrase, then echo its rhythm naturally."
+    CardType.PHONOLOGY_MINIMAL_PAIR -> "Focus on the one sound that separates the two words."
+}
 
 @Composable
 internal fun StudySessionScreen(
@@ -145,6 +177,8 @@ internal fun StudySessionScreen(
     onCorrectionChanged: (String) -> Unit,
     onSubmitCorrection: () -> Unit,
     onSpeak: (ReviewPrompt) -> Unit,
+    onSpeechRecognition: (String, Float?) -> Unit = { _, _ -> },
+    onSpeechRecognitionStatus: (String) -> Unit = {},
     onExit: () -> Unit,
     onUndo: () -> Unit,
     onKnewIt: () -> Unit,
@@ -152,7 +186,12 @@ internal fun StudySessionScreen(
     onKnowWord: () -> Unit,
     onStartSession: () -> Unit,
     onSaveEdit: (String?, String?, String?, String?) -> Unit,
-    onReadNext: () -> Unit = {}
+    onReadNext: () -> Unit = {},
+    onSubmitCapstoneAnswer: (String) -> Unit = {},
+    onContinueCapstone: () -> Unit = {},
+    onCloseCapstone: () -> Unit = {},
+    onSpeakRussian: (String) -> Unit = {},
+    onSkipCyrillicFoundation: () -> Unit = {}
 ) {
     // Cold start / process-death restoration can compose this screen before the async
     // startup plan lands (state.sessionPlan == null) — e.g. Dest.Study survives via
@@ -188,6 +227,16 @@ internal fun StudySessionScreen(
             onStartSession()
         }
     }
+    if (state.exitTicketSession != null) {
+        ExitTicketRoom(
+            state = state,
+            onSubmit = onSubmitCapstoneAnswer,
+            onContinue = onContinueCapstone,
+            onClose = onCloseCapstone,
+            onSpeakRussian = onSpeakRussian
+        )
+        return
+    }
     // Hoisted here (once per session) rather than inside ReviewContent: earcon
     // synthesis is ~26k sin/exp sample computations, and ReviewContent is re-entered
     // fresh by AnimatedContent for every new card — recreating it per-card meant
@@ -198,15 +247,27 @@ internal fun StudySessionScreen(
     var retireAction by remember { mutableStateOf<ReviewRetireAction?>(null) }
     var actionsExpanded by remember { mutableStateOf(false) }
     val prompt = state.prompt
+    // Keep prompt-side autoplay outside AnimatedContent. During a card transition
+    // Compose briefly owns both the outgoing and incoming content; placing the effect
+    // inside ReviewContent made both copies speak and record the same audio play.
+    // This single owner also replays when one card advances from its teaching prompt
+    // to its recall prompt (same card id, different mode/text).
+    val autoPlayPrompt = prompt?.let {
+        it.answerMode == AnswerMode.AUDIO_ONLY ||
+            it.card.cardType == CardType.SPEAK_SENTENCE ||
+            it.card.cardType == CardType.PHONOLOGY_MINIMAL_PAIR ||
+            it.answerMode == AnswerMode.ENGLISH ||
+            it.isNewVocabularyIntroduction()
+    } == true
+    LaunchedEffect(prompt?.card?.id, prompt?.answerMode, prompt?.prompt, autoPlayPrompt) {
+        if (autoPlayPrompt && prompt != null) onSpeak(prompt)
+    }
     val headerMessage = when {
-        prompt == null && state.sessionStoppedEarly ->
-            "Adaptive stop: ${state.stoppedQueueRemaining} prompts were deferred to protect retention and tomorrow's workload."
+        state.exitTicketSession != null -> "Use the unit language in a connected task."
         prompt == null -> state.sessionPlan?.completion?.message ?: "Session complete."
         state.revealed -> "Check the answer, then rate your recall."
-        prompt.answerMode == AnswerMode.AUDIO_ONLY -> "Listen once from memory; replay only if you need it."
         prompt.answerMode == AnswerMode.LESSON -> "Study this item, hear it, then continue when it feels familiar."
-        prompt.card.queue.name == "GRAMMAR" -> "Answer from context; feedback will explain the rule after you check."
-        else -> "Recall the answer, then check it and rate how easily it came back."
+        else -> cardCoachLine(prompt.card.cardType)
     }
     // The card's own content (prompt, explanation, context panels) can grow tall
     // enough to push its primary action below the fold — the learner had to
@@ -216,13 +277,19 @@ internal fun StudySessionScreen(
     // readable content above it still scrolls normally. Requires a bounded-height
     // parent (MainActivity gives `studyActive` its own branch for this, the same
     // way it already does for the reader's LazyColumn).
-    Column(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        // Pixel-sized phones get a deliberate single-screen study layout. Large
+        // surfaces can keep the more spacious reading treatment, but the phone
+        // session should show the prompt and its next action together without
+        // asking the learner to scroll after every card.
+        val compact = maxWidth < 600.dp
+        Column(modifier = Modifier.fillMaxSize().imePadding()) {
         Column(
             modifier = Modifier
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(horizontal = if (compact) 10.dp else 16.dp, vertical = if (compact) 6.dp else 12.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 14.dp)
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -231,7 +298,10 @@ internal fun StudySessionScreen(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
                 tonalElevation = 1.dp
             ) {
-                Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(
+                    Modifier.padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 5.dp else 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -245,7 +315,7 @@ internal fun StudySessionScreen(
                             Text("Practice", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             PracticeStageChip(
                                 when {
-                                    prompt == null && state.sessionStoppedEarly -> "Stopped"
+                                    state.exitTicketSession != null -> "Capstone"
                                     prompt == null -> "Done"
                                     state.revealed -> "Rate"
                                     prompt.answerMode == AnswerMode.LESSON -> "Learn"
@@ -305,9 +375,9 @@ internal fun StudySessionScreen(
                     }
                     Text(
                         if (prompt != null && state.sessionCompletedCards > 0) "$headerMessage · ${state.sessionCompletedCards} done" else headerMessage,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
+                        maxLines = if (compact) 1 else 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     if (state.sessionProgressTotal > 0) {
@@ -335,6 +405,15 @@ internal fun StudySessionScreen(
                             )
                         }
                     }
+                    prompt?.let { currentPrompt ->
+                        StudyStageRail(
+                            activeStage = when {
+                                currentPrompt.lesson != null -> 0
+                                state.revealed -> 2
+                                else -> 1
+                            }
+                        )
+                    }
                 }
             }
             // A rating on the last queued card forces a full (non-reused) session
@@ -344,62 +423,74 @@ internal fun StudySessionScreen(
             // which is easy to miss). This makes that wait visible instead of
             // reading as a freeze; ratingInProgress stays true for the whole
             // loadSession() call in that case, see ReviewViewModel.rate.
-            AnimatedVisibility(visible = state.ratingInProgress) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            }
-            AnimatedContent(
-                targetState = prompt?.card?.id ?: -1L,
-                transitionSpec = {
-                    (fadeIn(tween(220)) + scaleIn(spring(stiffness = Spring.StiffnessLow), initialScale = 0.94f) + slideInHorizontally(tween(260)) { it / 4 })
-                        .togetherWith(fadeOut(tween(140)) + slideOutHorizontally(tween(200)) { -it / 5 })
-                        .using(SizeTransform(clip = false))
-                },
-                label = "review-card"
-            ) { targetCardId ->
-                if (targetCardId == -1L || prompt == null) {
-                    SessionCompleteCard(
-                        state.sessionPlan?.gamification ?: GamificationStats.EMPTY,
-                        onDone = onExit,
-                        reader = state.sessionPlan?.readingAssignment?.recommendation,
-                        sessionReviewed = state.sessionReviewed,
-                        sessionCorrect = state.sessionCorrect,
-                        stoppedEarly = state.sessionStoppedEarly,
-                        deferredPrompts = state.stoppedQueueRemaining,
-                        matchReport = state.matchReport,
-                        saving = state.ratingInProgress,
-                        tomorrowReviews = state.dashboardStats?.dueForecast?.getOrNull(0) ?: 0,
-                        tomorrowMinutes = kotlin.math.ceil((state.dashboardStats?.dueForecast?.getOrNull(0) ?: 0) * 0.35).toInt(),
-                        tomorrowNewCards = state.newCardsPerDaySetting,
-                        onReadNext = onReadNext
-                    )
-                } else {
-                    ReviewContent(
-                        state = state,
-                        prompt = prompt,
-                        answerSounds = answerSounds,
-                        typedAnswerFlow = typedAnswer,
-                        correctionAnswerFlow = correctionAnswer,
-                        onAnswerChanged = onAnswerChanged,
-                        onChoice = onChoice,
-                        onReveal = onReveal,
-                        onCorrectionChanged = onCorrectionChanged,
-                        onSubmitCorrection = onSubmitCorrection,
-                        onSpeak = { onSpeak(prompt) },
-                        onKnowWord = onKnowWord
-                    )
+            if (state.ratingInProgress) {
+                SessionSavingCard(compact = compact)
+            } else {
+                if (prompt?.card?.cardType == CardType.LESSON &&
+                    (prompt.note.tags.contains("literacy") || prompt.note.tags.contains("phonology"))) {
+                    OutlinedButton(onClick = onSkipCyrillicFoundation, modifier = Modifier.fillMaxWidth()) {
+                        Text("I already read Cyrillic — skip foundation")
+                    }
+                }
+                AnimatedContent(
+                    targetState = prompt?.card?.id ?: -1L,
+                    transitionSpec = {
+                        (fadeIn(tween(220)) + scaleIn(spring(stiffness = Spring.StiffnessLow), initialScale = 0.94f) + slideInHorizontally(tween(260)) { it / 4 })
+                            .togetherWith(fadeOut(tween(140)) + slideOutHorizontally(tween(200)) { -it / 5 })
+                            .using(SizeTransform(clip = false))
+                    },
+                    label = "review-card"
+                ) { targetCardId ->
+                    if (targetCardId == -1L || prompt == null) {
+                        SessionCompleteCard(
+                            state.sessionPlan?.gamification ?: GamificationStats.EMPTY,
+                            onDone = onExit,
+                            reader = state.sessionPlan?.readingAssignment?.recommendation,
+                            sessionReviewed = state.sessionReviewed,
+                            sessionCorrect = state.sessionCorrect,
+                            matchReport = state.matchReport,
+                            saving = state.ratingInProgress,
+                            tomorrowReviews = state.dashboardStats?.dueForecast?.getOrNull(0) ?: 0,
+                            tomorrowMinutes = kotlin.math.ceil(
+                                ((state.dashboardStats?.dueForecast?.getOrNull(0) ?: 0) + state.newCardsPerDaySetting) * 0.35
+                            ).toInt().coerceAtLeast(1),
+                            tomorrowNewCards = state.newCardsPerDaySetting,
+                            onReadNext = onReadNext
+                        )
+                    } else {
+                        ReviewContent(
+                            state = state,
+                            prompt = prompt,
+                            compact = compact,
+                            answerSounds = answerSounds,
+                            typedAnswerFlow = typedAnswer,
+                            correctionAnswerFlow = correctionAnswer,
+                            onAnswerChanged = onAnswerChanged,
+                            onChoice = onChoice,
+                            onReveal = onReveal,
+                            onCorrectionChanged = onCorrectionChanged,
+                            onSubmitCorrection = onSubmitCorrection,
+                            onSpeak = { onSpeak(prompt) },
+                            onSpeechRecognition = onSpeechRecognition,
+                            onSpeechRecognitionStatus = onSpeechRecognitionStatus,
+                            onKnowWord = onKnowWord
+                        )
+                    }
                 }
             }
         }
-        if (prompt != null) {
+        if (prompt != null && !state.ratingInProgress) {
             StudyActionBar(
                 state = state,
                 prompt = prompt,
+                compact = compact,
                 onRate = onRate,
                 onContinue = onContinue,
                 onKnewIt = onKnewIt,
                 onKnowWord = onKnowWord
             )
         }
+    }
     }
     if (editing && prompt != null) {
         EditCardDialog(
@@ -424,6 +515,60 @@ internal fun StudySessionScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun SessionSavingCard(compact: Boolean) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = if (compact) 24.dp else 48.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.24f)),
+        tonalElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = if (compact) 24.dp else 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)
+        ) {
+            Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+            Text("Saving your progress", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "Preparing your next card…",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun StudyStageRail(activeStage: Int) {
+    val stages = listOf("Learn", "Recall", "Rate")
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        stages.forEachIndexed { index, label ->
+            val reached = index <= activeStage
+            Surface(
+                modifier = Modifier.weight(1f),
+                shape = PillShape,
+                color = if (reached) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+            ) {
+                Text(
+                    label,
+                    modifier = Modifier.padding(vertical = 5.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    textAlign = TextAlign.Center,
+                    fontWeight = if (index == activeStage) FontWeight.Bold else FontWeight.Medium,
+                    color = if (reached) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.68f)
+                )
+            }
+        }
     }
 }
 
@@ -555,7 +700,7 @@ internal fun SessionProgressStrip(
         modifier = Modifier
             .fillMaxWidth()
             .semantics {
-                contentDescription = "Session queue: $newCount new, $learningCount learning, $reviewCount review. $reviewedToday of $dailyGoal reviewed today."
+                contentDescription = "Session queue: $newCount new, $learningCount learning, $reviewCount review. $reviewedToday of $dailyGoal learning actions today."
             },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
@@ -569,9 +714,9 @@ internal fun SessionProgressStrip(
         }
         Text(
             if (reviewedToday > dailyGoal) {
-                "Goal met · +${reviewedToday - dailyGoal} extra"
+                "Goal met · +${reviewedToday - dailyGoal} extra actions"
             } else {
-                "$reviewedToday of $dailyGoal today"
+                "$reviewedToday of $dailyGoal learning actions today"
             },
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -633,18 +778,12 @@ internal fun PracticeStageChip(label: String) {
     }
 }
 
-@Composable
-internal fun AutoPlayCardAudio(cardId: Long, onSpeak: () -> Unit) {
-    LaunchedEffect(cardId) {
-        onSpeak()
-    }
-}
-
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 internal fun ReviewContent(
     state: ReviewUiState,
     prompt: ReviewPrompt,
+    compact: Boolean = false,
     answerSounds: AnswerSoundEffects,
     typedAnswerFlow: StateFlow<String>,
     correctionAnswerFlow: StateFlow<String>,
@@ -654,28 +793,23 @@ internal fun ReviewContent(
     onCorrectionChanged: (String) -> Unit,
     onSubmitCorrection: () -> Unit,
     onSpeak: () -> Unit,
+    onSpeechRecognition: (String, Float?) -> Unit,
+    onSpeechRecognitionStatus: (String) -> Unit,
     onKnowWord: () -> Unit
 ) {
     LaunchedEffect(state.feedbackSequence) {
         if (state.feedbackSequence > 0) state.feedbackCorrect?.let(answerSounds::play)
     }
-    // Only auto-play audio when hearing the Russian can't give the answer away:
-    // listening cards (the audio *is* the prompt) and recognition cards (the Russian
-    // word is already shown). For production, cloze, stress, and choice cards, auto-
-    // play would speak the very answer the learner is meant to recall — so it's off;
-    // they can still tap "Hear Russian" any time (and after reveal).
     val audioLedPrompt = prompt.answerMode == AnswerMode.AUDIO_ONLY ||
         prompt.card.cardType == CardType.SPEAK_SENTENCE ||
         prompt.card.cardType == CardType.PHONOLOGY_MINIMAL_PAIR
-    if (audioLedPrompt || prompt.answerMode == AnswerMode.ENGLISH || prompt.isNewVocabularyIntroduction()) {
-        AutoPlayCardAudio(cardId = prompt.card.id, onSpeak = onSpeak)
-    }
     // A lesson is a teaching screen, not a quiz: render it on its own and bail out
     // of the normal answer/reveal flow.
     prompt.lesson?.let { lesson ->
         LessonCard(
             lesson = lesson,
             isVocabIntro = prompt.isNewVocabularyIntroduction(),
+            compact = compact,
             onSpeak = onSpeak
         )
         return
@@ -685,15 +819,16 @@ internal fun ReviewContent(
     // only recomposes this quiz card, not the whole screen — see ReviewViewModel.
     val typedAnswer by typedAnswerFlow.collectAsStateWithLifecycle()
     val correctionAnswer by correctionAnswerFlow.collectAsStateWithLifecycle()
-    // Offer tiles for Russian typing and for listening (AUDIO_ONLY) so the learner
-    // rarely needs a Russian keyboard at all. LetterTileBank switches to whole-word
-    // tiles automatically for multi-word answers, so short phrases work too.
-    val supportsTiles = prompt.answerMode == AnswerMode.RUSSIAN_TYPED ||
+    // Every deterministic Russian response uses tiles. This includes NOVEL_PRODUCE:
+    // its realized sentence is a single scored target, and whole-word assembly still
+    // tests ordering/inflection without requiring a Russian software keyboard.
+    val usesRussianTiles = prompt.answerMode == AnswerMode.RUSSIAN_TYPED ||
+        prompt.answerMode == AnswerMode.RUSSIAN_STRESS_TYPED ||
         prompt.answerMode == AnswerMode.AUDIO_ONLY
-    val freeProduction = prompt.card.cardType in setOf(CardType.NOVEL_PRODUCE, CardType.TRANSFORM)
-    val offersTiles = supportsTiles && !freeProduction
-    var keyboardMode by rememberSaveable(prompt.card.id) { mutableStateOf(!offersTiles) }
-    SectionCard(emphasis = true) {
+    SectionCard(
+        emphasis = true,
+        contentPadding = if (compact) PaddingValues(12.dp) else PaddingValues(18.dp)
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.Top,
@@ -717,7 +852,7 @@ internal fun ReviewContent(
             }
         }
         prompt.queueReason?.let { reason ->
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(if (compact) 5.dp else 8.dp))
             Surface(
                 color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
                 shape = MaterialTheme.shapes.small
@@ -726,13 +861,13 @@ internal fun ReviewContent(
                     // The reason phrases ("Warm-up: a secure scheduled review") already
                     // carry their own colon, so frame with an em dash to avoid "card: …:".
                     stringResource(R.string.study_why_card, reason),
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = if (compact) 5.dp else 7.dp),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
             }
         }
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(if (compact) 8.dp else 18.dp))
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.42f),
@@ -740,7 +875,10 @@ internal fun ReviewContent(
             tonalElevation = 1.dp,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
         ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                Modifier.padding(if (compact) 10.dp else 16.dp),
+                verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp)
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     StatusTag(
                         when (prompt.answerMode) {
@@ -775,7 +913,7 @@ internal fun ReviewContent(
                         shape = MaterialTheme.shapes.small
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = if (compact) 5.dp else 7.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
@@ -799,7 +937,7 @@ internal fun ReviewContent(
                         shape = MaterialTheme.shapes.small
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = if (compact) 5.dp else 7.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
@@ -819,17 +957,17 @@ internal fun ReviewContent(
                         Text("I already know this word", style = MaterialTheme.typography.labelLarge)
                     }
                 }
-                Text(
-                    prompt.prompt.ifBlank {
+                    Text(
+                        prompt.prompt.ifBlank {
                         when (prompt.card.cardType) {
-                            CardType.AUDIO_TO_RU -> "Word dictation: type what you hear"
-                            CardType.DICTATION -> "Sentence dictation: type what you hear"
+                            CardType.AUDIO_TO_RU -> "Word dictation: build or type what you hear"
+                            CardType.DICTATION -> "Sentence dictation: build or type what you hear"
                             CardType.PHONOLOGY_MINIMAL_PAIR -> "Choose the word you hear"
                             CardType.SPEAK_SENTENCE -> "Listen, then repeat the sentence aloud"
                             else -> "Listen and respond"
                         }
                     },
-                    style = RussianDisplay
+                        style = if (compact) RussianDisplay.copy(fontSize = 28.sp) else RussianDisplay
                 )
                 if (audioLedPrompt) {
                     AudioPracticeButton(onClick = onSpeak)
@@ -839,7 +977,7 @@ internal fun ReviewContent(
                 }
             }
         }
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(if (compact) 8.dp else 18.dp))
         if (prompt.answerMode == AnswerMode.CHOICE) {
             if (!state.revealed) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -859,70 +997,40 @@ internal fun ReviewContent(
                 color = MaterialTheme.colorScheme.surface,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
             ) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    Modifier.padding(if (compact) 10.dp else 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp)
+                ) {
                     if (prompt.answerMode == AnswerMode.SPEAK) {
                         SpeakingAnswerInput(
                             cardId = prompt.card.id,
+                            expectedAnswer = prompt.expectedAnswer,
                             recognized = typedAnswer,
-                            onRecognized = onAnswerChanged
+                            onRecognized = onAnswerChanged,
+                            onRecognition = onSpeechRecognition,
+                            onRecognitionStatus = onSpeechRecognitionStatus
+                        )
+                    } else if (usesRussianTiles) {
+                        LetterTileBank(
+                            expected = prompt.expectedAnswer,
+                            cardId = prompt.card.id,
+                            hint = "Build the Russian answer with tiles. No keyboard is needed.",
+                            onChange = onAnswerChanged
                         )
                     } else {
-                        if (offersTiles) {
-                            InputModeToggle(
-                                keyboardMode = keyboardMode,
-                                onKeyboard = {
-                                    if (!keyboardMode) {
-                                        keyboardMode = true
-                                        onAnswerChanged("")
-                                    }
-                                },
-                                onTiles = {
-                                    if (keyboardMode) {
-                                        keyboardMode = false
-                                        onAnswerChanged("")
-                                    }
-                                }
-                            )
-                        } else {
-                            // Only recognition (ENGLISH) cards reaching this non-tile path
-                            // actually auto-play audio; promising it on stress/other typed
-                            // cards (which deliberately don't auto-play the answer) is false.
-                            Text(
-                                if (prompt.answerMode == AnswerMode.ENGLISH)
-                                    "Type your answer. Audio plays automatically when the card appears."
-                                else
-                                    "Type your answer.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        AnimatedContent(
-                            targetState = keyboardMode,
-                            transitionSpec = {
-                                (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { if (targetState) -it / 8 else it / 8 })
-                                    .togetherWith(fadeOut(tween(120)) + slideOutHorizontally(tween(180)) { if (targetState) it / 8 else -it / 8 })
-                                    .using(SizeTransform(clip = false))
-                            },
-                            label = "answer-mode"
-                        ) { useKeyboard ->
-                            if (useKeyboard) {
-                                KeyboardAnswerInput(
-                                    value = typedAnswer,
-                                    prompt = prompt,
-                                    onChange = onAnswerChanged,
-                                    // The keyboard's Done key should never turn an
-                                    // accidental empty submission into an FSRS lapse.
-                                    onDone = { if (typedAnswer.isNotBlank()) onReveal() }
-                                )
-                            } else {
-                                LetterTileBank(
-                                    expected = prompt.expectedAnswer,
-                                    cardId = prompt.card.id,
-                                    hint = answerHint(prompt),
-                                    onChange = onAnswerChanged
-                                )
-                            }
-                        }
+                        Text(
+                            "Type the English meaning. Audio plays automatically when the card appears.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        KeyboardAnswerInput(
+                            value = typedAnswer,
+                            prompt = prompt,
+                            onChange = onAnswerChanged,
+                            // The keyboard's Done key should never turn an
+                            // accidental empty submission into an FSRS lapse.
+                            onDone = { if (typedAnswer.isNotBlank()) onReveal() }
+                        )
                     }
                 }
             }
@@ -946,7 +1054,8 @@ internal fun ReviewContent(
                     CardType.SENTENCE_BUILD
                 ),
                 onClick = onReveal,
-                modifier = Modifier.fillMaxWidth().testTag(TestTags.ANSWER_SHOW)
+                modifier = Modifier.fillMaxWidth().testTag(TestTags.ANSWER_SHOW),
+                compact = compact
             )
         }
         AnimatedVisibility(
@@ -954,7 +1063,7 @@ internal fun ReviewContent(
             enter = fadeIn(tween(200)) + slideInVertically(spring(stiffness = Spring.StiffnessMediumLow)) { it / 6 },
             exit = fadeOut(tween(120))
         ) {
-            RevealPanel(state, prompt, typedAnswer, correctionAnswer, onSpeak, onCorrectionChanged, onSubmitCorrection)
+            RevealPanel(state, prompt, correctionAnswer, compact, onSpeak, onCorrectionChanged, onSubmitCorrection)
         }
     }
 }
@@ -962,13 +1071,16 @@ internal fun ReviewContent(
 @Composable
 internal fun SpeakingAnswerInput(
     cardId: Long,
+    expectedAnswer: String,
     recognized: String,
-    onRecognized: (String) -> Unit
+    onRecognized: (String) -> Unit,
+    onRecognition: (String, Float?) -> Unit,
+    onRecognitionStatus: (String) -> Unit
 ) {
     val context = LocalContext.current
     val recognitionAvailable = remember { RussianSpeechRecognizer.isAvailable(context) }
     val recognizer = rememberRussianSpeechRecognizer()
-    var listening by rememberSaveable(cardId) { mutableStateOf(false) }
+    var phase by remember(cardId) { mutableStateOf(SpeechPhase.IDLE) }
     var helperText by rememberSaveable(cardId) { mutableStateOf("Tap the mic and say the Russian aloud.") }
     // Grading itself stays self-rated (Hard/Good/Easy) — this is purely a quality hint
     // next to the transcript, not fed into evaluation, since ASR confidence reflects
@@ -979,6 +1091,7 @@ internal fun SpeakingAnswerInput(
             helperText = "Microphone ready. Tap the mic and say the Russian aloud."
         } else {
             helperText = "Microphone permission is needed for speaking practice."
+            onRecognitionStatus("permission_denied")
         }
     }
 
@@ -987,17 +1100,27 @@ internal fun SpeakingAnswerInput(
             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             return
         }
+        phase = SpeechPhase.STARTING
+        onRecognitionStatus("attempt_started")
         helperText = "Listening..."
         onRecognized("")
         recognizedConfidence = null
         recognizer.startListening(
-            onResult = { result, confidence ->
-                listening = false
-                if (result.isBlank()) {
+            onResult = { hypotheses ->
+                val best = selectBestSpeechHypothesis(
+                    expectedAnswer,
+                    hypotheses.map { it.transcript to it.confidence }
+                )
+                phase = SpeechPhase.IDLE
+                if (best == null) {
+                    onRecognitionStatus("empty_result")
                     recognizedConfidence = null
                     helperText = "Nothing recognized. Try once more."
                 } else {
+                    val (result, confidence) = best
                     onRecognized(result)
+                    onRecognition(result, confidence)
+                    onRecognitionStatus("result")
                     recognizedConfidence = confidence
                     helperText = "Recognized. Check the answer when it looks right."
                 }
@@ -1009,15 +1132,20 @@ internal fun SpeakingAnswerInput(
                 if (partial.isNotBlank()) helperText = "Hearing: $partial"
             },
             onError = { error ->
-                listening = false
+                phase = SpeechPhase.ERROR
                 helperText = error
+                onRecognitionStatus("error")
             },
             onReadyForSpeech = {
-                listening = true
+                phase = SpeechPhase.LISTENING
                 helperText = "Listening..."
             },
+            onBeginningOfSpeech = {
+                phase = SpeechPhase.LISTENING
+                helperText = "Hearing you..."
+            },
             onEndOfSpeech = {
-                listening = false
+                phase = SpeechPhase.PROCESSING
                 helperText = "Processing speech..."
             }
         )
@@ -1026,36 +1154,37 @@ internal fun SpeakingAnswerInput(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (!recognitionAvailable) {
             Text(
-                "Speech recognition is not available on this device. Type the Russian instead.",
+                "Speech recognition is not available on this device. Say the Russian aloud, then use the self-check below.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            OutlinedTextField(
-                value = recognized,
-                onValueChange = onRecognized,
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.small,
-                singleLine = true,
-                label = { Text("Russian you said") }
             )
         } else {
             Text(helperText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button(
                 onClick = {
-                    if (listening) {
-                        recognizer.stop()
-                        listening = false
-                        helperText = "Stopped. Tap the mic to try again."
+                    if (phase == SpeechPhase.LISTENING) {
+                        recognizer.finishListening()
+                        phase = SpeechPhase.PROCESSING
+                        helperText = "Processing speech..."
                     } else {
                         startListening()
                     }
                 },
+                enabled = phase !in setOf(SpeechPhase.STARTING, SpeechPhase.PROCESSING),
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 14.dp)
             ) {
                 Icon(Icons.Filled.Mic, contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(if (listening) "Listening..." else "Start Mic", fontWeight = FontWeight.SemiBold)
+                Text(
+                    when (phase) {
+                        SpeechPhase.STARTING -> "Starting..."
+                        SpeechPhase.LISTENING -> "Finish"
+                        SpeechPhase.PROCESSING -> "Processing..."
+                        else -> "Start Mic"
+                    },
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
         // Pronunciation practice must remain useful when an offline ASR model is
@@ -1063,12 +1192,12 @@ internal fun SpeakingAnswerInput(
         // This path records a deliberate self-check and leaves the final rating
         // to the learner instead of fabricating an ASR transcript or score.
         OutlinedButton(
-            onClick = { onRecognized("Self-check: I said it aloud") },
+            onClick = { onRecognized(SPEECH_SELF_CHECK_MARKER) },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("I said it aloud · self-check")
         }
-        if (recognized.isNotBlank()) {
+        if (recognized.isNotBlank() && recognized != SPEECH_SELF_CHECK_MARKER) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.small,
@@ -1112,17 +1241,21 @@ internal fun LessonCard(
     // The same teaching layout introduces both grammar concepts and brand-new
     // vocabulary, so the chip must name the right thing — calling a vocab card a
     // "Grammar lesson" is just wrong and undermines trust in the labeling.
-    isVocabIntro: Boolean = false
+    isVocabIntro: Boolean = false,
+    compact: Boolean = false
 ) {
-    SectionCard(emphasis = true) {
+    SectionCard(
+        emphasis = true,
+        contentPadding = if (compact) PaddingValues(12.dp) else PaddingValues(18.dp)
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(Icons.Filled.School, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             StatusTag(if (isVocabIntro) "New vocabulary" else "Grammar lesson")
         }
-        Spacer(Modifier.height(10.dp))
-        Text(lesson.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(if (compact) 5.dp else 10.dp))
+        Text(lesson.title, style = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         if (isVocabIntro) {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(if (compact) 4.dp else 8.dp))
             AssistChip(
                 onClick = onSpeak,
                 label = { Text("Hear word") },
@@ -1135,14 +1268,18 @@ internal fun LessonCard(
                 }
             )
         }
-        Spacer(Modifier.height(10.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Spacer(Modifier.height(if (compact) 5.dp else 10.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp)) {
             lesson.body.forEach { paragraph ->
-                Text(paragraph, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    paragraph,
+                    style = if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
             }
         }
         if (lesson.exampleRu.isNotBlank()) {
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(if (compact) 8.dp else 16.dp))
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.surface,
@@ -1150,7 +1287,7 @@ internal fun LessonCard(
                 tonalElevation = 1.dp,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
             ) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(Modifier.padding(if (compact) 10.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1159,7 +1296,7 @@ internal fun LessonCard(
                         Text(
                             lesson.exampleRu,
                             modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.titleMedium,
+                            style = if (compact) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold
                         )
                         Spacer(Modifier.width(8.dp))
@@ -1170,7 +1307,11 @@ internal fun LessonCard(
                         )
                     }
                     if (lesson.exampleEn.isNotBlank()) {
-                        Text(lesson.exampleEn, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            lesson.exampleEn,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -1250,7 +1391,8 @@ internal fun PrimaryPracticeButton(
     hasAnswer: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    blankMeansMiss: Boolean = false
+    blankMeansMiss: Boolean = false,
+    compact: Boolean = false
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -1274,7 +1416,7 @@ internal fun PrimaryPracticeButton(
         interactionSource = interaction,
         modifier = modifier.scale(scale),
         colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = content),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 14.dp)
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = if (compact) 10.dp else 14.dp)
     ) {
         AnimatedContent(
             targetState = hasAnswer,
@@ -1296,64 +1438,7 @@ internal fun PrimaryPracticeButton(
     }
 }
 
-@Composable
-internal fun InputModeToggle(
-    keyboardMode: Boolean,
-    onKeyboard: () -> Unit,
-    onTiles: () -> Unit
-) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        InputModeButton(
-            label = "Tiles",
-            selected = !keyboardMode,
-            modifier = Modifier.weight(1f),
-            onClick = onTiles
-        )
-        InputModeButton(
-            label = "Keyboard",
-            selected = keyboardMode,
-            modifier = Modifier.weight(1f),
-            onClick = onKeyboard
-        )
-    }
-}
-
-@Composable
-internal fun InputModeButton(
-    label: String,
-    selected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.97f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessHigh),
-        label = "input-mode-scale"
-    )
-    if (selected) {
-        Button(
-            onClick = onClick,
-            interactionSource = interaction,
-            modifier = modifier.scale(scale),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 10.dp, horizontal = 8.dp)
-        ) {
-            Text(label, fontWeight = FontWeight.SemiBold)
-        }
-    } else {
-        OutlinedButton(
-            onClick = onClick,
-            interactionSource = interaction,
-            modifier = modifier.scale(scale),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.36f)),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 10.dp, horizontal = 8.dp)
-        ) {
-            Text(label, fontWeight = FontWeight.SemiBold)
-        }
-    }
-}
-
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun KeyboardAnswerInput(
     value: String,
@@ -1362,10 +1447,23 @@ internal fun KeyboardAnswerInput(
     onDone: () -> Unit
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
     OutlinedTextField(
         value = value,
         onValueChange = onChange,
-        modifier = Modifier.fillMaxWidth().testTag(TestTags.ANSWER_INPUT_FIELD),
+        modifier = Modifier
+            .fillMaxWidth()
+            .bringIntoViewRequester(bringIntoViewRequester)
+            .onFocusChanged { focusState ->
+                if (focusState.isFocused) {
+                    scope.launch {
+                        delay(250)
+                        bringIntoViewRequester.bringIntoView()
+                    }
+                }
+            }
+            .testTag(TestTags.ANSWER_INPUT_FIELD),
         singleLine = true,
         shape = MaterialTheme.shapes.small,
         label = { Text(answerHint(prompt)) },
@@ -1387,8 +1485,8 @@ internal fun KeyboardAnswerInput(
 internal fun RevealPanel(
     state: ReviewUiState,
     prompt: ReviewPrompt,
-    typedAnswer: String,
     correctionAnswer: String,
+    compact: Boolean = false,
     onSpeak: () -> Unit,
     onCorrectionChanged: (String) -> Unit,
     onSubmitCorrection: () -> Unit
@@ -1403,8 +1501,8 @@ internal fun RevealPanel(
             onSpeak()
         }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ResultBanner(state, prompt, typedAnswer, onSpeak)
+    Column(verticalArrangement = Arrangement.spacedBy(if (compact) 7.dp else 12.dp)) {
+        ResultBanner(state, prompt, onSpeak, compact)
         prompt.explanation?.let {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -1413,24 +1511,24 @@ internal fun RevealPanel(
             ) {
                 Text(
                     it,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = if (compact) 7.dp else 9.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                     fontWeight = FontWeight.Medium
                 )
             }
         }
-        prompt.note.mnemonic?.takeIf { it.isNotBlank() }?.let { hook ->
+        memoryHookFor(prompt)?.let { hook ->
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f)
             ) {
-                Row(Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.padding(if (compact) 8.dp else 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                     Column {
                         Text("Memory hook", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                        Text(hook, style = MaterialTheme.typography.bodyMedium)
+                        Text(hook, style = MaterialTheme.typography.bodySmall, maxLines = if (compact) 2 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -1442,10 +1540,10 @@ internal fun RevealPanel(
                 shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             ) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = if (compact) 7.dp else 9.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("In context", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                    Text(ru, style = MaterialTheme.typography.bodyMedium)
-                    en?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    Text(ru, style = MaterialTheme.typography.bodySmall)
+                    en?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
         }
@@ -1463,7 +1561,6 @@ internal fun RevealPanel(
                         CorrectionPractice(
                             state = state,
                             prompt = prompt,
-                            correctionAnswer = correctionAnswer,
                             onChange = onCorrectionChanged,
                             onSubmit = onSubmitCorrection
                         )
@@ -1493,25 +1590,17 @@ internal fun RevealPanel(
                     .height(1.dp)
                     .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
             )
-            RatingDecisionGuide(state)
-            state.suggestedRating?.let { suggested ->
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.small,
-                    color = suggested.accent().copy(alpha = 0.16f),
-                    border = BorderStroke(1.dp, suggested.accent().copy(alpha = 0.5f))
-                ) {
-                    Text(
-                        "Suggested: ${suggested.name.lowercase().replaceFirstChar { it.titlecase() }} · based on accuracy and response time",
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = suggested.accent()
-                    )
-                }
-            }
         }
     }
+}
+
+private enum class SpeechPhase { IDLE, STARTING, LISTENING, PROCESSING, ERROR }
+
+private fun memoryHookFor(prompt: ReviewPrompt): String? {
+    // Mnemonics support early vocabulary acquisition; on grammar drills and
+    // mature cards they compete with the actual explanation/context.
+    if (prompt.card.queue.name != "VOCAB" || prompt.card.reps > 3) return null
+    return usableMemoryHook(prompt.note.mnemonic)
 }
 
 /**
@@ -1530,6 +1619,7 @@ internal fun RevealPanel(
 internal fun StudyActionBar(
     state: ReviewUiState,
     prompt: ReviewPrompt,
+    compact: Boolean = false,
     onRate: (Rating) -> Unit,
     onContinue: () -> Unit,
     onKnewIt: () -> Unit,
@@ -1550,8 +1640,8 @@ internal fun StudyActionBar(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(horizontal = if (compact) 10.dp else 16.dp, vertical = if (compact) 6.dp else 10.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)
         ) {
             when {
                 prompt.lesson != null -> {
@@ -1559,7 +1649,7 @@ internal fun StudyActionBar(
                         onClick = { onRate(Rating.GOOD) },
                         enabled = !state.ratingInProgress,
                         modifier = Modifier.fillMaxWidth().testTag(TestTags.LESSON_GOT_IT),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 14.dp)
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = if (compact) 10.dp else 14.dp)
                     ) {
                         Text(if (state.ratingInProgress) "Saving..." else "Got it", fontWeight = FontWeight.SemiBold)
                     }
@@ -1567,7 +1657,8 @@ internal fun StudyActionBar(
                         TextButton(
                             onClick = onKnowWord,
                             enabled = !state.ratingInProgress,
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = if (compact) 1.dp else 4.dp)
                         ) {
                             Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
@@ -1621,7 +1712,7 @@ internal fun StudyActionBar(
                     BoxWithConstraints {
                         FlowRow(
                             modifier = Modifier.fillMaxWidth(),
-                            maxItemsInEachRow = if (maxWidth < 420.dp) 2 else 4,
+                        maxItemsInEachRow = if (compact) 4 else if (maxWidth < 420.dp) 2 else 4,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
@@ -1633,7 +1724,7 @@ internal fun StudyActionBar(
                                     suggested = state.suggestedRating == rating,
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(84.dp)
+                                        .height(if (compact) 64.dp else 84.dp)
                                         .testTag(
                                             when (rating) {
                                                 Rating.AGAIN -> TestTags.RATE_AGAIN
@@ -1651,34 +1742,6 @@ internal fun StudyActionBar(
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-internal fun RatingDecisionGuide(state: ReviewUiState) {
-    val (label, body) = when (state.answerMatch) {
-        AnswerMatch.CLOSE -> "Close answer" to "Hard is usually right if you had to think or spelling was rough. Use Good if the form was clear."
-        AnswerMatch.EXACT -> "Correct answer" to "Good is normal recall. Easy is valid when it was instant—or when you genuinely knew the word before this course. Use Mark known if it needs no further vocab practice."
-        AnswerMatch.WRONG -> "Missed answer" to "Again is the right grade for a miss. Use Hard only if you genuinely knew it and made a small slip."
-        else -> "Recall check" to "Rate the effort you actually felt. Easy can also mean prior knowledge; Mark known retires a word you no longer need to practise."
-    }
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Icon(Icons.Filled.Insights, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -1709,7 +1772,11 @@ internal fun RatingButton(
         onClick = onClick,
         enabled = !saving,
         interactionSource = interaction,
-        modifier = modifier.scale(scale),
+        modifier = modifier
+            .scale(scale)
+            .semantics {
+                contentDescription = "${rating.name.lowercase().replaceFirstChar { it.titlecase() }}. Next review in ${formatDays(intervalDays)}.${if (suggested) " Suggested by the tutor." else ""}"
+            },
         shape = MaterialTheme.shapes.small,
         contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp, horizontal = 4.dp),
         colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = Color.White),
@@ -1731,14 +1798,6 @@ internal fun RatingButton(
                 textAlign = TextAlign.Center,
                 maxLines = 1
             )
-            Text(
-                rating.recallCaption(),
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                color = Color.White.copy(alpha = 0.86f)
-            )
         }
     }
 }
@@ -1748,7 +1807,6 @@ internal fun RatingButton(
 internal fun CorrectionPractice(
     state: ReviewUiState,
     prompt: ReviewPrompt,
-    correctionAnswer: String,
     onChange: (String) -> Unit,
     onSubmit: () -> Unit
 ) {
@@ -1764,47 +1822,26 @@ internal fun CorrectionPractice(
         }
         return
     }
-    var keyboardMode by rememberSaveable(prompt.card.id, state.correctionRequired) { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        InputModeToggle(
-            keyboardMode = keyboardMode,
-            onKeyboard = { keyboardMode = true; onChange("") },
-            onTiles = { keyboardMode = false; onChange("") }
-        )
-        if (keyboardMode) {
-            OutlinedTextField(
-                value = correctionAnswer,
-                onValueChange = onChange,
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                label = { Text("Expected answer") },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { onSubmit() })
-            )
-        } else {
-            LetterTileBank(
-                expected = prompt.expectedAnswer,
-                cardId = prompt.card.id xor 0x5F3759DFL,
-                hint = "Build the correction with tiles; keyboard remains optional.",
-                onChange = onChange,
-                // Switching input modes clears the ViewModel value. This key also
-                // clears the tile bank's local selection so it cannot submit stale
-                // tiles after returning from the keyboard.
-                resetKey = keyboardMode
-            )
-        }
-    }
+    LetterTileBank(
+        expected = prompt.expectedAnswer,
+        cardId = prompt.card.id xor 0x5F3759DFL,
+        hint = "Rebuild the correction with tiles. No keyboard is needed.",
+        onChange = onChange,
+        resetKey = state.correctionRequired
+    )
 }
 
 @Composable
-internal fun ResultBanner(state: ReviewUiState, prompt: ReviewPrompt, typedAnswer: String, onSpeak: () -> Unit) {
+internal fun ResultBanner(
+    state: ReviewUiState,
+    prompt: ReviewPrompt,
+    onSpeak: () -> Unit,
+    compact: Boolean = false
+) {
     val matched = state.isAnswerCorrect == true
     val color = if (matched) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-    val title = when (state.answerMatch) {
-        AnswerMatch.EXACT -> "Correct!"
-        AnswerMatch.CLOSE -> "Close enough"
-        else -> "Expected answer"
-    }
+    val title = if (matched) "Correct" else "Not correct"
+    val expectedAnswer = prompt.expectedAnswer.trim().ifBlank { prompt.note.russian.trim() }
     val pop by animateFloatAsState(
         targetValue = 1f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
@@ -1818,7 +1855,7 @@ internal fun ResultBanner(state: ReviewUiState, prompt: ReviewPrompt, typedAnswe
         colors = CardDefaults.outlinedCardColors(containerColor = color.copy(alpha = 0.12f)),
         border = BorderStroke(1.5.dp, color.copy(alpha = 0.55f))
     ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.padding(if (compact) 10.dp else 16.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)) {
             Icon(
                 if (matched) Icons.Filled.CheckCircle else Icons.Filled.School,
                 contentDescription = null,
@@ -1827,60 +1864,22 @@ internal fun ResultBanner(state: ReviewUiState, prompt: ReviewPrompt, typedAnswe
             )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title, style = MaterialTheme.typography.labelLarge, color = color, fontWeight = FontWeight.SemiBold)
-                SelectionContainer {
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(prompt.expectedAnswer, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        if (typedAnswer.isNotBlank()) {
-                            Text("You answered: $typedAnswer", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-                state.answerFeedback?.let {
-                    AnswerFeedbackPanel(
-                        feedback = it,
-                        matched = matched
+                Text(
+                    "Correct answer: $expectedAnswer",
+                    style = if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                state.answerFeedback?.takeIf { it.isNotBlank() }?.let { feedback ->
+                    Text(
+                        feedback,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
-            IconButton(onClick = onSpeak) {
+                IconButton(onClick = onSpeak, modifier = if (compact) Modifier.size(40.dp) else Modifier) {
                 Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Hear answer", tint = color)
-            }
-        }
-    }
-}
-
-@Composable
-internal fun AnswerFeedbackPanel(feedback: String, matched: Boolean) {
-    val accent = if (matched) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.small,
-        color = accent.copy(alpha = 0.08f),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.22f))
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(
-                if (matched) Icons.Filled.Insights else Icons.Filled.Warning,
-                contentDescription = null,
-                tint = accent,
-                modifier = Modifier.size(18.dp)
-            )
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    if (matched) "Adjustment" else "Why this missed",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = accent,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    feedback,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         }
     }

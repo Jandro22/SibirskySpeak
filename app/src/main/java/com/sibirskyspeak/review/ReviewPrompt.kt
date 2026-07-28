@@ -17,6 +17,8 @@ data class ReviewPrompt(
     val answerMode: AnswerMode,
     val intervalPreview: Map<Rating, Int>,
     val choices: List<String> = emptyList(),
+    /** The learning job performed by a multiple-choice presentation. */
+    val choiceArchetype: ChoiceArchetype? = null,
     /** Optional compact labels (for example "-ие") keyed by the full answer value. */
     val choiceLabels: Map<String, String> = emptyMap(),
     val explanation: String? = null,
@@ -41,6 +43,12 @@ data class ReviewPrompt(
     val audioChallengeLabel: String? = null
 )
 
+enum class ChoiceArchetype {
+    MEANING_RECOGNITION,
+    FORM_SELECTION,
+    CONTEXT_CLOZE
+}
+
 data class LessonContent(
     val title: String,
     // Paragraphs, rendered with consistent spacing by the UI layer. A list instead of
@@ -56,7 +64,16 @@ internal fun meaningLine(meaning: String): String = "Meaning: $meaning"
 
 /** Shared microcopy for the optional mnemonic line, or null if there is no mnemonic. */
 internal fun mnemonicLine(mnemonic: String?): String? =
-    mnemonic?.takeIf { it.isNotBlank() }?.let { "Memory hook: $it" }
+    usableMemoryHook(mnemonic)?.let { "Memory hook: $it" }
+
+/** Hide the generated placeholder that adds space without adding an association. */
+internal fun usableMemoryHook(mnemonic: String?): String? {
+    val text = mnemonic?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    val normalized = text.lowercase()
+    val generatedPlaceholder = normalized.startsWith("picture ") &&
+        normalized.contains(" saying ") && normalized.contains(" out loud")
+    return text.takeUnless { generatedPlaceholder }
+}
 
 /** True only for the teaching screen that introduces a vocabulary note. */
 fun ReviewPrompt.isNewVocabularyIntroduction(): Boolean =
@@ -203,21 +220,14 @@ fun buildPrompt(
         }
         CardType.SENTENCE_BUILD -> {
             val sentence = example.sentence ?: note.russian
-            val russianOnlyPrompt = sentence
-                .takeIf { note.prefersRussianContext(card) && it.hasMultipleRussianWords() }
-                ?.let { "Соберите русское предложение.\n${it.stableWordBank(card.id)}" }
             ReviewPrompt(
                 card = card,
                 note = note,
                 prompt = buildString {
-                    if (russianOnlyPrompt != null) {
-                        append(russianOnlyPrompt)
-                    } else {
-                        append("Build the Russian sentence.")
-                        example.translation?.let {
-                            append("\n")
-                            append(it)
-                        }
+                    append("Build this sentence in Russian.")
+                    example.translation?.let {
+                        append("\nMeaning: ")
+                        append(it)
                     }
                 },
                 expectedAnswer = sentence,
@@ -600,16 +610,8 @@ private fun stressChoices(correct: String, plain: String): List<String> {
     return (decoys + correct).distinct().shuffled()
 }
 
-private fun String.hasMultipleRussianWords(): Boolean =
-    Regex("""\p{IsCyrillic}+""").findAll(this).take(2).count() >= 2
-
 private fun String.hasRussianText(): Boolean =
     Regex("""\p{IsCyrillic}+""").containsMatchIn(this)
-
-private fun String.stableWordBank(seed: Long): String {
-    val words = Regex("""[\p{L}\p{N}-]+""").findAll(this).map { it.value }.toList()
-    return words.shuffled(kotlin.random.Random(seed)).joinToString(" / ")
-}
 
 // --- Adjective agreement ---------------------------------------------------
 

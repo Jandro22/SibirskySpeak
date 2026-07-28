@@ -59,6 +59,10 @@ class ModelEvaluationTest {
         assertTrue(report.brier in 0.0..1.0 && report.logLoss > 0.0)
         assertTrue(report.expectedCalibrationError < .08)
         assertEquals(setOf("VOCAB", "LISTENING", "CEFR:A1", "CEFR:B1"), report.bySegment.keys)
+        val sparse = CalibrationDiagnostics.report(
+            List(19) { PredictionObservation(.7, it % 2 == 0, segment = "SPEAK") }
+        )
+        assertTrue(sparse.bySegment.isEmpty())
 
         val degraded = List(300) { PredictionObservation(.95, it % 2 == 0) }
         val drift = CalibrationDiagnostics.drift(calibrated.take(300), degraded)
