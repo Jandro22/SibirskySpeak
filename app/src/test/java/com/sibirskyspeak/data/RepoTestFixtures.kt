@@ -41,6 +41,9 @@ internal class RepoFixture(
     val confusionEvents = FakeConfusionEventDao()
     val checkpointResults = FakeCheckpointResultDao()
     val curriculumState = FakeCurriculumStateDao()
+    val communicativeLearning = FakeCommunicativeLearningDao { noteId ->
+        notes.notes.firstOrNull { it.id == noteId }?.status
+    }
     val repository = LearningRepository(
         notes,
         cards,
@@ -63,6 +66,7 @@ internal class RepoFixture(
         confusionEventDao = confusionEvents,
         checkpointResultDao = checkpointResults,
         curriculumStateDao = curriculumState,
+        communicativeLearningDao = communicativeLearning,
         noteEvidenceDao = evidence,
         noteFormDao = forms,
         contentDao = contentDao,
@@ -75,6 +79,70 @@ internal class RepoFixture(
         // caller, so the deterministic test scheduler still controls all of its work.
         computeDispatcher = Dispatchers.Unconfined
     )
+}
+
+internal class FakeCommunicativeLearningDao(
+    private val currentNoteStatus: (Long) -> WordStatus? = { null }
+) : CommunicativeLearningDao {
+    val components = linkedMapOf<String, KnowledgeComponent>()
+    val evidence = mutableListOf<CapabilityEvidence>()
+    val progress = linkedMapOf<String, CapabilityProgress>()
+    private var nextEvidenceId = 1L
+
+    override suspend fun upsertComponent(component: KnowledgeComponent) { components[component.key] = component }
+    override suspend fun upsertComponents(components: List<KnowledgeComponent>) { components.forEach { upsertComponent(it) } }
+    override suspend fun updateComponent(component: KnowledgeComponent) { components[component.key] = component }
+    override suspend fun deleteComponent(key: String) { components.remove(key) }
+    override suspend fun component(key: String): KnowledgeComponent? = components[key]
+    override suspend fun componentsForCapability(capabilityKey: String): List<KnowledgeComponent> =
+        components.values.filter { it.capabilityKey == capabilityKey && !it.retired }.sortedWith(compareBy({ it.due }, { it.key }))
+    override suspend fun allComponentsForCapability(capabilityKey: String): List<KnowledgeComponent> =
+        components.values.filter { it.capabilityKey == capabilityKey }.sortedWith(compareBy({ it.due }, { it.key }))
+    override suspend fun dueComponents(now: Long, limit: Int): List<KnowledgeComponent> =
+        components.values.filter { !it.retired && it.due <= now }.sortedWith(compareBy<KnowledgeComponent> { it.due }.thenByDescending { it.difficulty }).take(limit)
+    override suspend fun componentCount(): Int = components.size
+    override suspend fun allComponents(): List<KnowledgeComponent> = components.values.sortedBy { it.key }
+    override suspend fun retireComponentsForNote(noteId: Long): Int {
+        val matches = components.values.filter { it.noteId == noteId }
+        matches.forEach { components[it.key] = it.copy(retired = true) }
+        return matches.size
+    }
+    override suspend fun reactivateComponentsForNote(noteId: Long, now: Long): Int {
+        val matches = components.values.filter { it.noteId == noteId }
+        matches.forEach { components[it.key] = it.copy(retired = false, due = minOf(it.due, now)) }
+        return matches.size
+    }
+    override suspend fun retireComponentsForKnownNotes(): Int {
+        val knownIds = components.values.mapNotNull { it.noteId }.filter { noteId ->
+            currentNoteStatus(noteId) in setOf(WordStatus.KNOWN, WordStatus.IGNORED)
+        }.toSet()
+        var changed = 0
+        knownIds.forEach { changed += retireComponentsForNote(it) }
+        return changed
+    }
+    override suspend fun insertEvidence(evidence: CapabilityEvidence): Long {
+        if (this.evidence.any { it.episodeId == evidence.episodeId && it.taskId == evidence.taskId && it.componentKey == evidence.componentKey }) return -1L
+        val id = if (evidence.id == 0L) nextEvidenceId++ else evidence.id
+        this.evidence += evidence.copy(id = id)
+        return id
+    }
+    override suspend fun deleteEvidenceForTaskComponent(episodeId: String, taskId: String, componentKey: String) {
+        evidence.removeAll { it.episodeId == episodeId && it.taskId == taskId && it.componentKey == componentKey }
+    }
+    override suspend fun evidenceForTaskComponent(episodeId: String, taskId: String, componentKey: String): CapabilityEvidence? =
+        evidence.firstOrNull { it.episodeId == episodeId && it.taskId == taskId && it.componentKey == componentKey }
+    override suspend fun recentEvidence(componentKey: String, limit: Int): List<CapabilityEvidence> =
+        evidence.filter { it.componentKey == componentKey }.sortedByDescending { it.observedAt }.take(limit)
+    override suspend fun recentEvidenceForCapability(capabilityKey: String, limit: Int): List<CapabilityEvidence> {
+        val keys = components.values.filter { it.capabilityKey == capabilityKey }.mapTo(hashSetOf()) { it.key }
+        return evidence.filter { it.componentKey in keys }
+            .sortedWith(compareByDescending<CapabilityEvidence> { it.observedAt }.thenByDescending { it.id })
+            .take(limit)
+    }
+    override suspend fun allEvidence(): List<CapabilityEvidence> = evidence.sortedWith(compareBy({ it.observedAt }, { it.id }))
+    override suspend fun upsertProgress(progress: CapabilityProgress) { this.progress[progress.capabilityKey] = progress }
+    override suspend fun progress(capabilityKey: String): CapabilityProgress? = progress[capabilityKey]
+    override suspend fun allProgress(): List<CapabilityProgress> = progress.values.sortedWith(compareBy({ it.band }, { it.unit }))
 }
 
 internal class FakeNoteEvidenceDao : NoteEvidenceDao {
@@ -902,6 +970,8 @@ internal class FakeTelemetryDao : TelemetryDao {
     override suspend fun countByType(eventType: String): Int = events.count { it.eventType == eventType }
     override suspend fun countByTypeSince(eventType: String, since: Long): Int =
         events.count { it.eventType == eventType && it.timestamp >= since }
+    override suspend fun countByTypeAndSession(eventType: String, sessionId: String): Int =
+        events.count { it.eventType == eventType && it.sessionId == sessionId }
 }
 
 /** In-memory stand-in for ContentDao (P4.3 tests). Only [framesForConcept]/[allFrames]
@@ -912,7 +982,8 @@ internal class FakeContentDao(
     private val chunksByLemma: Map<String, List<ContentCollocation>> = emptyMap(),
     private val legacySingleLetterRoots: List<String> = emptyList(),
     private val dialogues: List<ContentDialogue> = emptyList(),
-    private val dialogueNodes: Map<String, List<ContentDialogueNode>> = emptyMap()
+    private val dialogueNodes: Map<String, List<ContentDialogueNode>> = emptyMap(),
+    private val analysesBySurface: Map<String, List<MorphAnalysisRow>> = emptyMap()
 ) : ContentDao {
     override suspend fun candidatesForLemma(lemma: String, limit: Int) = emptyList<SentenceCandidate>()
     override suspend fun chunksForLemma(lemma: String, limit: Int): List<ContentCollocation> =
@@ -924,7 +995,7 @@ internal class FakeContentDao(
     override suspend fun metadata(key: String): String? = null
     override fun inflection(lemma: String, feats: String): ParadigmForm? = null
     override fun paradigm(lemma: String) = emptyList<ParadigmForm>()
-    override fun analyses(surfaceNorm: String) = emptyList<MorphAnalysisRow>()
+    override fun analyses(surfaceNorm: String) = analysesBySurface[surfaceNorm].orEmpty()
     override suspend fun sentencesFor(unitMax: Int, bandMax: String, requiredLemma: String?, requiredFeat: String?, limit: Int) = emptyList<BankSentence>()
     override suspend fun sentencesContaining(chunk: String, limit: Int) = emptyList<ContentSentence>()
     override suspend fun framesForConcept(conceptId: String): List<ContentFrame> = framesByConcept[conceptId].orEmpty()

@@ -76,6 +76,8 @@ private const val MIN_RANKED_MATCH_CARDS = 5
 /** A launch skeleton is only valuable if it beats the real plan to the screen. */
 private const val SKELETON_PROMPT_BUDGET_MS = 750L
 
+private val companionExposureKinds = listOf("reading", "listening", "writing", "conversation")
+
 /** Reorders one priority item without shrinking or replacing the assigned queue. */
 internal fun <T> MutableList<T>.moveFirstMatchToFront(matches: (T) -> Boolean): Boolean {
     val index = indexOfFirst(matches)
@@ -193,6 +195,7 @@ data class ReviewUiState(
     val readerSource: String = "local",
     val selectedReaderTextId: Long? = null,
     val readerProgressByText: Map<Long, Int> = emptyMap(),
+    val companionExposureMinutes: Map<String, Int> = emptyMap(),
     val readerLookupInProgress: Boolean = false,
     val statusMessage: String? = null,
     val sessionStep: SessionStep = SessionStep.REVIEWS,
@@ -1782,7 +1785,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
                 .onSuccess {
                     activeStudyQueue.removeAll { it.card.noteId == prompt.card.noteId && it.card.queue.name == "VOCAB" }
                     repository.recordTelemetry(telemetryForPrompt("mark_known", prompt))
-                    loadSession(status = "Marked known. Vocab practice for this word is retired.", preserveStudyQueue = true)
+                    loadSession(status = "Marked known everywhere. This word is retired from episodes and card practice.", preserveStudyQueue = true)
                 }
                 .onFailure { mutableState.value = mutableState.value.copy(statusMessage = safeUserMessage(it, "Could not mark known.")) }
         }
@@ -1884,12 +1887,17 @@ class ReviewViewModel @javax.inject.Inject constructor(
             val refreshedTexts = repository.readerTexts()
             val selected = refreshedTexts.firstOrNull { it.text.id == recommendation.text.id } ?: recommendation
             val statusText = status.name.lowercase()
+            val scope = when (status) {
+                WordStatus.KNOWN -> " across the reader, episodes, and card practice"
+                WordStatus.IGNORED -> " across the reader, episodes, and card practice"
+                WordStatus.LEARNING, WordStatus.NEW -> " and synced it back into learning"
+            }
             mutableState.value = mutableState.value.copy(
                 allReaderTexts = refreshedTexts,
                 readerRecommendation = recommendNextReader(refreshedTexts),
                 readerTokens = repository.readerTokens(selected.text),
                 selectedToken = null,
-                statusMessage = if (count == 0) "No word statuses changed." else "Marked $count ${if (count == 1) "word" else "words"} $statusText"
+                statusMessage = if (count == 0) "No word statuses changed." else "Marked $count ${if (count == 1) "word" else "words"} $statusText$scope."
             )
         }
     }
@@ -1957,7 +1965,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
                 readerTokens = tokens,
                 selectedToken = refreshedToken,
                 lookupResult = "${token.surface} = ${saved.translation}. Added to Learning.",
-                statusMessage = "${token.surface} now has a meaning and will enter practice."
+                statusMessage = "${token.surface} now has a meaning and can enter episodes and card practice."
             )
         }
     }
@@ -1999,6 +2007,30 @@ class ReviewViewModel @javax.inject.Inject constructor(
         viewModelScope.launch {
             openReaderTextNow(id, inSession = false)
         }
+    }
+
+    fun queueSelectedReaderEpisode() {
+        val id = mutableState.value.selectedReaderTextId ?: return
+        viewModelScope.launch {
+            runCatching { repository.queueReaderFollowUpEpisode(id) }
+                .onSuccess { queued ->
+                    mutableState.value = mutableState.value.copy(
+                        statusMessage = if (queued) "Reader follow-up queued. Return to Tutor to use this text in an episode."
+                        else "Could not queue this text for an episode."
+                    )
+                }
+                .onFailure { mutableState.value = mutableState.value.copy(statusMessage = "Could not queue this text for an episode.") }
+        }
+    }
+
+    /** Record honest off-app or extensive-practice time toward the 450-550 hour
+     * companion-exposure range. This deliberately does not award mastery. */
+    fun logCompanionExposure(kind: String, minutes: Int) {
+        settings.addCompanionExposure(kind, minutes)
+        mutableState.value = mutableState.value.copy(
+            companionExposureMinutes = companionExposureKinds.associateWith(settings::companionExposureMinutes),
+            statusMessage = "Logged $minutes minutes of ${kind.lowercase()}."
+        )
     }
 
     fun toggleReaderBookmark(tokenIndex: Int, label: String = "") {
@@ -2765,6 +2797,7 @@ class ReviewViewModel @javax.inject.Inject constructor(
             readerSource = current.readerSource,
             selectedReaderTextId = current.selectedReaderTextId,
             readerProgressByText = readerProgressByText,
+            companionExposureMinutes = companionExposureKinds.associateWith(settings::companionExposureMinutes),
             statusMessage = status,
             sessionStep = step,
             ratingInProgress = current.ratingInProgress,
@@ -3603,10 +3636,10 @@ class ReviewViewModel @javax.inject.Inject constructor(
 
     private fun readerStatusMessage(surface: String, status: WordStatus): String =
         when (status) {
-            WordStatus.LEARNING -> "$surface is now learning and can enter practice."
-            WordStatus.KNOWN -> "$surface marked known; it counts toward coverage and stops practice."
-            WordStatus.IGNORED -> "$surface ignored for reader counts and practice."
-            WordStatus.NEW -> "$surface reset to new."
+            WordStatus.LEARNING -> "$surface is now Learning everywhere and can enter episodes and card practice."
+            WordStatus.KNOWN -> "$surface is Known everywhere: counted in reading coverage and retired from episodes and card practice."
+            WordStatus.IGNORED -> "$surface is Ignored everywhere: excluded from reader counts, episodes, and card practice."
+            WordStatus.NEW -> "$surface is New everywhere and can be taught again."
         }
 
     /** Save an in-place edit to the current card's word from the review screen. */

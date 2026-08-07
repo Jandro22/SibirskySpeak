@@ -25,6 +25,16 @@ interface SettingsStore {
     var reminderHour: Int
     var readerFontScale: Float
     var lastBackupAt: Long
+    /** Version of the learner-state shape included by the last successful backup.
+     * A higher app-side version forces one refresh even inside the daily throttle. */
+    var backupDataVersion: Int
+        get() = 0
+        set(_) {}
+    /** Version of the persisted reader surface-form index. Rule improvements must
+     * refresh existing installs, not only newly imported notes. */
+    var readerFormIndexVersion: Int
+        get() = 0
+        set(_) {}
     var backupTreeUri: String
     /** Whether the automatic public Downloads mirror is allowed. */
     var automaticPublicBackupEnabled: Boolean
@@ -70,6 +80,14 @@ interface SettingsStore {
     var sessionSnapshotJson: String
         get() = ""
         set(_) {}
+    /** Compact durable checkpoint for the primary communicative episode. */
+    var episodeSnapshotJson: String
+        get() = ""
+        set(_) {}
+    /** Completed connected text waiting to become a mediation/transfer episode. */
+    var pendingReaderEpisodeTextId: Long
+        get() = -1L
+        set(_) {}
     /** True after the learner has completed the contextual first-run flow. */
     var onboardingCompleted: Boolean
         get() = false
@@ -90,6 +108,10 @@ interface SettingsStore {
     fun newlyUnlocked(currentUnlocked: Set<String>): Set<String>
     fun readerProgress(textId: Long): Int
     fun setReaderProgress(textId: Long, tokenIndex: Int)
+    /** Minutes of extensive exposure outside the high-intensity episode core.
+     * Implementations may persist these counters; defaults keep test fakes source-compatible. */
+    fun companionExposureMinutes(kind: String): Int = 0
+    fun addCompanionExposure(kind: String, minutes: Int) {}
 
     companion object {
         const val DAILY_CARD_TARGET = 40
@@ -216,6 +238,14 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         get() = prefs.getLong(KEY_LAST_BACKUP_AT, 0L)
         set(value) = prefs.edit().putLong(KEY_LAST_BACKUP_AT, value).apply()
 
+    override var backupDataVersion: Int
+        get() = prefs.getInt(KEY_BACKUP_DATA_VERSION, 0)
+        set(value) = prefs.edit().putInt(KEY_BACKUP_DATA_VERSION, value.coerceAtLeast(0)).apply()
+
+    override var readerFormIndexVersion: Int
+        get() = prefs.getInt(KEY_READER_FORM_INDEX_VERSION, 0)
+        set(value) = prefs.edit().putInt(KEY_READER_FORM_INDEX_VERSION, value.coerceAtLeast(0)).apply()
+
     override var backupTreeUri: String
         get() = prefs.getString(KEY_BACKUP_TREE_URI, "") ?: ""
         set(value) = prefs.edit().putString(KEY_BACKUP_TREE_URI, value).apply()
@@ -299,6 +329,14 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         get() = prefs.getString(KEY_SESSION_SNAPSHOT, "") ?: ""
         set(value) = prefs.edit().putString(KEY_SESSION_SNAPSHOT, value.take(MAX_SESSION_SNAPSHOT_CHARS)).apply()
 
+    override var episodeSnapshotJson: String
+        get() = prefs.getString(KEY_EPISODE_SNAPSHOT, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_EPISODE_SNAPSHOT, value.take(MAX_SESSION_SNAPSHOT_CHARS)).apply()
+
+    override var pendingReaderEpisodeTextId: Long
+        get() = prefs.getLong(KEY_PENDING_READER_EPISODE, -1L)
+        set(value) = prefs.edit().putLong(KEY_PENDING_READER_EPISODE, value).apply()
+
     override var onboardingCompleted: Boolean
         get() = prefs.getBoolean(KEY_ONBOARDING_COMPLETED, false)
         set(value) = prefs.edit().putBoolean(KEY_ONBOARDING_COMPLETED, value).apply()
@@ -348,7 +386,19 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         prefs.edit().putInt(readerProgressKey(textId), tokenIndex.coerceAtLeast(-1)).apply()
     }
 
+    override fun companionExposureMinutes(kind: String): Int =
+        prefs.getInt(companionExposureKey(kind), 0).coerceAtLeast(0)
+
+    override fun addCompanionExposure(kind: String, minutes: Int) {
+        val normalized = kind.trim().lowercase()
+        if (normalized !in COMPANION_EXPOSURE_KINDS || minutes <= 0) return
+        val next = (companionExposureMinutes(normalized).toLong() + minutes)
+            .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        prefs.edit().putInt(companionExposureKey(normalized), next).apply()
+    }
+
     private fun readerProgressKey(textId: Long) = "reader_progress_$textId"
+    private fun companionExposureKey(kind: String) = "companion_exposure_${kind.trim().lowercase()}_minutes"
 
     companion object {
         private const val KEY_DAILY_GOAL = "daily_goal"
@@ -361,6 +411,8 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         private const val KEY_UNLOCKED_ACHIEVEMENTS = "unlocked_achievements"
         private const val KEY_ACH_SEEDED = "achievements_seeded"
         private const val KEY_LAST_BACKUP_AT = "last_backup_at"
+        private const val KEY_BACKUP_DATA_VERSION = "backup_data_version"
+        private const val KEY_READER_FORM_INDEX_VERSION = "reader_form_index_version"
         private const val KEY_BACKUP_TREE_URI = "backup_tree_uri"
         private const val KEY_AUTOMATIC_PUBLIC_BACKUP = "automatic_public_backup_enabled"
         private const val KEY_ONLINE_GLOSS_LOOKUP = "online_gloss_lookup_enabled"
@@ -387,9 +439,12 @@ class PrefsSettingsStore(context: Context) : SettingsStore {
         private const val KEY_GOAL_LAST_VELOCITY_WORDS_KNOWN = "goal_last_velocity_words_known"
         private const val KEY_LAST_STABLE_PACE = "last_stable_pace_words_per_day"
         private const val KEY_SESSION_SNAPSHOT = "session_snapshot_v1"
+        private const val KEY_EPISODE_SNAPSHOT = "episode_snapshot_v1"
+        private const val KEY_PENDING_READER_EPISODE = "pending_reader_episode_text_id"
         private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
         private const val KEY_LAUNCH_MAINTENANCE_TOKEN = "launch_maintenance_token"
         private const val KEY_LAST_MICRO_READING_ATTEMPT_DAY = "last_micro_reading_attempt_day"
         private const val MAX_SESSION_SNAPSHOT_CHARS = 32_000
+        private val COMPANION_EXPOSURE_KINDS = setOf("reading", "listening", "writing", "conversation")
     }
 }

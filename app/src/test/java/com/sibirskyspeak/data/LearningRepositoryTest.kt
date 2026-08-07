@@ -608,6 +608,29 @@ class LearningRepositoryTest {
     }
 
     @Test
+    fun optionalCardReviewUpdatesTheUnifiedComponentModelAndUndoRestoresIt() = runTest {
+        val fixture = RepoFixture()
+        fixture.repository.importJsonLines(
+            """{"russian":"дом","lemma":"дом","pos":"noun","translation":"house","tier":0,"unit":1,"cefrLevel":"A1","exampleSentence":"Это дом.","exampleTranslation":"This is a house."}"""
+        )
+        val note = fixture.notes.getByLemma("дом")!!
+        val card = fixture.cards.cards.first { it.noteId == note.id && it.cardType == CardType.RU_TO_MEANING }
+
+        fixture.repository.review(card, Rating.GOOD, now = 2_000L, objectiveCorrect = true)
+
+        val component = fixture.communicativeLearning.component(ComponentKeys.meaning(note.id))!!
+        assertEquals(1, component.reps)
+        val evidence = fixture.communicativeLearning.recentEvidence(component.key).single()
+        assertEquals("CARD_REVIEW", evidence.source)
+        assertEquals("CARD_MEANING", evidence.taskKind)
+        assertEquals(1.0, evidence.evidenceWeight, 0.0)
+
+        fixture.repository.undoLastReview()
+        assertNull(fixture.communicativeLearning.component(component.key))
+        assertTrue(fixture.communicativeLearning.recentEvidence(component.key).isEmpty())
+    }
+
+    @Test
     fun acquisitionPracticeKeepsMeaningRecallSimpleAcrossEarlyRepeats() = runTest {
         val fixture = RepoFixture()
         fixture.repository.importJsonLines(
@@ -1799,6 +1822,19 @@ class LearningRepositoryTest {
             """{"russian":"кни́га","lemma":"книга","pos":"noun","translation":"book","tier":0,"unit":1,"cefrLevel":"A1","exampleSentence":"Это книга.","exampleTranslation":"This is a book."}"""
         )
         val note = fixture.notes.getByLemma("книга")!!
+        fixture.communicativeLearning.upsertComponents(
+            listOf("MEANING", "FORM", "SOUND").map { kind ->
+                KnowledgeComponent(
+                    key = "$kind:${note.id}",
+                    kind = kind,
+                    capabilityKey = "A1:1",
+                    band = "A1",
+                    unit = 1,
+                    noteId = note.id,
+                    due = 20_000L
+                )
+            }
+        )
         assertTrue("word should start in practice",
             fixture.repository.sessionPlan(now = 0L).reviewQueue.any { it.card.noteId == note.id })
 
@@ -1808,11 +1844,16 @@ class LearningRepositoryTest {
             .all { it.state == CardState.GRADUATED })
         assertFalse("known word should not be quizzed",
             fixture.repository.sessionPlan(now = 2_000L).reviewQueue.any { it.card.noteId == note.id })
+        assertTrue("known word should leave primary episodes too",
+            fixture.communicativeLearning.components.values.filter { it.noteId == note.id }.all { it.retired })
 
         // Mark LEARNING again -> vocab cards reactivate as NEW.
         fixture.repository.setWordStatus("книга", WordStatus.LEARNING, now = 3_000L)
         assertTrue("learning again pulls it back into practice",
             fixture.cards.cards.any { it.noteId == note.id && it.queue == Queue.VOCAB && it.state == CardState.NEW })
+        assertTrue("learning again reactivates episode components",
+            fixture.communicativeLearning.components.values.filter { it.noteId == note.id }
+                .all { !it.retired && it.due <= 3_000L })
     }
 
     @Test
@@ -2045,6 +2086,54 @@ class LearningRepositoryTest {
         val tokens = fixture.repository.readerTokens(text)
         assertEquals("моя resolves to the мой note", "мой", tokens.first { it.surface == "моя" }.lemma)
         assertEquals("моё resolves to the мой note", "мой", tokens.first { it.surface == "моё" }.lemma)
+    }
+
+    @Test
+    fun upgradedReaderRebuildsACompletePersistedFormIndex() = runTest {
+        val settings = FakeSettingsStore().apply { readerFormIndexVersion = 1 }
+        val fixture = RepoFixture(settingsStore = settings)
+        fixture.repository.importJsonLines(
+            """{"russian":"мой","lemma":"мой","pos":"pronoun","translation":"my","tier":0,"unit":1,"cefrLevel":"A1"}"""
+        )
+        // Reproduce an install whose old index knew the note but not this newly
+        // supported surface. Counting note ids alone used to leave it stale forever.
+        fixture.forms.rows.remove(RussianForms.normalize("моя"))
+
+        val token = fixture.repository.readerTokens(
+            ReaderText(title = "t", body = "Это моя книга.", source = "test")
+        ).first { it.surface == "моя" }
+
+        assertEquals("мой", token.lemma)
+        assertEquals("my", token.translation)
+        assertEquals(2, settings.readerFormIndexVersion)
+        assertTrue(RussianForms.normalize("моя") in fixture.forms.rows)
+    }
+
+    @Test
+    fun readerFallsBackToBundledMorphologyForSuppletiveVariants() = runTest {
+        val surface = RussianForms.normalize("люди")
+        val content = FakeContentDao(
+            analysesBySurface = mapOf(
+                surface to listOf(MorphAnalysisRow(surface, "человек", "NOUN", "NOM+PL+M"))
+            )
+        )
+        val fixture = RepoFixture(
+            contentDao = content,
+            morphologyEngine = com.sibirskyspeak.morph.MorphologyEngine(content)
+        )
+        fixture.repository.importJsonLines(
+            """{"russian":"человек","lemma":"человек","pos":"noun","translation":"person","tier":0,"unit":1,"cefrLevel":"A1"}"""
+        )
+        // Remove the hand-authored irregular mapping to prove the morphology
+        // analysis, rather than the persisted fast path, resolves the definition.
+        fixture.forms.rows.remove(surface)
+
+        val token = fixture.repository.readerTokens(
+            ReaderText(title = "t", body = "Люди говорят.", source = "test")
+        ).first { it.surface == "Люди" }
+
+        assertEquals("человек", token.lemma)
+        assertEquals("person", token.translation)
     }
 
     @Test
@@ -2745,8 +2834,74 @@ class LearningRepositoryTest {
     }
 
     @Test
+    fun fullStateExportRoundTripsCommunicativeEvidenceAcrossRemappedNoteIds() = runTest {
+        val source = RepoFixture()
+        source.repository.importJsonLines(
+            """{"russian":"дом","lemma":"дом","pos":"noun","translation":"house","tier":0,"unit":1,"cefrLevel":"A1"}"""
+        )
+        val sourceNote = source.notes.notes.single()
+        val sourceKey = ComponentKeys.form(sourceNote.id)
+        source.communicativeLearning.upsertComponent(KnowledgeComponent(
+            key = sourceKey,
+            kind = "FORM",
+            capabilityKey = "A1:1",
+            band = "A1",
+            unit = 1,
+            noteId = sourceNote.id,
+            due = 99,
+            stabilityDays = 3.5,
+            confidence = 0.4,
+            reps = 2
+        ))
+        source.communicativeLearning.insertEvidence(CapabilityEvidence(
+            componentKey = sourceKey,
+            episodeId = "episode-1",
+            taskId = "transfer-1",
+            observedAt = 88,
+            taskKind = "TRANSFER",
+            outcome = "SUCCESS",
+            supportLevel = 2,
+            evidenceWeight = 0.45,
+            novelContext = true
+        ))
+        source.communicativeLearning.upsertProgress(CapabilityProgress(
+            capabilityKey = "A1:1",
+            band = "A1",
+            unit = 1,
+            canDo = "identify everyday objects",
+            completedEpisodes = 2,
+            successfulTransferProbes = 1,
+            attemptedTransferProbes = 2,
+            lastTransferScore = 0.5,
+            lastEpisodeAt = 88
+        ))
+
+        val payload = source.repository.exportFullState()
+        assertTrue(payload.contains("knowledgeComponent"))
+        assertTrue(payload.contains("capabilityEvidence"))
+
+        val restored = RepoFixture()
+        restored.notes.insert(Note(russian = "вода", lemma = "вода", translation = "water", partOfSpeech = "noun"))
+        restored.repository.importJsonLines(payload)
+        val restoredNote = restored.notes.getByLemma("дом")!!
+        assertTrue("test must actually exercise id remapping", restoredNote.id != sourceNote.id)
+        val restoredKey = ComponentKeys.form(restoredNote.id)
+        val component = restored.communicativeLearning.component(restoredKey)!!
+        assertEquals(2, component.reps)
+        assertEquals(3.5, component.stabilityDays, 0.0)
+        val evidence = restored.communicativeLearning.recentEvidence(restoredKey).single()
+        assertEquals("episode-1", evidence.episodeId)
+        assertEquals(0.45, evidence.evidenceWeight, 0.0)
+        assertTrue(evidence.novelContext)
+        val progress = restored.communicativeLearning.progress("A1:1")!!
+        assertEquals(2, progress.completedEpisodes)
+        assertNull(progress.certifiedAt)
+    }
+
+    @Test
     fun dueReadingIsAFirstClassSessionAssignmentAndCleanRecallSpacesIt() = runTest {
-        val fixture = RepoFixture()
+        val settings = com.sibirskyspeak.review.FakeSettingsStore()
+        val fixture = RepoFixture(settingsStore = settings)
         fixture.notes.insert(Note(
             russian = "\u0434\u043e\u043c",
             lemma = "\u0434\u043e\u043c",
@@ -2762,11 +2917,23 @@ class LearningRepositoryTest {
         assertEquals(0, plan.readingAssignment?.insertionIndex)
 
         fixture.repository.completeScheduledReading(textId, mistakes = 0, now = 1_000L)
+        assertEquals(textId, settings.pendingReaderEpisodeTextId)
         val scheduled = fixture.readingSchedules.get(textId)!!
         assertEquals(1, scheduled.reps)
         assertEquals(1, scheduled.intervalDays)
         assertEquals(1_000L + 86_400_000L, scheduled.due)
         assertNull(fixture.repository.sessionPlan(now = 2_000L).readingAssignment)
+    }
+
+    @Test
+    fun independentlyOpenedReaderTextCanBeQueuedForTutorConversion() = runTest {
+        val settings = com.sibirskyspeak.review.FakeSettingsStore()
+        val fixture = RepoFixture(settingsStore = settings)
+        val textId = fixture.repository.addReaderText("A visit", "Анна пришла домой.", translationBody = "Anna came home.")
+
+        assertTrue(fixture.repository.queueReaderFollowUpEpisode(textId, now = 1_000L))
+        assertEquals(textId, settings.pendingReaderEpisodeTextId)
+        assertFalse(fixture.repository.queueReaderFollowUpEpisode(textId + 999, now = 2_000L))
     }
 
     @Test
@@ -3204,6 +3371,29 @@ class LearningRepositoryTest {
 
         assertTrue(fixture.cards.cards.first { it.id == recognitionId }.stability > 10.0)
         assertEquals(10.0, fixture.cards.cards.first { it.id == productionId }.stability, 0.0)
+    }
+
+    @Test
+    fun passiveReaderListeningAndProductionEvidenceShareTheComponentModel() = runTest {
+        val fixture = RepoFixture()
+        val noteId = fixture.notes.insert(Note(
+            russian = "дом", lemma = "дом", translation = "house", partOfSpeech = "noun",
+            status = WordStatus.LEARNING, tier = 0, unit = 1, cefrLevel = "A1"
+        ))
+        fixture.repository.recordEvidence(EvidenceEvent(
+            noteId = noteId, facet = LearningFacet.CONTEXT, strength = EvidenceStrength.PRACTICE,
+            correct = true, source = ReviewSource.READING, at = 86_400_000L
+        ))
+        fixture.repository.recordEvidence(EvidenceEvent(
+            noteId = noteId, facet = LearningFacet.LISTENING, strength = EvidenceStrength.MODERATE,
+            correct = true, source = ReviewSource.LISTENING, at = 86_400_001L
+        ))
+
+        assertEquals(1, fixture.communicativeLearning.component(ComponentKeys.form(noteId))?.reps)
+        assertEquals(1, fixture.communicativeLearning.component(ComponentKeys.sound(noteId))?.reps)
+        val sources = fixture.communicativeLearning.evidence.map { it.source }.toSet()
+        assertTrue(ReviewSource.READING.name in sources)
+        assertTrue(ReviewSource.LISTENING.name in sources)
     }
 
     @Test

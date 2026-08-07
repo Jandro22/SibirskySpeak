@@ -111,6 +111,30 @@ object CardPedagogy {
             (profile.cognitiveCost - 1.0).coerceAtLeast(0.0) * 0.12
     }
 
+    /** Bounded compensation when telemetry shows that meaning recognition is not
+     * surviving mature intervals. Keep first contact unchanged and let urgency
+     * dominate; this only nudges ties toward productive/contextual retrieval. */
+    fun retentionCompensationBias(
+        cardType: CardType,
+        isNew: Boolean,
+        meaningRetention: Double?,
+        meaningSampleSize: Int,
+        targetRetention: Double
+    ): Double {
+        if (isNew || meaningSampleSize < 8) return 0.0
+        val observed = meaningRetention?.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: return 0.0
+        val target = targetRetention.takeIf(Double::isFinite)?.coerceIn(0.80, 0.95) ?: 0.90
+        val pressure = ((target - observed - 0.03) / 0.20).coerceIn(0.0, 1.0)
+        return when (profile(cardType).facet) {
+            LearningFacet.MEANING -> -0.55 * pressure
+            LearningFacet.FORM,
+            LearningFacet.CONTEXT,
+            LearningFacet.SYNTAX,
+            LearningFacet.MORPHOLOGY -> 0.22 * pressure
+            else -> 0.0
+        }
+    }
+
     private fun hasTransparentGender(prompt: ReviewPrompt): Boolean {
         val gender = (prompt.card.gramGender ?: prompt.note.gender)?.uppercase() ?: return false
         val ending = RussianForms.normalize(prompt.note.russian).lastOrNull() ?: return false

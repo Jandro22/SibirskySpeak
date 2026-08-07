@@ -34,12 +34,21 @@ def build(db_path: Path, dialogues_path: Path, room_schema: Path) -> dict:
     db.executescript("""
         DROP TABLE IF EXISTS dialogue;
         DROP TABLE IF EXISTS dialogue_node;
-        CREATE TABLE dialogue(id TEXT NOT NULL PRIMARY KEY, unit_min INTEGER NOT NULL, function TEXT NOT NULL, title TEXT NOT NULL);
+        CREATE TABLE dialogue(
+          id TEXT NOT NULL PRIMARY KEY, unit_min INTEGER NOT NULL, function TEXT NOT NULL, title TEXT NOT NULL,
+          band TEXT NOT NULL, objective TEXT NOT NULL, settingsJson TEXT NOT NULL, intention TEXT NOT NULL,
+          register TEXT NOT NULL, activity TEXT NOT NULL, informationGap TEXT NOT NULL,
+          expectedCompletions INTEGER NOT NULL, blindTransfer INTEGER NOT NULL
+        );
         CREATE TABLE dialogue_node(id TEXT NOT NULL PRIMARY KEY, dialogueId TEXT NOT NULL, speaker TEXT NOT NULL,
           ru TEXT NOT NULL, en TEXT NOT NULL, acceptable_json TEXT, next_ids_json TEXT NOT NULL);
         CREATE INDEX index_dialogue_node_dialogueId ON dialogue_node(dialogueId);
     """)
-    dialogue_rows = [(d["id"], d["unitMin"], d["function"], d["title"]) for d in doc["dialogues"]]
+    dialogue_rows = [(
+        d["id"], d["unitMin"], d["function"], d["title"], d["band"], d["objective"],
+        json.dumps(d["settings"], ensure_ascii=False), d["intention"], d["register"], d["activity"],
+        d["informationGap"], d["expectedCompletions"], int(d["blindTransfer"])
+    ) for d in doc["dialogues"]]
     node_rows = [
         (
             node["id"], dialogue["id"], node["speaker"], node["ru"], node["en"],
@@ -49,11 +58,11 @@ def build(db_path: Path, dialogues_path: Path, room_schema: Path) -> dict:
         for dialogue in doc["dialogues"]
         for node in dialogue["nodes"]
     ]
-    db.executemany("INSERT INTO dialogue VALUES(?,?,?,?)", dialogue_rows)
+    db.executemany("INSERT INTO dialogue VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", dialogue_rows)
     db.executemany("INSERT INTO dialogue_node VALUES(?,?,?,?,?,?,?)", node_rows)
     schema = json.loads(room_schema.read_text(encoding="utf-8"))
     db.execute("INSERT OR REPLACE INTO room_master_table VALUES(42, ?)", (schema["database"]["identityHash"],))
-    db.execute("PRAGMA user_version=7")
+    db.execute("PRAGMA user_version=11")
     db.commit()
     db.execute("VACUUM")
     db.close()
@@ -64,7 +73,7 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser()
     p.add_argument("--db", type=Path, default=ROOT / "app/src/main/assets/tatoeba.db")
     p.add_argument("--dialogues", type=Path, default=Path(__file__).parent / "dialogues.json")
-    p.add_argument("--room-schema", type=Path, default=ROOT / "app/schemas/com.sibirskyspeak.data.ContentDatabase/7.json")
+    p.add_argument("--room-schema", type=Path, default=ROOT / "app/schemas/com.sibirskyspeak.data.ContentDatabase/11.json")
     return p
 
 

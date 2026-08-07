@@ -23,7 +23,6 @@
     <string name="dashboard_backup_folder_body">Your review history is stored on this phone. Choose a synced folder once to keep a durable copy after every session.</string>
     <string name="dashboard_backup_choose_folder">Choose backup folder</string>
     <string name="study_why_card">Why this card — %1$s</string>
-    <string name="practice_short_session">Short session · 3 cards</string>
     <string name="reader_difficulty">Difficulty: %1$s</string>
     <string name="reader_difficulty_detail">Syntax %1$d%% · morphology %2$d%% · idioms %3$d%%</string>
     <string name="reader_focus">Focus</string>

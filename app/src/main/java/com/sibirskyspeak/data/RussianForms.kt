@@ -17,9 +17,12 @@ object RussianForms {
 
     fun normalize(value: String): String {
         val decomposed = Normalizer.normalize(value.trim().lowercase(ruLocale).replace('\u0451', '\u0435'), Normalizer.Form.NFD)
-        return decomposed
-            .replace("\u0301", "")
-            .replace("\u0308", "")
+        return Normalizer.normalize(
+            decomposed
+                .replace("\u0301", "")
+                .replace("\u0308", ""),
+            Normalizer.Form.NFC
+        )
     }
 
     fun pastMasculine(infinitive: String): String? = verbForm(infinitive, "PAST_M")

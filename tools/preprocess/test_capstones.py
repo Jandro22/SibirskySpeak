@@ -46,7 +46,13 @@ def test_every_manifest_unit_has_a_complete_exact_dialogue():
                    FROM dialogue_node WHERE dialogueId=?""",
                 (dialogue_id,),
             ).fetchall()
-            assert len(nodes) == 6, f"{dialogue_id}: expected 6 nodes, got {len(nodes)}"
+            turn_min, turn_max = {
+                "A1": (4, 6), "A2": (6, 8), "B1": (8, 12),
+                "B2": (10, 16), "C1": (12, 20), "C2": (12, 20),
+            }[band]
+            learner_count = sum(row[1] == "learner" for row in nodes)
+            assert turn_min <= learner_count <= turn_max
+            assert len(nodes) == 1 + learner_count, f"{dialogue_id}: incomplete sourced arc"
             ids = {row[0] for row in nodes}
             referenced: set[str] = set()
             learner_answers: list[str] = []
@@ -66,9 +72,28 @@ def test_every_manifest_unit_has_a_complete_exact_dialogue():
                     assert acceptable_json is None
             roots = ids - referenced
             assert len(roots) == 1, f"{dialogue_id}: dialogue graph needs exactly one root"
-            assert sum(row[1] == "learner" for row in nodes) == 3
-            assert sum(row[1] == "npc" for row in nodes) == 3
-            assert len({answer.strip().lower() for answer in learner_answers}) >= 3
+            assert sum(row[1] == "npc" for row in nodes) == 1
+            assert len({answer.strip().lower() for answer in learner_answers}) >= learner_count
+
+
+def test_every_authored_scenario_variant_has_a_complete_assessment_path():
+    with sqlite3.connect(ASSETS / "tatoeba.db") as db:
+        dialogue_count = db.execute("SELECT COUNT(*) FROM dialogue").fetchone()[0]
+        assert dialogue_count == 696
+        rows = db.execute(
+            "SELECT id, band FROM dialogue WHERE id LIKE '%:family-%' ORDER BY id"
+        ).fetchall()
+        assert len(rows) == 696 - 114
+        for dialogue_id, band in rows:
+            nodes = db.execute(
+                "SELECT speaker, acceptable_json FROM dialogue_node WHERE dialogueId=?",
+                (dialogue_id,),
+            ).fetchall()
+            turn_min = {"A1": 4, "A2": 6, "B1": 8, "B2": 10, "C1": 12, "C2": 12}[band]
+            learner_count = sum(speaker == "learner" for speaker, _ in nodes)
+            assert learner_count >= turn_min
+            assert len(nodes) == 1 + learner_count, f"{dialogue_id}: incomplete scenario family"
+            assert all(json.loads(answers or "[]") for speaker, answers in nodes if speaker == "learner")
 
 
 def test_every_unit_has_exact_assessment_content_and_tap_distractors():

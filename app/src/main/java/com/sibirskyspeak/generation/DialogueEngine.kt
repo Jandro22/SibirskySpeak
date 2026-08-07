@@ -13,7 +13,17 @@ import org.json.JSONArray
  * chunk/lemma evidence at the caller's discretion — this engine only tracks
  * state and grades the learner's typed turn against the acceptable set.
  */
-data class DialogueTurn(val nodeId: String, val speaker: String, val ru: String, val en: String, val acceptable: List<String>)
+data class DialogueTurn(
+    val nodeId: String,
+    val speaker: String,
+    val ru: String,
+    val en: String,
+    val acceptable: List<String>,
+    /** Authored consequence shown after each valid communicative choice. */
+    val responseFeedback: Map<String, String> = emptyMap(),
+    /** Branch-specific Russian fact the learner must retain for a later check. */
+    val responseFacts: Map<String, String> = emptyMap()
+)
 
 class DialogueEngine(private val dialogue: ContentDialogue, nodes: List<ContentDialogueNode>) {
     private val byId = nodes.associateBy { it.id }
@@ -50,9 +60,19 @@ class DialogueEngine(private val dialogue: ContentDialogue, nodes: List<ContentD
         val acceptable = parseAcceptable(node.acceptableJson)
         // AnswerMatch is declared EXACT, CLOSE, WRONG — lower ordinal is the better
         // match, so pick the acceptable candidate that grades best, not worst.
-        val evaluation = acceptable.map { evaluateRussianAnswer(it, answer) }.minByOrNull { it.match.ordinal }
+        val best = acceptable.mapIndexed { index, candidate -> index to evaluateRussianAnswer(candidate, answer) }
+            .minByOrNull { it.second.match.ordinal }
+        val evaluation = best?.second
             ?: AnswerEvaluation(com.sibirskyspeak.review.AnswerMatch.WRONG, acceptable.firstOrNull().orEmpty())
-        if (evaluation.accepted) advance()
+        if (evaluation.accepted) {
+            val next = nextIdsFor(currentId)
+            if (next.isNotEmpty()) {
+                // Acceptable answers are authored in contiguous branch groups
+                // (stress/punctuation variants stay on the same consequence).
+                val branch = ((best!!.first * next.size) / acceptable.size).coerceAtMost(next.lastIndex)
+                currentId = next[branch]
+            }
+        }
         return evaluation
     }
 
@@ -64,7 +84,21 @@ class DialogueEngine(private val dialogue: ContentDialogue, nodes: List<ContentD
 
     private fun turnFor(nodeId: String): DialogueTurn {
         val node = byId.getValue(nodeId)
-        return DialogueTurn(node.id, node.speaker, node.ru, node.en, parseAcceptable(node.acceptableJson))
+        val acceptable = parseAcceptable(node.acceptableJson)
+        val next = nextIdsForNode(node)
+        val consequenceByAnswer = if (node.speaker == "learner" && acceptable.isNotEmpty() && next.isNotEmpty()) {
+            acceptable.mapIndexedNotNull { index, answer ->
+                val branch = ((index * next.size) / acceptable.size).coerceAtMost(next.lastIndex)
+                byId[next[branch]]?.let { consequence ->
+                    answer to consequence
+                }
+            }.toMap()
+        } else emptyMap()
+        val feedback = consequenceByAnswer.mapValues { (_, consequence) ->
+            listOf(consequence.ru, consequence.en).filter(String::isNotBlank).joinToString(" — ")
+        }
+        val facts = consequenceByAnswer.mapValues { (_, consequence) -> consequence.ru }
+        return DialogueTurn(node.id, node.speaker, node.ru, node.en, acceptable, feedback, facts)
     }
 
     private fun nextIdsFor(nodeId: String): List<String> {

@@ -1,6 +1,9 @@
 package com.sibirskyspeak.audio
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
@@ -10,7 +13,7 @@ import java.util.Locale
 class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
     private var engine: TextToSpeech? = TextToSpeech(context.applicationContext, this)
     private var ready = false
-    private data class PendingSpeech(val text: String, val rate: Float, val pitch: Float, val voiceVariant: Int)
+    private data class PendingSpeech(val text: String, val rate: Float, val pitch: Float, val voiceVariant: Int, val condition: String?)
     private var pendingSpeech: PendingSpeech? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var sequenceOnSentence: ((Int) -> Unit)? = null
@@ -23,21 +26,21 @@ class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
             engine?.language = Locale("ru", "RU")
             pendingSpeech?.let { queued ->
                 pendingSpeech = null
-                speak(queued.text, queued.rate, queued.pitch, queued.voiceVariant)
+                speak(queued.text, queued.rate, queued.pitch, queued.voiceVariant, queued.condition)
             }
         } else {
             pendingSpeech = null
         }
     }
 
-    fun speak(text: String, rate: Float = 1.0f, pitch: Float = 1.0f, voiceVariant: Int = 0) {
+    fun speak(text: String, rate: Float = 1.0f, pitch: Float = 1.0f, voiceVariant: Int = 0, condition: String? = null) {
         val cleaned = normalizeRussianSpeech(text)
         if (cleaned.isBlank()) return
         // A normal utterance interrupts reader sequence mode. Resolve its callbacks
         // immediately so UI highlighting cannot remain stuck on an old sentence.
         if (sequenceOnDone != null) finishSequence()
         if (!ready) {
-            pendingSpeech = PendingSpeech(cleaned, rate, pitch, voiceVariant)
+            pendingSpeech = PendingSpeech(cleaned, rate, pitch, voiceVariant, condition)
             return
         }
         engine?.setSpeechRate(rate.coerceIn(0.75f, 1.25f))
@@ -45,6 +48,7 @@ class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
         selectRussianVoice(voiceVariant)
         val chunks = chunkRussianSpeech(cleaned)
         if (chunks.isEmpty()) return
+        if (condition == "controlled background noise") playControlledMaskingNoise(cleaned.length)
         chunks.forEachIndexed { index, chunk ->
             engine?.speak(
                 chunk,
@@ -52,6 +56,36 @@ class RussianTextToSpeech(context: Context) : TextToSpeech.OnInitListener {
                 null,
                 "ru-${System.currentTimeMillis()}-$index"
             )
+        }
+    }
+
+    /** Low-level, deterministic masking noise for advanced listening. It is quiet
+     * enough to preserve intelligibility and is never used unless the authored
+     * listening profile explicitly requests it. */
+    private fun playControlledMaskingNoise(textLength: Int) {
+        val sampleRate = 8_000
+        val durationMs = (1_500 + textLength * 55).coerceIn(1_500, 8_000)
+        val sampleCount = sampleRate * durationMs / 1_000
+        val pcm = ByteArray(sampleCount * 2)
+        var state = 0x51F15EED
+        repeat(sampleCount) { index ->
+            state = state * 1_103_515_245 + 12_345
+            val sample = ((state ushr 16) and 0x1ff) - 256
+            pcm[index * 2] = (sample and 0xff).toByte()
+            pcm[index * 2 + 1] = (sample shr 8).toByte()
+        }
+        runCatching {
+            val track = AudioTrack.Builder()
+                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                .setTransferMode(AudioTrack.MODE_STATIC)
+                .setBufferSizeInBytes(pcm.size)
+                .build()
+            track.write(pcm, 0, pcm.size)
+            track.play()
+            Thread {
+                try { Thread.sleep(durationMs.toLong()) } finally { runCatching { track.stop() }; track.release() }
+            }.apply { name = "russian-listening-noise"; isDaemon = true }.start()
         }
     }
 

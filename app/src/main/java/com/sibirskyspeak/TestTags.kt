@@ -11,15 +11,30 @@ internal object TestTags {
     const val ONBOARDING_PLACEMENT = "onboarding_placement"
     // Bottom navigation
     const val NAV_PRACTICE = "nav_practice"
+    const val NAV_READER = "nav_reader"
     const val NAV_PROGRESS = "nav_progress"
     const val NAV_LAB = "nav_lab"
     const val NAV_SETTINGS = "nav_settings"
+
+    // Primary communicative tutor
+    const val TUTOR_ONBOARDING_START = "tutor_onboarding_start"
+    const val TUTOR_CONTINUE = "tutor_continue"
+    const val TUTOR_OPEN_TOOLS = "tutor_open_tools"
+    const val TUTOR_LISTEN = "tutor_listen"
+    const val TUTOR_CHOICE_PREFIX = "tutor_choice"
+    const val TUTOR_CHECK = "tutor_check"
+    const val TUTOR_NEXT = "tutor_next"
+    const val TUTOR_SPEECH_FALLBACK = "tutor_speech_fallback"
+    const val ANSWER_TILE_PREFIX = "answer_tile"
+    const val ANSWER_TILE_ASSEMBLED = "answer_tile_assembled"
+    const val ANSWER_TILE_CLEAR = "answer_tile_clear"
+    const val TOOLS_RETURN_TUTOR = "tools_return_tutor"
+    const val TOOLS_CONTINUE_EPISODES = "tools_continue_episodes"
 
     // Dashboard / Practice landing
     const val DASHBOARD_STUDY_BUTTON = "dashboard_study_button"
     const val DASHBOARD_NEXT_ACTION_BUTTON = "dashboard_next_action_button"
     const val DASHBOARD_ADJUST_TODAY = "dashboard_adjust_today"
-    const val PRACTICE_SHORT_SESSION = "practice_short_session"
     const val SETTINGS_AUTOMATIC_PUBLIC_BACKUP = "settings_automatic_public_backup"
 
     // Study session header

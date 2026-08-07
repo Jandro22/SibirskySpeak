@@ -837,6 +837,8 @@ def main():
     def asset_version(name):
         path = HERE / name
         return hashlib.sha256(path.read_bytes()).hexdigest()[:16] if path.exists() else "absent"
+    dialogue_doc = json.loads((HERE / "dialogues.json").read_text(encoding="utf-8"))
+    episode_families = dialogue_doc.get("dialogues", [])
     manifest = {
         "curriculumVersion": f"2026-07-g12-{checksum[:8]}",
         "schemaVersion": 2,
@@ -863,6 +865,24 @@ def main():
         },
         "noteCountsByBand": dict(sorted(counts.items())),
         "noteCountsByTier": dict(sorted(tiers.items())),
+        "episodeFamilyCount": len(episode_families),
+        "a1ToC1EpisodeFamilyCount": sum(1 for dialogue in episode_families if dialogue.get("band") in {"A1", "A2", "B1", "B2", "C1"}),
+        "expectedEpisodeCompletions": sum(
+            int(dialogue.get("expectedCompletions", 0))
+            for dialogue in episode_families
+            if dialogue.get("band") in {"A1", "A2", "B1", "B2", "C1"}
+        ),
+        "expectedEpisodeMinutes": 5 * sum(
+            int(dialogue.get("expectedCompletions", 0))
+            for dialogue in episode_families
+            if dialogue.get("band") in {"A1", "A2", "B1", "B2", "C1"}
+        ),
+        "companionExposureHours": {"minimum": 450, "target": 500, "maximum": 550},
+        "episodeNodeCount": sum(len(dialogue.get("nodes", [])) for dialogue in episode_families),
+        "episodeFamiliesByBand": {
+            band: sum(1 for dialogue in episode_families if dialogue.get("band") == band)
+            for band in ("A1", "A2", "B1", "B2", "C1", "C2")
+        },
         "assets": {
             "frames": asset_version("frames.json"),
             "stories": asset_version("stories/anna_i_ivan_a1.json") + ":" + asset_version("stories/maria_i_petr_a2.json"),

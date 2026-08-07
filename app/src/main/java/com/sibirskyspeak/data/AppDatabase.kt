@@ -10,8 +10,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.sibirskyspeak.scheduler.FsrsScheduler
 
 @Database(
-    entities = [Note::class, NoteEvidence::class, NoteForm::class, Card::class, ReviewLog::class, ConfusablePair::class, ReaderText::class, ReaderBookmark::class, ReadingSchedule::class, ReaderEncounter::class, ReadingActivity::class, TelemetryEvent::class, MinedExample::class, ItemDifficulty::class, ConceptMastery::class, OptimizerParameter::class, SkillRating::class, CapacityState::class, WillingnessState::class, RivalState::class, GhostSnapshot::class, MatchHistory::class, PaceLog::class, BanditPending::class, BanditArmState::class, WeeklyReport::class, ConfusionEvent::class, CheckpointResult::class, CurriculumState::class, CurriculumMigrationReport::class, ExitTicketResult::class],
-    version = 33,
+    entities = [Note::class, NoteEvidence::class, NoteForm::class, Card::class, ReviewLog::class, ConfusablePair::class, ReaderText::class, ReaderBookmark::class, ReadingSchedule::class, ReaderEncounter::class, ReadingActivity::class, TelemetryEvent::class, MinedExample::class, ItemDifficulty::class, ConceptMastery::class, OptimizerParameter::class, SkillRating::class, CapacityState::class, WillingnessState::class, RivalState::class, GhostSnapshot::class, MatchHistory::class, PaceLog::class, BanditPending::class, BanditArmState::class, WeeklyReport::class, ConfusionEvent::class, CheckpointResult::class, CurriculumState::class, CurriculumMigrationReport::class, ExitTicketResult::class, KnowledgeComponent::class, CapabilityEvidence::class, CapabilityProgress::class],
+    version = 34,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -34,6 +34,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun confusionEventDao(): ConfusionEventDao
     abstract fun checkpointResultDao(): CheckpointResultDao
     abstract fun curriculumStateDao(): CurriculumStateDao
+    abstract fun communicativeLearningDao(): CommunicativeLearningDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
@@ -45,7 +46,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "sibirsky_speak.db"
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34)
                     // Only versions before the first real migration (7) are allowed to
                     // wipe destructively — those predate the JSON backup/restore safety
                     // net, so there's nothing worth preserving. Any version from 7 on
@@ -550,6 +551,168 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_32_33 = object : Migration(32, 33) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE reader_texts ADD COLUMN translationBody TEXT")
+            }
+        }
+
+        /**
+         * Card formats stop being the unit of memory in v34. Keep the legacy tables
+         * for lossless backup/rollback, but project their history into knowledge
+         * components with deliberately conservative evidence weights. In particular,
+         * historical Russian tile/word-bank success is assisted practice, not proof of
+         * unsupported production.
+         */
+        val MIGRATION_33_34 = object : Migration(33, 34) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `knowledge_components` (
+                        `key` TEXT NOT NULL,
+                        `kind` TEXT NOT NULL,
+                        `capabilityKey` TEXT NOT NULL,
+                        `band` TEXT NOT NULL,
+                        `unit` INTEGER NOT NULL,
+                        `noteId` INTEGER,
+                        `conceptId` TEXT,
+                        `due` INTEGER NOT NULL,
+                        `stabilityDays` REAL NOT NULL,
+                        `difficulty` REAL NOT NULL,
+                        `confidence` REAL NOT NULL,
+                        `reps` INTEGER NOT NULL,
+                        `lapses` INTEGER NOT NULL,
+                        `lastEvidenceAt` INTEGER,
+                        `retired` INTEGER NOT NULL,
+                        PRIMARY KEY(`key`)
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_knowledge_components_noteId` ON `knowledge_components` (`noteId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_knowledge_components_capabilityKey` ON `knowledge_components` (`capabilityKey`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_knowledge_components_due` ON `knowledge_components` (`due`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_knowledge_components_kind_due` ON `knowledge_components` (`kind`, `due`)")
+
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `capability_evidence` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `componentKey` TEXT NOT NULL,
+                        `episodeId` TEXT NOT NULL,
+                        `taskId` TEXT NOT NULL,
+                        `observedAt` INTEGER NOT NULL,
+                        `taskKind` TEXT NOT NULL,
+                        `outcome` TEXT NOT NULL,
+                        `supportLevel` INTEGER NOT NULL,
+                        `evidenceWeight` REAL NOT NULL,
+                        `responseMs` INTEGER,
+                        `novelContext` INTEGER NOT NULL,
+                        `source` TEXT NOT NULL,
+                        FOREIGN KEY(`componentKey`) REFERENCES `knowledge_components`(`key`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_capability_evidence_componentKey` ON `capability_evidence` (`componentKey`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_capability_evidence_episodeId` ON `capability_evidence` (`episodeId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_capability_evidence_observedAt` ON `capability_evidence` (`observedAt`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_capability_evidence_episodeId_taskId_componentKey` ON `capability_evidence` (`episodeId`, `taskId`, `componentKey`)")
+
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `capability_progress` (
+                        `capabilityKey` TEXT NOT NULL,
+                        `band` TEXT NOT NULL,
+                        `unit` INTEGER NOT NULL,
+                        `canDo` TEXT NOT NULL,
+                        `completedEpisodes` INTEGER NOT NULL,
+                        `successfulTransferProbes` INTEGER NOT NULL,
+                        `attemptedTransferProbes` INTEGER NOT NULL,
+                        `lastTransferScore` REAL,
+                        `lastEpisodeAt` INTEGER,
+                        `certifiedAt` INTEGER,
+                        PRIMARY KEY(`capabilityKey`)
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_capability_progress_band` ON `capability_progress` (`band`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_capability_progress_unit` ON `capability_progress` (`unit`)")
+
+                // Carry route position forward from the old unit exit tickets. Their
+                // scoring did not distinguish assisted from unsupported production,
+                // so it may mark an episode route complete but never certifies a
+                // capability in the new evidence model.
+                db.execSQL("""
+                    INSERT OR IGNORE INTO capability_progress
+                    (`capabilityKey`,`band`,`unit`,`canDo`,`completedEpisodes`,`successfulTransferProbes`,`attemptedTransferProbes`,`lastTransferScore`,`lastEpisodeAt`,`certifiedAt`)
+                    SELECT band || ':' || unit, band, unit, '',
+                           CASE WHEN MAX(CASE WHEN recognition=1 AND production=1 AND listening=1 AND reading=1 THEN 1 ELSE 0 END)=1 THEN 3 ELSE 1 END,
+                           CASE WHEN MAX(CASE WHEN recognition=1 AND production=1 AND listening=1 AND reading=1 THEN 1 ELSE 0 END)=1 THEN 3 ELSE MAX(CASE WHEN production=1 THEN 1 ELSE 0 END) END,
+                           CASE WHEN MAX(CASE WHEN recognition=1 AND production=1 AND listening=1 AND reading=1 THEN 1 ELSE 0 END)=1 THEN 3 ELSE 1 END,
+                           CAST(MAX(CASE WHEN production=1 THEN 1 ELSE 0 END) AS REAL), MAX(completedAt), NULL
+                    FROM exit_ticket_results
+                    GROUP BY band, unit
+                """.trimIndent())
+
+                // One meaning, form, and sound component per curriculum lexeme. The
+                // representative legacy card contributes timing, never a mastery claim.
+                for ((kind, type, prefix) in listOf(
+                    Triple("MEANING", "RU_TO_MEANING", "MEANING:"),
+                    Triple("FORM", "MEANING_TO_RU", "FORM:"),
+                    Triple("SOUND", "AUDIO_TO_RU", "SOUND:")
+                )) {
+                    db.execSQL("""
+                        INSERT OR IGNORE INTO knowledge_components
+                        (`key`,`kind`,`capabilityKey`,`band`,`unit`,`noteId`,`conceptId`,`due`,`stabilityDays`,`difficulty`,`confidence`,`reps`,`lapses`,`lastEvidenceAt`,`retired`)
+                        SELECT '$prefix' || n.id, '$kind', COALESCE(n.cefrLevel,'A1') || ':' || COALESCE(n.unit,0),
+                               COALESCE(n.cefrLevel,'A1'), COALESCE(n.unit,0), n.id, NULL,
+                               COALESCE(MIN(c.due),0), COALESCE(MAX(c.stability),0),
+                               COALESCE(MAX(NULLIF(c.difficulty,0)),5),
+                               CASE WHEN COALESCE(MAX(c.reps),0) > 0 THEN 0.20 ELSE 0 END,
+                               COALESCE(MAX(c.reps),0), COALESCE(MAX(c.lapses),0), MAX(c.lastReview),
+                               CASE WHEN n.status = 'IGNORED' THEN 1 ELSE 0 END
+                        FROM notes n LEFT JOIN cards c ON c.noteId=n.id AND c.cardType='$type'
+                        WHERE n.tier=0 AND n.partOfSpeech != 'lesson'
+                        GROUP BY n.id
+                    """.trimIndent())
+                }
+
+                db.execSQL("""
+                    INSERT OR IGNORE INTO knowledge_components
+                    (`key`,`kind`,`capabilityKey`,`band`,`unit`,`noteId`,`conceptId`,`due`,`stabilityDays`,`difficulty`,`confidence`,`reps`,`lapses`,`lastEvidenceAt`,`retired`)
+                    SELECT 'CONSTRUCTION:' || COALESCE(n.cefrLevel,'A1') || ':' || COALESCE(n.unit,0) || ':' || c.gramConcept,
+                           'CONSTRUCTION', COALESCE(n.cefrLevel,'A1') || ':' || COALESCE(n.unit,0),
+                           COALESCE(n.cefrLevel,'A1'), COALESCE(n.unit,0), NULL, c.gramConcept,
+                           MIN(c.due), MAX(c.stability), COALESCE(MAX(NULLIF(c.difficulty,0)),5),
+                           CASE WHEN MAX(c.reps)>0 THEN 0.15 ELSE 0 END,
+                           MAX(c.reps), MAX(c.lapses), MAX(c.lastReview), 0
+                    FROM cards c JOIN notes n ON n.id=c.noteId
+                    WHERE c.gramConcept IS NOT NULL
+                    GROUP BY COALESCE(n.cefrLevel,'A1'), COALESCE(n.unit,0), c.gramConcept
+                """.trimIndent())
+
+                db.execSQL("""
+                    INSERT INTO capability_evidence
+                    (`componentKey`,`episodeId`,`taskId`,`observedAt`,`taskKind`,`outcome`,`supportLevel`,`evidenceWeight`,`responseMs`,`novelContext`,`source`)
+                    SELECT
+                        CASE
+                            WHEN c.gramConcept IS NOT NULL THEN 'CONSTRUCTION:' || COALESCE(n.cefrLevel,'A1') || ':' || COALESCE(n.unit,0) || ':' || c.gramConcept
+                            WHEN c.cardType IN ('AUDIO_TO_RU','DICTATION','SPEAK','SPEAK_SENTENCE','PHONOLOGY_MINIMAL_PAIR') THEN 'SOUND:' || n.id
+                            WHEN c.cardType='RU_TO_MEANING' THEN 'MEANING:' || n.id
+                            ELSE 'FORM:' || n.id
+                        END,
+                        'legacy:' || l.id, 'legacy:' || l.id, l.reviewDatetime, 'LEGACY_' || c.cardType,
+                        CASE WHEN l.rating='AGAIN' THEN 'MISS' ELSE 'SUCCESS' END,
+                        CASE WHEN c.cardType='LESSON' THEN 3 WHEN c.cardType='RU_TO_MEANING' THEN 1 ELSE 2 END,
+                        CASE
+                            WHEN c.cardType='LESSON' THEN 0.0
+                            WHEN c.cardType='RU_TO_MEANING' THEN 0.55
+                            WHEN c.cardType IN ('SPEAK','SPEAK_SENTENCE') THEN 0.45
+                            ELSE 0.35
+                        END,
+                        NULL, 0, 'LEGACY_CARD'
+                    FROM review_logs l JOIN cards c ON c.id=l.cardId JOIN notes n ON n.id=c.noteId
+                    WHERE n.tier=0 AND n.partOfSpeech!='lesson'
+                      AND EXISTS (
+                          SELECT 1 FROM knowledge_components kc WHERE kc.`key` =
+                            CASE
+                                WHEN c.gramConcept IS NOT NULL THEN 'CONSTRUCTION:' || COALESCE(n.cefrLevel,'A1') || ':' || COALESCE(n.unit,0) || ':' || c.gramConcept
+                                WHEN c.cardType IN ('AUDIO_TO_RU','DICTATION','SPEAK','SPEAK_SENTENCE','PHONOLOGY_MINIMAL_PAIR') THEN 'SOUND:' || n.id
+                                WHEN c.cardType='RU_TO_MEANING' THEN 'MEANING:' || n.id
+                                ELSE 'FORM:' || n.id
+                            END
+                      )
+                """.trimIndent())
             }
         }
     }

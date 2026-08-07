@@ -111,8 +111,11 @@ object ExampleMiner {
         .replace(Regex("\\s{2,}"), " ")
         .trim()
 
-    private fun normalizeRu(value: String): String = Normalizer.normalize(value.lowercase(Locale.ROOT), Normalizer.Form.NFD)
-        .replace("ё", "е").replace(Regex("\\p{M}+"), "").trim()
+    private fun normalizeRu(value: String): String = Normalizer.normalize(
+        Normalizer.normalize(value.lowercase(Locale.ROOT), Normalizer.Form.NFD)
+            .replace("ё", "е").replace(Regex("\\p{M}+"), "").trim(),
+        Normalizer.Form.NFC
+    )
 
     private val STOP = setOf("a", "an", "the", "to", "of", "in", "on", "for", "and", "or", "is", "be", "with")
 }

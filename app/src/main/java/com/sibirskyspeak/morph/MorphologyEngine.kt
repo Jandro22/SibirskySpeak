@@ -51,8 +51,11 @@ class MorphologyEngine(private val dao: ContentDao, cacheSize: Int = 2_048) {
         private val CASES = setOf("NOM", "GEN", "DAT", "ACC", "INS", "PRE")
         private val NUMBERS = setOf("SG", "PL")
         private val GENDERS = setOf("M", "F", "N")
-        fun normalize(value: String): String = Normalizer.normalize(value.lowercase().replace('ё', 'е'), Normalizer.Form.NFD)
-            .replace("\u0301", "").replace("\u0308", "").trim()
+        fun normalize(value: String): String = Normalizer.normalize(
+            Normalizer.normalize(value.lowercase().replace('ё', 'е'), Normalizer.Form.NFD)
+                .replace("\u0301", "").replace("\u0308", "").trim(),
+            Normalizer.Form.NFC
+        )
         fun canonical(value: String): String = value.trim().uppercase()
     }
 }

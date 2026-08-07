@@ -1,14 +1,32 @@
 {
+  "a1ToC1EpisodeFamilyCount": 600,
   "assets": {
-    "dialogues": "bfe551738111f1b4",
+    "dialogues": "15785bf31f9dbee1",
     "frames": "0de953603faf3195",
     "phonology": "181d4fcd5739c36e",
     "stories": "f10e652f00f46c23:540694ad66a28266",
     "transformations": "f493258ec052e1d5",
     "units": "d3026b7c0968c312"
   },
+  "companionExposureHours": {
+    "maximum": 550,
+    "minimum": 450,
+    "target": 500
+  },
   "contentChecksum": "13adecfffec092aae8c54fd6046420111c5889ad7b63ec0a1eef51254f4793dd",
   "curriculumVersion": "2026-07-g12-13adecff",
+  "episodeFamiliesByBand": {
+    "A1": 60,
+    "A2": 90,
+    "B1": 130,
+    "B2": 150,
+    "C1": 170,
+    "C2": 96
+  },
+  "episodeFamilyCount": 696,
+  "episodeNodeCount": 8784,
+  "expectedEpisodeCompletions": 3020,
+  "expectedEpisodeMinutes": 15100,
   "noteCountsByBand": {
     "A1": 689,
     "A2": 632,

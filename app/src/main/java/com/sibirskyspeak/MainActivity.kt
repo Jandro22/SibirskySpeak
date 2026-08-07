@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -44,6 +45,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -52,6 +54,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -77,6 +80,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
@@ -125,12 +129,27 @@ class MainActivity : ComponentActivity() {
                 // so uiautomator/Espresso device tests (and ad hoc QA scripting) can select
                 // controls by stable tag instead of scraping visible text.
                 Box(modifier = Modifier.semantics { testTagsAsResourceId = true }) {
-                    ReviewScreen(
-                        hiltViewModel<ReviewViewModel>(),
-                        intent?.getBooleanExtra(EXTRA_MICRO, false) == true,
-                        debugFreezeAdaptive = BuildConfig.DEBUG && intent?.getBooleanExtra(EXTRA_DEBUG_FREEZE_ADAPTIVE, false) == true,
-                        onReminderOptIn = ::requestNotificationPermission
-                    )
+                    var showTools by rememberSaveable { mutableStateOf(false) }
+                    val tutorViewModel = hiltViewModel<TutorViewModel>()
+                    val closeTools = {
+                        tutorViewModel.syncAfterTools()
+                        showTools = false
+                    }
+                    BackHandler(enabled = showTools, onBack = closeTools)
+                    if (showTools) {
+                        ReviewScreen(
+                            hiltViewModel<ReviewViewModel>(),
+                            intent?.getBooleanExtra(EXTRA_MICRO, false) == true,
+                            debugFreezeAdaptive = BuildConfig.DEBUG && intent?.getBooleanExtra(EXTRA_DEBUG_FREEZE_ADAPTIVE, false) == true,
+                            onReminderOptIn = ::requestNotificationPermission,
+                            onExitTools = closeTools
+                        )
+                    } else {
+                        TutorScreen(
+                            viewModel = tutorViewModel,
+                            onOpenTools = { showTools = true }
+                        )
+                    }
                 }
             }
         }
@@ -154,7 +173,10 @@ class MainActivity : ComponentActivity() {
         notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 }
-internal val MainTabs = listOf(SessionStep.REVIEWS, SessionStep.DASHBOARD, SessionStep.LAB, SessionStep.IMPORT)
+// The card-first dashboard and model lab are no longer competing top-level
+// destinations. The legacy engine remains available as a deliberately small tools
+// area while the communicative tutor owns the product's primary information path.
+internal val MainTabs = listOf(SessionStep.REVIEWS, SessionStep.READER, SessionStep.IMPORT)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -162,7 +184,8 @@ internal fun ReviewScreen(
     viewModel: ReviewViewModel,
     launchMicro: Boolean = false,
     debugFreezeAdaptive: Boolean = false,
-    onReminderOptIn: ((Boolean) -> Unit) -> Unit = { result -> result(true) }
+    onReminderOptIn: ((Boolean) -> Unit) -> Unit = { result -> result(true) },
+    onExitTools: () -> Unit = {}
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val tts = rememberRussianTts()
@@ -190,7 +213,7 @@ internal fun ReviewScreen(
     // Saved via NavStateSaver so an active study session or an open reader text
     // survives rotation/process death, matching what the old rememberSaveable
     // booleans already gave studyActive/showReference individually.
-    val nav = rememberSaveable(saver = NavStateSaver) { NavState(Dest.Dashboard) }
+    val nav = rememberSaveable(saver = NavStateSaver) { NavState(Dest.Practice) }
     val currentDest by nav.current.collectAsState()
     if (state.showOnboarding) {
         Scaffold { innerPadding ->
@@ -221,9 +244,8 @@ internal fun ReviewScreen(
     // cached card ids (settings.planSkeletonCardIds — persisted, so unlike NavState
     // it survives every relaunch) to make the Study screen open instantly once the
     // user taps into it. This used to also force-navigate into Study on every single
-    // launch via this effect, silently overriding the "land on Dashboard" default
-    // below — the actual cause of the app always opening into Practice/Study
-    // regardless of that default (2026-07-06). Pre-loading the prompt data is still
+    // launch via this effect, overriding whichever secondary tool the learner chose.
+    // Pre-loading the prompt data is still
     // useful (instant resume when the user chooses to study); auto-navigating into
     // it is not, so this effect is intentionally not wired to `nav.push`.
     LaunchedEffect(launchMicro, state.sessionPlan) {
@@ -250,7 +272,7 @@ internal fun ReviewScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    // Manual reader browsing (reached from the Practice/Dashboard "Read" actions)
+    // Manual reader browsing (reached from the secondary Practice/Read tools)
     // lives on the READER tab; in-session scheduled reading instead rides on the
     // study session. Treat both as "in the reader" for back-handling and layout.
     val inReader = (!studyActive && activeTab == SessionStep.READER) || state.inSessionReading
@@ -316,12 +338,9 @@ internal fun ReviewScreen(
             )
             SessionStep.REVIEWS -> PracticeScreen(
                 state = state,
-                onStart = {
+                onContinueTutor = onExitTools,
+                onStartCardPractice = {
                     viewModel.startRecommendedSession()
-                    nav.push(Dest.Study)
-                },
-                onStartMicro = {
-                    viewModel.startMicroSession()
                     nav.push(Dest.Study)
                 }
             )
@@ -333,6 +352,7 @@ internal fun ReviewScreen(
                 onMarkVisible = viewModel::markVisibleWords,
                 onProgress = viewModel::recordReaderProgress,
                 onCheckpointAnswer = viewModel::answerReaderCheckpoint,
+                onQueueEpisode = viewModel::queueSelectedReaderEpisode,
                 onSetGoal = viewModel::setReaderGoal,
                 onAddText = {
                     settingsArea = SettingsArea.READER
@@ -344,6 +364,7 @@ internal fun ReviewScreen(
             )
             SessionStep.DASHBOARD -> DashboardPanel(
                 state = state,
+                onLogCompanionExposure = viewModel::logCompanionExposure,
                 onStart = {
                     viewModel.startRecommendedSession()
                     nav.push(Dest.Study)
@@ -431,18 +452,18 @@ internal fun ReviewScreen(
                 onOnlineGlossLookup = viewModel::setOnlineGlossLookupEnabled,
                 onSearch = viewModel::setSearchQuery,
                 onSpeakRussian = tts::speak,
+                onLoadLeeches = viewModel::loadLeeches,
+                onReleaseLeech = viewModel::releaseLeech,
+                onSaveLeechEdit = viewModel::editLeech,
                 onDebugStartCardType = { cardType ->
                     viewModel.debugStartSessionWithCardType(cardType) { nav.push(Dest.Study) }
                 }
             )
             else -> PracticeScreen(
                 state = state,
-                onStart = {
+                onContinueTutor = onExitTools,
+                onStartCardPractice = {
                     viewModel.startRecommendedSession()
-                    nav.push(Dest.Study)
-                },
-                onStartMicro = {
-                    viewModel.startMicroSession()
                     nav.push(Dest.Study)
                 }
             )
@@ -502,6 +523,14 @@ internal fun ReviewScreen(
                     containerColor = MaterialTheme.colorScheme.background,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
+                navigationIcon = {
+                    IconButton(
+                        onClick = onExitTools,
+                        modifier = Modifier.testTag(TestTags.TOOLS_RETURN_TUTOR)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to episodes")
+                    }
+                },
                 actions = {
                     if (!studyActive) {
                         IconButton(onClick = { if (showReference) nav.pop() else nav.push(Dest.Reference) }) {
@@ -621,20 +650,27 @@ internal fun ReviewScreen(
                         ) {
                             AnimatedMainTab()
                             state.statusMessage?.let { StatusBanner(it, onDismiss = viewModel::dismissStatusMessage) }
-                            // Leave room so the story doesn't hide behind the pinned word card.
-                            Spacer(Modifier.height(if (showWordCard) 280.dp else 4.dp))
+                            Spacer(Modifier.height(4.dp))
                         }
                     }
                 }
             }
-            AnimatedVisibility(
-                visible = showWordCard,
-                modifier = Modifier.align(Alignment.BottomCenter),
-                enter = slideInVertically(spring(stiffness = Spring.StiffnessMediumLow)) { it } + fadeIn(tween(160)),
-                exit = slideOutVertically(tween(200)) { it } + fadeOut(tween(120))
-            ) {
+            if (showWordCard) {
                 state.selectedToken?.let { token ->
-                    Box(Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
+                    val maxSheetHeight = (LocalConfiguration.current.screenHeightDp * 0.86f).dp
+                    ModalBottomSheet(
+                        onDismissRequest = viewModel::clearSelectedToken,
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        tonalElevation = 8.dp
+                    ) {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = maxSheetHeight)
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
                         WordDetailCard(
                             token = token,
                             state = state,
@@ -645,6 +681,8 @@ internal fun ReviewScreen(
                             onToggleBookmark = viewModel::toggleReaderBookmark,
                             onMine = viewModel::mineSentence
                         )
+                            Spacer(Modifier.height(24.dp))
+                        }
                     }
                 }
             }
@@ -730,6 +768,7 @@ internal fun MainBottomBar(selected: SessionStep, onSelect: (SessionStep) -> Uni
                 modifier = Modifier.testTag(
                     when (tab) {
                         SessionStep.REVIEWS -> TestTags.NAV_PRACTICE
+                        SessionStep.READER -> TestTags.NAV_READER
                         SessionStep.DASHBOARD -> TestTags.NAV_PROGRESS
                         SessionStep.LAB -> TestTags.NAV_LAB
                         else -> TestTags.NAV_SETTINGS

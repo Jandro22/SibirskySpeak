@@ -36,6 +36,7 @@ import com.sibirskyspeak.learning.BanditCredit
 import com.sibirskyspeak.learning.CausalFormatReward
 import com.sibirskyspeak.learning.ColdStartModel
 import com.sibirskyspeak.learning.CardPedagogy
+import com.sibirskyspeak.learning.LearningFacet
 import com.sibirskyspeak.learning.CapabilityScheduler
 import com.sibirskyspeak.learning.Gaussian
 import com.sibirskyspeak.learning.LearnerSnapshot
@@ -79,7 +80,15 @@ private data class UndoSnapshot(
     val model: ModelUndoSnapshot? = null,
     val priorEvidence: NoteEvidence? = null,
     val capabilitySiblings: List<Card> = emptyList(),
-    val reviewLogId: Long = 0L
+    val reviewLogId: Long = 0L,
+    val componentUndo: ComponentReviewUndo? = null
+)
+
+private data class ComponentReviewUndo(
+    val key: String,
+    val prior: KnowledgeComponent?,
+    val episodeId: String,
+    val taskId: String
 )
 
 private data class ModelUndoSnapshot(
@@ -126,6 +135,14 @@ private data class PlanAssemblyReads(
     val dashboardStats: DashboardStats,
     val problemCards: List<ProblemCardSummary>,
     val levelConstraint: String?
+)
+
+/** Independent model rows assembled for one session plan. */
+private data class PlanModelReads(
+    val parameters: List<OptimizerParameter>,
+    val skillRatings: List<SkillRating>,
+    val rivalState: RivalState?,
+    val matchHistory: List<MatchHistory>
 )
 
 /** A matcher disagreement explicitly overruled by the learner is an uncertain
@@ -239,6 +256,7 @@ class LearningRepository(
     private val learningModelDao: LearningModelDao? = null,
     private val noteEvidenceDao: NoteEvidenceDao? = null,
     private val noteFormDao: NoteFormDao? = null,
+    private val communicativeLearningDao: CommunicativeLearningDao? = null,
     private val contentDao: ContentDao? = null,
     private val settingsStore: SettingsStore? = null,
     private val morphologyEngine: MorphologyEngine? = null,
@@ -288,12 +306,14 @@ class LearningRepository(
     @Volatile private var formIndexCache: Map<String, Note>? = null
     @Volatile private var knownIdsCache: Set<Long>? = null
     @Volatile private var frameInventoryCache: FrameInventory? = null
+    @Volatile private var framesByConceptCache: Map<String, List<ContentFrame>>? = null
     @Volatile private var noteQualityCountsCache: NoteQualityCounts? = null
     @Volatile private var unitCanDoCache: Map<String, String>? = null
     @Volatile private var registerPairsCache: List<com.sibirskyspeak.transform.RegisterPair>? = null
     /** Serializes review/undo so two UI events cannot overwrite each other's snapshot. */
     private val reviewMutex = Mutex()
     private val modelTuningMutex = Mutex()
+    private val formIndexMutex = Mutex()
     @Volatile private var lastGraduationReviewCount: Int? = null
     private val readerTextService = ReaderTextService(readerTextDao, readingScheduleDao, readerBookmarkDao)
     @Volatile private var accuracyCacheReviewCount: Int? = null
@@ -360,26 +380,60 @@ class LearningRepository(
         ).also { frameInventoryCache = it }
     }
 
-    private suspend fun formIndex(): Map<String, Note> =
-        formIndexCache ?: run {
+    /** The content database is immutable for the lifetime of the app. Cache the
+     * small frame table by concept so a large grammar page does not issue one Room
+     * query per CONCEPT_APPLY/NOVEL_PRODUCE card. */
+    private suspend fun framesByConcept(): Map<String, List<ContentFrame>> {
+        framesByConceptCache?.let { return it }
+        val dao = contentDao ?: return emptyMap()
+        return dao.allFrames().groupBy { it.concept }.also { framesByConceptCache = it }
+    }
+
+    private suspend fun formIndex(): Map<String, Note> {
+        formIndexCache?.let { return it }
+        return formIndexMutex.withLock {
+            formIndexCache?.let { return@withLock it }
             // Surface-form generation over the full note set is the most expensive
             // CPU operation in the app; keep it off the main thread on a cold cache.
             val notes = allNotesCached()
             val notesById = notes.associateBy { it.id }
             val persisted = noteFormDao?.all().orEmpty()
             val persistedNoteIds = persisted.mapTo(HashSet()) { it.noteId }
-            if (persistedNoteIds.size < notes.size) {
+            val rulesChanged = settingsStore?.let { it.readerFormIndexVersion != READER_FORM_INDEX_VERSION } == true
+            if (persistedNoteIds.size < notes.size || rulesChanged) {
                 val missing = withContext(computeDispatcher) {
-                    notes.filter { it.id !in persistedNoteIds }.flatMap { note ->
+                    notes.filter { rulesChanged || it.id !in persistedNoteIds }.flatMap { note ->
                         RussianForms.surfaceForms(note).map { NoteForm(it, note.id) }
                     }
                 }
                 if (missing.isNotEmpty()) noteFormDao?.insertAll(missing)
+                settingsStore?.readerFormIndexVersion = READER_FORM_INDEX_VERSION
             }
-            val rows = if (persistedNoteIds.size < notes.size) noteFormDao?.all().orEmpty() else persisted
+            val rows = if (persistedNoteIds.size < notes.size || rulesChanged) noteFormDao?.all().orEmpty() else persisted
             if (rows.isNotEmpty()) rows.mapNotNull { row -> notesById[row.noteId]?.let { row.surface to it } }.toMap()
             else withContext(computeDispatcher) { buildFormIndex(notes) }
         }.also { formIndexCache = it }
+    }
+
+    /** Resolve a reader surface through the fast persisted index first, then the
+     * bundled morphology analysis. This lets ordinary inflections (моя → мой,
+     * люди → человек) inherit the lemma's definition without network lookup. */
+    private fun resolveReaderNote(
+        normalized: String,
+        index: Map<String, Note>,
+        notesByLemma: Map<String, Note>
+    ): Note? = index[normalized] ?: morphologyEngine
+        ?.analyze(normalized)
+        .orEmpty()
+        .asSequence()
+        .mapNotNull { notesByLemma[normalizeToken(it.lemma)] }
+        .distinctBy { it.id }
+        .sortedWith(
+            compareBy<Note> { it.translation == "lookup pending" }
+                .thenBy { it.tier }
+                .thenBy { it.domainFreqRank ?: it.generalFreqRank ?: Int.MAX_VALUE }
+        )
+        .firstOrNull()
 
     private suspend fun knownNoteIds(): Set<Long> =
         knownIdsCache ?: computeKnownNoteIds(allNotesCached()).also { knownIdsCache = it }
@@ -674,6 +728,7 @@ class LearningRepository(
             step("suspend_existential_homograph_morphology") { cardDao.suspendExistentialHomographMorphologyCards() }
             step("retire_unglossed_chunk_cards") { cardDao.suspendUnglossedChunkCards() }
             step("repair_learner_content") { repairLearnerContent() }
+            step("retire_known_episode_components") { communicativeLearningDao?.retireComponentsForKnownNotes() }
             step("retire_pedagogical_metalanguage") { retirePedagogicalMetalanguage() }
             step("purge_invalid_root_mastery") { purgeInvalidRootMastery() }
             step("repair_historical_matcher_disputes") { repairHistoricalMatcherDisputes() }
@@ -1053,8 +1108,68 @@ class LearningRepository(
                     "banditArm" -> modelDao.upsertBanditArmState(BanditArmState(j.getString("action"),j.getString("rewardJson"),j.getString("precisionJson"),j.getInt("pulls"),j.getLong("updatedAt")))
                 }
             }
+            suspend fun restoredComponentKey(j: JSONObject): String? {
+                val kind = j.getString("componentKind")
+                val noteId = j.optCleanString("noteLemma")?.let { noteDao.getByLemma(it)?.id }
+                return when (kind) {
+                    "MEANING" -> noteId?.let(ComponentKeys::meaning)
+                    "FORM" -> noteId?.let(ComponentKeys::form)
+                    "SOUND" -> noteId?.let(ComponentKeys::sound)
+                    "CONSTRUCTION" -> j.optCleanString("conceptId")?.let { concept ->
+                        val capability = j.getString("capabilityKey")
+                        val separator = capability.lastIndexOf(':')
+                        if (separator < 1) null else ComponentKeys.construction(
+                            concept,
+                            capability.substring(0, separator),
+                            capability.substring(separator + 1).toIntOrNull() ?: return@let null
+                        )
+                    }
+                    else -> null
+                }
+            }
             historyPayloads.forEach { j ->
                 when (j.getString("kind")) {
+                    "knowledgeComponent" -> {
+                        val key = restoredComponentKey(j) ?: return@forEach
+                        communicativeLearningDao?.upsertComponent(KnowledgeComponent(
+                            key = key,
+                            kind = j.getString("componentKind"),
+                            capabilityKey = j.getString("capabilityKey"),
+                            band = j.getString("band"),
+                            unit = j.getInt("unit"),
+                            noteId = j.optCleanString("noteLemma")?.let { noteDao.getByLemma(it)?.id },
+                            conceptId = j.optCleanString("conceptId"),
+                            due = j.getLong("due"),
+                            stabilityDays = j.getDouble("stabilityDays"),
+                            difficulty = j.getDouble("difficulty"),
+                            confidence = j.getDouble("confidence"),
+                            reps = j.getInt("reps"),
+                            lapses = j.getInt("lapses"),
+                            lastEvidenceAt = j.optLongOrNull("lastEvidenceAt"),
+                            retired = j.optBoolean("retired", false)
+                        ))
+                    }
+                    "capabilityProgress" -> communicativeLearningDao?.upsertProgress(CapabilityProgress(
+                        capabilityKey = j.getString("capabilityKey"), band = j.getString("band"), unit = j.getInt("unit"),
+                        canDo = j.getString("canDo"), completedEpisodes = j.getInt("completedEpisodes"),
+                        successfulTransferProbes = j.getInt("successfulTransferProbes"),
+                        attemptedTransferProbes = j.getInt("attemptedTransferProbes"),
+                        lastTransferScore = j.optDouble("lastTransferScore").takeUnless { j.isNull("lastTransferScore") },
+                        lastEpisodeAt = j.optLongOrNull("lastEpisodeAt"), certifiedAt = j.optLongOrNull("certifiedAt")
+                    ))
+                    "capabilityEvidence" -> {
+                        val key = restoredComponentKey(j) ?: return@forEach
+                        if (communicativeLearningDao?.component(key) == null) return@forEach
+                        communicativeLearningDao.insertEvidence(CapabilityEvidence(
+                            componentKey = key, episodeId = j.getString("episodeId"),
+                            taskId = j.optString("taskId", "restored:${j.getLong("observedAt")}:${j.getString("taskKind")}"),
+                            observedAt = j.getLong("observedAt"),
+                            taskKind = j.getString("taskKind"), outcome = j.getString("outcome"),
+                            supportLevel = j.getInt("supportLevel"), evidenceWeight = j.getDouble("evidenceWeight"),
+                            responseMs = j.optLongOrNull("responseMs"), novelContext = j.optBoolean("novelContext", false),
+                            source = j.optString("source", "EPISODE")
+                        ))
+                    }
                     "match" -> modelDao?.insertMatchHistory(MatchHistory(
                         at = j.getLong("at"), opponent = j.getString("opponent"), perfYou = j.getDouble("perfYou"),
                         perfOpp = j.getDouble("perfOpp"), outcome = j.getString("outcome"),
@@ -1401,6 +1516,9 @@ class LearningRepository(
         var confusionSnapshot: List<ConfusionEvent> = emptyList()
         var checkpointSnapshot: List<CheckpointResult> = emptyList()
         var exitTicketSnapshot: List<ExitTicketResult> = emptyList()
+        var componentSnapshot: List<KnowledgeComponent> = emptyList()
+        var capabilityEvidenceSnapshot: List<CapabilityEvidence> = emptyList()
+        var capabilityProgressSnapshot: List<CapabilityProgress> = emptyList()
         // Room guarantees every DAO read in this block observes the same database
         // snapshot. Serialization happens afterwards so the write lock stays short.
         runInTransaction {
@@ -1440,6 +1558,9 @@ class LearningRepository(
                 confusionSnapshot = confusionEventDao?.all().orEmpty()
                 checkpointSnapshot = checkpointResultDao?.all().orEmpty()
                 exitTicketSnapshot = curriculumStateDao?.exitTickets().orEmpty()
+                componentSnapshot = communicativeLearningDao?.allComponents().orEmpty()
+                capabilityEvidenceSnapshot = communicativeLearningDao?.allEvidence().orEmpty()
+                capabilityProgressSnapshot = communicativeLearningDao?.allProgress().orEmpty()
             }
         }
         val noteById = notes.associateBy { it.id }
@@ -1612,6 +1733,27 @@ class LearningRepository(
         fun historyLine(kind: String, block: JSONObject.() -> Unit): String =
             JSONObject().put("_history", true).put("kind", kind).apply(block).toString()
         val historyLines = buildList {
+            componentSnapshot.forEach { v -> add(historyLine("knowledgeComponent") {
+                put("componentKind", v.kind); put("capabilityKey", v.capabilityKey); put("band", v.band); put("unit", v.unit)
+                put("noteLemma", v.noteId?.let { noteById[it]?.lemma }); put("conceptId", v.conceptId)
+                put("due", v.due); put("stabilityDays", v.stabilityDays); put("difficulty", v.difficulty)
+                put("confidence", v.confidence); put("reps", v.reps); put("lapses", v.lapses)
+                put("lastEvidenceAt", v.lastEvidenceAt); put("retired", v.retired)
+            }) }
+            capabilityProgressSnapshot.forEach { v -> add(historyLine("capabilityProgress") {
+                put("capabilityKey", v.capabilityKey); put("band", v.band); put("unit", v.unit); put("canDo", v.canDo)
+                put("completedEpisodes", v.completedEpisodes); put("successfulTransferProbes", v.successfulTransferProbes)
+                put("attemptedTransferProbes", v.attemptedTransferProbes); put("lastTransferScore", v.lastTransferScore)
+                put("lastEpisodeAt", v.lastEpisodeAt); put("certifiedAt", v.certifiedAt)
+            }) }
+            val componentsByKey = componentSnapshot.associateBy { it.key }
+            capabilityEvidenceSnapshot.forEach { v -> componentsByKey[v.componentKey]?.let { component -> add(historyLine("capabilityEvidence") {
+                put("componentKind", component.kind); put("capabilityKey", component.capabilityKey)
+                put("noteLemma", component.noteId?.let { noteById[it]?.lemma }); put("conceptId", component.conceptId)
+                put("episodeId", v.episodeId); put("taskId", v.taskId); put("observedAt", v.observedAt); put("taskKind", v.taskKind)
+                put("outcome", v.outcome); put("supportLevel", v.supportLevel); put("evidenceWeight", v.evidenceWeight)
+                put("responseMs", v.responseMs); put("novelContext", v.novelContext); put("source", v.source)
+            }) } }
             matchHistorySnapshot.forEach { v -> add(historyLine("match") { put("at",v.at);put("opponent",v.opponent);put("perfYou",v.perfYou);put("perfOpp",v.perfOpp);put("outcome",v.outcome);put("ratingBefore",v.ratingBefore);put("ratingAfter",v.ratingAfter) }) }
             banditPendingSnapshot.forEach { v -> cardsById[v.itemId]?.let { card -> add(historyLine("banditPending") { put("showAt",v.showAt);put("noteLemma",noteById[card.noteId]?.lemma);put("cardVariant",card.srsVariantKey());put("action",v.action);put("contextJson",v.contextJson);put("p0",v.p0) }) } }
             weeklySnapshot.forEach { v -> add(historyLine("weekly") { put("generatedAt",v.generatedAt);put("periodStart",v.periodStart);put("bodyJson",v.bodyJson) }) }
@@ -2670,14 +2812,16 @@ class LearningRepository(
     }
 
     suspend fun readerTexts(now: Long = System.currentTimeMillis()): List<ReaderRecommendation> {
+        val notesByLemma = allNotesCached().associateBy { normalizeToken(it.lemma) }
         val index = formIndex()
         val known = knownNoteIds()
         val dueSoon = cardDao.getDueSoonNoteIds(now + 2 * DAY_MILLIS).toHashSet()
-        return readerTextDao.getAll().map { coverageFor(it, index, known, dueSoon) }
+        return readerTextDao.getAll().map { coverageFor(it, index, notesByLemma, known, dueSoon) }
     }
 
     suspend fun readerTokens(text: ReaderText): List<ReaderToken> {
         val notes = allNotesCached()
+        val notesByLemma = notes.associateBy { normalizeToken(it.lemma) }
         val index = formIndex()
         val known = knownNoteIds()
         val statusById = HashMap<Long, WordStatus>(notes.size)
@@ -2699,7 +2843,7 @@ class LearningRepository(
             val leading = gapBefore.takeLastWhile { !it.isWhitespace() }
             val trailing = body.substring(end, nextStart).takeWhile { !it.isWhitespace() }
             val normalized = normalizeToken(token)
-            val note = index[normalized]
+            val note = resolveReaderNote(normalized, index, notesByLemma)
             // Proper-noun heuristic: an unknown word that is Capitalized mid-sentence
             // (not at a sentence start, where any word is capitalized) is almost
             // certainly a name — treat it as readable (ignored) rather than a missing
@@ -2747,20 +2891,15 @@ class LearningRepository(
     @Suppress("UNUSED_PARAMETER")
     suspend fun setWordStatus(token: String, status: WordStatus, now: Long = System.currentTimeMillis()): Note? {
         val normalized = normalizeToken(token)
-        val match = formIndex()[normalized] ?: noteDao.getByLemma(normalized)
+        val notes = allNotesCached()
+        val match = resolveReaderNote(normalized, formIndex(), notes.associateBy { normalizeToken(it.lemma) })
+            ?: noteDao.getByLemma(normalized)
         if (match != null) {
             runInTransaction {
                 // Re-read the live row so we don't write back a stale encounterCount.
                 val fresh = noteDao.getById(match.id) ?: match
                 noteDao.update(fresh.copy(status = status))
-                // Relay the reader judgement to practice: a word marked KNOWN/IGNORED
-                // stops being quizzed; marking it LEARNING/NEW pulls it back in cleanly.
-                when (status) {
-                    WordStatus.KNOWN, WordStatus.IGNORED ->
-                        graduateVocabKnown(match.id, now)
-                    WordStatus.LEARNING, WordStatus.NEW ->
-                        cardDao.reactivateVocabForNote(match.id)
-                }
+                relayWordStatus(match.id, status, now)
             }
             invalidateNoteState()
             return noteDao.getById(match.id)
@@ -2768,17 +2907,20 @@ class LearningRepository(
         // A reader token without a gloss cannot honestly be marked Learning: it
         // would create a card the learner cannot understand. Keep it in the
         // explicit NEW/saved state until saveReaderWordGloss supplies meaning.
-        addNote(
+        val effectiveStatus = if (status == WordStatus.LEARNING) WordStatus.NEW else status
+        val createdId = addNote(
             Note(
                 russian = token,
                 lemma = normalized,
                 translation = "lookup pending",
                 partOfSpeech = "unknown",
-                status = if (status == WordStatus.LEARNING) WordStatus.NEW else status,
+                status = effectiveStatus,
                 tags = "reader_lookup"
             )
         )
-        return noteDao.getByLemma(normalized)
+        runInTransaction { relayWordStatus(createdId, effectiveStatus, now) }
+        invalidateNoteState()
+        return noteDao.getById(createdId)
     }
 
     /** Completes the reader-to-learning handoff for a word that was not in the
@@ -2793,7 +2935,10 @@ class LearningRepository(
     ): Note? {
         val cleanGloss = gloss.trim().takeIf { it.isNotBlank() } ?: return null
         val normalized = normalizeToken(token)
-        val existing = formIndex()[normalized]?.let { noteDao.getById(it.id) } ?: noteDao.getByLemma(normalized)
+        val notes = allNotesCached()
+        val existing = resolveReaderNote(normalized, formIndex(), notes.associateBy { normalizeToken(it.lemma) })
+            ?.let { noteDao.getById(it.id) }
+            ?: noteDao.getByLemma(normalized)
         if (existing == null) {
             val createdId = addNote(
                 Note(
@@ -2805,14 +2950,14 @@ class LearningRepository(
                     tags = "reader_lookup"
                 )
             )
+            runInTransaction { relayWordStatus(createdId, status, now) }
+            invalidateNoteState()
             return noteDao.getById(createdId)
         }
         runInTransaction {
             val fresh = noteDao.getById(existing.id) ?: existing
             noteDao.update(fresh.copy(translation = cleanGloss, status = status))
-            if (status == WordStatus.LEARNING || status == WordStatus.NEW) {
-                cardDao.reactivateVocabForNote(existing.id)
-            }
+            relayWordStatus(existing.id, status, now)
         }
         invalidateNoteState()
         recordTelemetry(
@@ -2866,6 +3011,21 @@ class LearningRepository(
         noteDao.getById(noteId)?.let { note ->
             if (note.encounterCount < FIRST_ENCOUNTER_GATE) {
                 noteDao.update(note.copy(encounterCount = FIRST_ENCOUNTER_GATE))
+            }
+        }
+        // Reader status and primary tutor memory are one fact. Retiring only the
+        // legacy Card rows left the episode engine free to teach the same word again.
+        communicativeLearningDao?.retireComponentsForNote(noteId)
+    }
+
+    /** Keeps the reader, optional card practice, and primary episode scheduler in
+     * agreement whenever the learner changes a word's status from any surface. */
+    private suspend fun relayWordStatus(noteId: Long, status: WordStatus, now: Long) {
+        when (status) {
+            WordStatus.KNOWN, WordStatus.IGNORED -> graduateVocabKnown(noteId, now)
+            WordStatus.LEARNING, WordStatus.NEW -> {
+                cardDao.reactivateVocabForNote(noteId)
+                communicativeLearningDao?.reactivateComponentsForNote(noteId, now)
             }
         }
     }
@@ -3350,13 +3510,22 @@ class LearningRepository(
             stageStartedAt = System.nanoTime()
         }
         refreshGraduationsIfNeeded()
-        val notesById = allNotesCached().associateBy { it.id }
-        val categories = accuracyCategoriesCached()
+        // These are independent snapshots. On the physical deck, serial Room
+        // round-trips dominated cold plan construction even though none depends on
+        // another; fetch them together, then derive the plan from that one view.
+        val preparation = coroutineScope {
+            val notes = async { allNotesCached() }
+            val categories = async { accuracyCategoriesCached() }
+            val gate = async { conceptGate() }
+            Triple(notes.await(), categories.await(), gate.await())
+        }
+        val notesById = preparation.first.associateBy { it.id }
+        val categories = preparation.second
         val daily = dailyPlanFromCategories(now, categories)
         // One immutable gate snapshot is enough for a plan. Re-querying and reducing
         // thousands of grammar siblings in blocked/new/share/interleaved phases made
         // a single build pay for the same derived state up to four times.
-        val conceptGate = conceptGate()
+        val conceptGate = preparation.third
         val blocked = blockedGrammarPrompts(daily, now, notesById, conceptGate)
         markStage("prepare")
         // Compute once; reuse for both readerRecommendation and dashboardStats.
@@ -3370,16 +3539,32 @@ class LearningRepository(
         val reviewedNoteIds = reviewLogDao.getReviewedCardsSince(startOfLocalDay(now)).mapTo(HashSet()) { it.noteId }
         val consolidationReader = consolidationReader(allTexts, reviewedNoteIds)
         markStage("reader")
-        val mastery = unitMastery()
+        // Unit mastery, engagement stats, and recent telemetry do not depend on
+        // each other. Starting them together removes three serialized database
+        // waits from the launch path before the adaptive snapshot is computed.
+        val foundation = coroutineScope {
+            val mastery = async { unitMastery() }
+            val gamification = async { gamificationStats(now) }
+            val telemetry = async { adaptiveTelemetry(200) }
+            Triple(mastery.await(), gamification.await(), telemetry.await())
+        }
+        val mastery = foundation.first
         val modelDao = learningModelDao
-        val gamification = gamificationStats(now)
-        val recentTelemetry = adaptiveTelemetry(200)
+        val gamification = foundation.second
+        val recentTelemetry = foundation.third
         val snapshot = currentSnapshot(now, daily, gamification, recentTelemetry)
-        val parameters = modelDao?.parameters().orEmpty()
+        val modelReads = coroutineScope {
+            val parameters = async { modelDao?.parameters().orEmpty() }
+            val skills = async { modelDao?.skillRatings().orEmpty() }
+            val rival = async { modelDao?.rivalState() }
+            val history = async { modelDao?.matchHistory(8).orEmpty() }
+            PlanModelReads(parameters.await(), skills.await(), rival.await(), history.await())
+        }
+        val parameters = modelReads.parameters
         val parametersByKey = parameters.associateBy { it.key }
-        val skillRatings = modelDao?.skillRatings().orEmpty()
-        val rivalState = modelDao?.rivalState()
-        val matchHistory = modelDao?.matchHistory(8).orEmpty()
+        val skillRatings = modelReads.skillRatings
+        val rivalState = modelReads.rivalState
+        val matchHistory = modelReads.matchHistory
         val worldState = snapshot.world.worldState(snapshot.fatigue)
         val pace = PaceController.generatePace(
             snapshot.paceInputs(
@@ -3485,6 +3670,19 @@ class LearningRepository(
                 calibration = snapshot.calibration
             )
         }
+        // The phone's rolling mature data showed a large recognition-retention
+        // deficit, so calculate one stable facet signal for this bounded plan.
+        // The selector uses it only as a small tie-breaker; due urgency and new-card
+        // sequencing remain in control.
+        val meaningRetentionRows = reviewLogDao.matureRetentionByCardType(
+            now - RETENTION_WINDOW_DAYS * DAY_MILLIS
+        ).filter { CardPedagogy.profile(it.cardType).facet == LearningFacet.MEANING }
+        val meaningRetentionSample = meaningRetentionRows.sumOf { it.total }
+        val meaningRetention = meaningRetentionRows
+            .takeIf { meaningRetentionSample > 0 }
+            ?.sumOf { it.retained }
+            ?.toDouble()
+            ?.div(meaningRetentionSample)
         val rawPrompts = cards.mapIndexedNotNull { index, card ->
             val reason = queueReason(card, index, cards, now, notesById)
             promptFor(card, now, notesById)?.let { prompt ->
@@ -3519,7 +3717,10 @@ class LearningRepository(
             itemUncertainty = { prompt ->
                 itemDifficultyMap[prompt.card.id]?.sigma ?: TrueSkill.SIGMA0
             },
-            uncertaintyWeight = parametersByKey["tuned_uncertainty_weight"]?.value ?: 0.18
+            uncertaintyWeight = parametersByKey["tuned_uncertainty_weight"]?.value ?: 0.18,
+            meaningRetention = meaningRetention,
+            meaningRetentionSample = meaningRetentionSample,
+            targetRetention = generatedRetention
         )
         val prompts = orderedPrompts
         markStage("ranking")
@@ -3662,7 +3863,10 @@ class LearningRepository(
         pace: Pace,
         successProbability: (ReviewPrompt) -> Double,
         itemUncertainty: (ReviewPrompt) -> Double,
-        uncertaintyWeight: Double
+        uncertaintyWeight: Double,
+        meaningRetention: Double?,
+        meaningRetentionSample: Int,
+        targetRetention: Double
     ): List<ReviewPrompt> {
         val pool = prompts.toMutableList()
         val ordered = mutableListOf<ReviewPrompt>()
@@ -3678,7 +3882,16 @@ class LearningRepository(
                 productionRatio = pace.productionRatio,
                 successProbability = successProbability,
                 itemUncertainty = itemUncertainty,
-                uncertaintyWeight = uncertaintyWeight
+                uncertaintyWeight = uncertaintyWeight,
+                policyBias = { prompt ->
+                    CardPedagogy.retentionCompensationBias(
+                        cardType = prompt.card.cardType,
+                        isNew = prompt.card.state == CardState.NEW,
+                        meaningRetention = meaningRetention,
+                        meaningSampleSize = meaningRetentionSample,
+                        targetRetention = targetRetention
+                    )
+                }
             ) ?: pool.first()
             pool.remove(next)
             ordered += next
@@ -3753,6 +3966,14 @@ class LearningRepository(
             }
         }
         if (!abandoned) {
+            settingsStore?.pendingReaderEpisodeTextId = readerTextId
+            val wordCount = readerTextDao.getById(readerTextId)?.body
+                ?.trim()?.split(Regex("\\s+"))?.count { it.isNotBlank() } ?: 0
+            // Extensive Russian reading is deliberately tracked separately from
+            // mastery evidence. A conservative 120 wpm estimate prevents a tap
+            // from manufacturing large exposure totals while still crediting
+            // completed in-app texts automatically.
+            settingsStore?.addCompanionExposure("reading", maxOf(1, (wordCount + 119) / 120))
             if (readingActivityDao != null) appendLocalActivity(readingAt = now)
             recordTelemetry(TelemetryEvent(
                 timestamp = now,
@@ -3772,6 +3993,18 @@ class LearningRepository(
         if (!abandoned) runCatching { creditReadingEvidence(readerTextId, now, current.lastCompleted ?: Long.MIN_VALUE) }
     }
 
+    suspend fun queueReaderFollowUpEpisode(readerTextId: Long, now: Long = System.currentTimeMillis()): Boolean {
+        if (readerTextDao.getById(readerTextId) == null) return false
+        val store = settingsStore ?: return false
+        store.pendingReaderEpisodeTextId = readerTextId
+        recordTelemetry(TelemetryEvent(
+            timestamp = now,
+            eventType = "reader_followup_queued",
+            metadataJson = JSONObject().put("readerTextId", readerTextId).toString()
+        ))
+        return true
+    }
+
     /**
      * Passive reading evidence (P5.4, closes the input loop): for every note in
      * this text whose card is due within a week, nudge it via the P0.2 evidence bus
@@ -3784,8 +4017,9 @@ class LearningRepository(
     private suspend fun creditReadingEvidence(readerTextId: Long, now: Long, since: Long) {
         val text = readerTextDao.getById(readerTextId) ?: return
         val index = formIndex()
+        val notesByLemma = allNotesCached().associateBy { normalizeToken(it.lemma) }
         val noteIds = readerWordOccurrences(text.body)
-            .mapNotNull { index[normalizeToken(it.surface)]?.id }
+            .mapNotNull { resolveReaderNote(normalizeToken(it.surface), index, notesByLemma)?.id }
             .distinct()
         if (noteIds.isEmpty()) return
         val dueSoonNoteIds = cardDao.getCardsForNotes(noteIds)
@@ -3836,9 +4070,10 @@ class LearningRepository(
     ): ReaderRecommendation? {
         if (texts.isEmpty() || reviewedNoteIds.isEmpty()) return null
         val index = formIndex()
+        val notesByLemma = allNotesCached().associateBy { normalizeToken(it.lemma) }
         return texts.map { recommendation ->
             val overlap = readerWordOccurrences(recommendation.text.body).count { occurrence ->
-                index[normalizeToken(occurrence.surface)]?.id in reviewedNoteIds
+                resolveReaderNote(normalizeToken(occurrence.surface), index, notesByLemma)?.id in reviewedNoteIds
             }
             recommendation to overlap
         }.filter { it.second >= 2 }
@@ -4991,6 +5226,18 @@ class LearningRepository(
         scheduleLogForTelemetry = log
         undoSnapshot = undoSnapshot?.copy(reviewLogId = reviewLogId)
         }
+        if (note != null && undoSnapshot?.reviewLogId != 0L) {
+            val componentUndo = recordCardReviewInComponentModel(
+                live = live,
+                note = note,
+                rating = rating,
+                objectiveCorrect = objectiveCorrect,
+                instructionalExposure = instructionalExposure,
+                reviewLogId = undoSnapshot!!.reviewLogId,
+                at = now
+            )
+            undoSnapshot = undoSnapshot?.copy(componentUndo = componentUndo)
+        }
         note?.let {
             noteDao.update(it.copy(encounterCount = it.encounterCount + 1))
             val evidence = ensureEvidence(it.id)
@@ -5043,6 +5290,72 @@ class LearningRepository(
             ))
         }
         becameLeech
+    }
+
+    /** Optional card practice observes the same durable memory as an episode.  The
+     * card keeps its legacy FSRS row for compatibility, but does not create a second
+     * meaning/form/sound memory. */
+    private suspend fun recordCardReviewInComponentModel(
+        live: Card,
+        note: Note,
+        rating: Rating,
+        objectiveCorrect: Boolean?,
+        instructionalExposure: Boolean,
+        reviewLogId: Long,
+        at: Long
+    ): ComponentReviewUndo? {
+        val dao = communicativeLearningDao ?: return null
+        val band = note.cefrLevel ?: return null
+        val unit = note.unit ?: return null
+        val profile = CardPedagogy.profile(live.cardType)
+        val concept = live.gramConcept ?: note.conceptId
+        val (key, kind) = when (profile.facet) {
+            LearningFacet.MEANING -> ComponentKeys.meaning(note.id) to "MEANING"
+            LearningFacet.LISTENING, LearningFacet.PRONUNCIATION -> ComponentKeys.sound(note.id) to "SOUND"
+            LearningFacet.SYNTAX, LearningFacet.MORPHOLOGY -> concept?.let {
+                ComponentKeys.construction(it, band, unit) to "CONSTRUCTION"
+            } ?: (ComponentKeys.form(note.id) to "FORM")
+            LearningFacet.INSTRUCTION -> concept?.let {
+                ComponentKeys.construction(it, band, unit) to "CONSTRUCTION"
+            } ?: (ComponentKeys.form(note.id) to "FORM")
+            else -> ComponentKeys.form(note.id) to "FORM"
+        }
+        val prior = dao.component(key)
+        val component = prior ?: KnowledgeComponent(
+            key = key,
+            kind = kind,
+            capabilityKey = ComponentKeys.capability(band, unit),
+            band = band,
+            unit = unit,
+            noteId = note.id.takeUnless { kind == "CONSTRUCTION" },
+            conceptId = concept.takeIf { kind == "CONSTRUCTION" },
+            due = at
+        ).also { dao.upsertComponent(it) }
+        val strength = if (instructionalExposure) EvidenceStrength.INSTRUCTION else profile.evidence
+        val weight = evidenceObservationWeight(strength)
+        val support = when (strength) {
+            EvidenceStrength.STRONG -> 0
+            EvidenceStrength.MODERATE -> 1
+            EvidenceStrength.PRACTICE -> 2
+            EvidenceStrength.INSTRUCTION -> 3
+        }
+        val success = objectiveCorrect ?: (rating != Rating.AGAIN)
+        val episodeId = "card:${live.id}"
+        val taskId = "review:$reviewLogId"
+        val inserted = dao.insertEvidence(CapabilityEvidence(
+            componentKey = key,
+            episodeId = episodeId,
+            taskId = taskId,
+            observedAt = at,
+            taskKind = "CARD_${profile.facet.name}",
+            outcome = if (success) "SUCCESS" else "MISS",
+            supportLevel = support,
+            evidenceWeight = weight,
+            novelContext = live.reps > 0,
+            source = "CARD_REVIEW"
+        ))
+        if (inserted != -1L && weight > 0.0) dao.updateComponent(ComponentScheduler.update(component, success, weight, at))
+        return ComponentReviewUndo(key, prior, episodeId, taskId)
     }
 
     private suspend fun captureModelUndo(card: Card): ModelUndoSnapshot? {
@@ -5124,8 +5437,46 @@ class LearningRepository(
                     applied++
                 }
         }
+        recordPassiveComponentEvidence(event)
         if (applied > 0) invalidateNoteState()
         return applied
+    }
+
+    private suspend fun recordPassiveComponentEvidence(event: EvidenceEvent) {
+        val dao = communicativeLearningDao ?: return
+        val note = event.noteId?.let { noteDao.getById(it) }
+            ?: event.conceptId?.let { concept -> noteDao.getAll().firstOrNull { it.conceptId == concept } }
+            ?: return
+        val band = note.cefrLevel ?: return
+        val unit = note.unit ?: return
+        val (key, kind) = when (event.facet) {
+            LearningFacet.MEANING -> ComponentKeys.meaning(note.id) to "MEANING"
+            LearningFacet.LISTENING, LearningFacet.PRONUNCIATION -> ComponentKeys.sound(note.id) to "SOUND"
+            LearningFacet.SYNTAX, LearningFacet.MORPHOLOGY -> event.conceptId?.let {
+                ComponentKeys.construction(it, band, unit) to "CONSTRUCTION"
+            } ?: (ComponentKeys.form(note.id) to "FORM")
+            else -> ComponentKeys.form(note.id) to "FORM"
+        }
+        val prior = dao.component(key) ?: KnowledgeComponent(
+            key = key, kind = kind, capabilityKey = ComponentKeys.capability(band, unit), band = band, unit = unit,
+            noteId = note.id.takeUnless { kind == "CONSTRUCTION" },
+            conceptId = event.conceptId.takeIf { kind == "CONSTRUCTION" }, due = event.at
+        ).also { dao.upsertComponent(it) }
+        val weight = evidenceObservationWeight(event.strength)
+        val support = when (event.strength) {
+            EvidenceStrength.STRONG -> 0
+            EvidenceStrength.MODERATE -> 1
+            EvidenceStrength.PRACTICE -> 2
+            EvidenceStrength.INSTRUCTION -> 3
+        }
+        val episodeId = "secondary:${event.source.name}:${event.noteId ?: event.conceptId}"
+        val taskId = "${event.at}:${event.facet.name}"
+        val inserted = dao.insertEvidence(CapabilityEvidence(
+            componentKey = key, episodeId = episodeId, taskId = taskId, observedAt = event.at,
+            taskKind = "SECONDARY_${event.facet.name}", outcome = if (event.correct) "SUCCESS" else "MISS",
+            supportLevel = support, evidenceWeight = weight, novelContext = true, source = event.source.name
+        ))
+        if (inserted != -1L && weight > 0.0) dao.updateComponent(ComponentScheduler.update(prior, event.correct, weight, event.at))
     }
 
     private suspend fun updateLearnerModels(card: Card, success: Boolean, now: Long, strength: EvidenceStrength) {
@@ -5581,6 +5932,11 @@ class LearningRepository(
             }
             snapshot.model?.let { restoreModelUndo(snapshot.card.id, it) }
             snapshot.priorEvidence?.let { noteEvidenceDao?.upsert(it) } ?: noteEvidenceDao?.delete(snapshot.noteId)
+            snapshot.componentUndo?.let { undo ->
+                communicativeLearningDao?.deleteEvidenceForTaskComponent(undo.episodeId, undo.taskId, undo.key)
+                undo.prior?.let { communicativeLearningDao?.upsertComponent(it) }
+                    ?: communicativeLearningDao?.deleteComponent(undo.key)
+            }
         }
         localActivityCache = null
         lastUndo = null
@@ -5724,7 +6080,10 @@ class LearningRepository(
         runInTransaction {
             tokens.distinctBy { normalizeToken(it) }.forEach { token ->
                 val normalized = normalizeToken(token)
-                val before = formIndex()[normalized]?.let { noteDao.getById(it.id) } ?: noteDao.getByLemma(normalized)
+                val notes = allNotesCached()
+                val before = resolveReaderNote(normalized, formIndex(), notes.associateBy { normalizeToken(it.lemma) })
+                    ?.let { noteDao.getById(it.id) }
+                    ?: noteDao.getByLemma(normalized)
                 val after = setWordStatus(token, status)
                 if (after != null && before?.status != status) changed += 1
             }
@@ -5743,7 +6102,9 @@ class LearningRepository(
     @Suppress("UNUSED_PARAMETER")
     suspend fun readerLookup(token: String, text: ReaderText, now: Long = System.currentTimeMillis()): Note? {
         val normalized = normalizeToken(token)
-        val note = formIndex()[normalized]?.let { noteDao.getById(it.id) }
+        val notes = allNotesCached()
+        val note = resolveReaderNote(normalized, formIndex(), notes.associateBy { normalizeToken(it.lemma) })
+            ?.let { noteDao.getById(it.id) }
         if (note != null) {
             // Looking a word up is evidence that help was needed. Record the latest
             // lookup for this reading interval, but never increase encounter/mastery
@@ -6227,11 +6588,12 @@ class LearningRepository(
         }
         if (targets.isEmpty()) return emptyMap()
         val index = formIndex()
+        val notesByLemma = allNotesCached().associateBy { normalizeToken(it.lemma) }
         val known = knownNoteIds()
         val score = mutableMapOf<Long, Int>()
         targets.forEach { text ->
             readerWordOccurrences(text.body).forEach { token ->
-                val note = index[normalizeToken(token.surface)]
+                val note = resolveReaderNote(normalizeToken(token.surface), index, notesByLemma)
                 if (note != null && note.id !in known) score[note.id] = (score[note.id] ?: 0) + 1
             }
         }
@@ -6410,10 +6772,10 @@ class LearningRepository(
      * (e.g. tests without a real ContentDatabase) — callers keep the static fallback.
      */
     private suspend fun conceptApplyRealization(card: Card, now: Long): com.sibirskyspeak.generation.RealizedFrame? {
-        val dao = contentDao ?: return null
+        if (contentDao == null) return null
         val realizer = frameRealizer ?: return null
         val conceptId = card.gramConcept ?: return null
-        val frames = dao.framesForConcept(conceptId)
+        val frames = framesByConcept()[conceptId].orEmpty()
         if (frames.isEmpty()) return null
         val epochDay = now / DAY_MILLIS
         val frame = frames[Math.floorMod(epochDay + card.id, frames.size.toLong()).toInt()]
@@ -6829,22 +7191,29 @@ class LearningRepository(
     }
 
 
-    private fun coverageFor(text: ReaderText, index: Map<String, Note>, knownIds: Set<Long>, dueSoonNoteIds: Set<Long> = emptySet()): ReaderRecommendation {
+    private fun coverageFor(
+        text: ReaderText,
+        index: Map<String, Note>,
+        notesByLemma: Map<String, Note>,
+        knownIds: Set<Long>,
+        dueSoonNoteIds: Set<Long> = emptySet()
+    ): ReaderRecommendation {
         val tokens = readerWordOccurrences(text.body)
+        fun noteFor(surface: String) = resolveReaderNote(normalizeToken(surface), index, notesByLemma)
         // IGNORED names/noise are outside the learning denominator rather than being
         // misreported as known language. Unknown unindexed tokens remain in it.
-        val assessed = tokens.filter { token -> index[normalizeToken(token.surface)]?.status != WordStatus.IGNORED }
-        val noteIds = assessed.mapNotNull { index[normalizeToken(it.surface)]?.id }
+        val assessed = tokens.filter { token -> noteFor(token.surface)?.status != WordStatus.IGNORED }
+        val noteIds = assessed.mapNotNull { noteFor(it.surface)?.id }
         val knownCount = noteIds.count { it in knownIds }
         val coverage = if (assessed.isEmpty()) 0.0 else knownCount.toDouble() / assessed.size
         val sentenceCount = text.body.count { it == '.' || it == '!' || it == '?' || it == '…' }.coerceAtLeast(1)
         val morphologyCount = assessed.count { token ->
-            val note = index[normalizeToken(token.surface)]
+            val note = noteFor(token.surface)
             note != null && (note.declensionJson != null || note.aktionsart != null) &&
                 normalizeToken(token.surface) != normalizeToken(note.russian)
         }
         val idiomCount = assessed.count { token ->
-            index[normalizeToken(token.surface)]?.partOfSpeech?.equals("chunk", ignoreCase = true) == true
+            noteFor(token.surface)?.partOfSpeech?.equals("chunk", ignoreCase = true) == true
         }
         val difficulty = ReaderDifficultyAnalyzer.analyze(
             coverage = coverage,
@@ -6961,8 +7330,9 @@ class LearningRepository(
 
     companion object {
         private const val DAY_MILLIS = 86_400_000L
+        private const val READER_FORM_INDEX_VERSION = 2
         /** Increment when reconciliation logic changes without a content checksum change. */
-        private const val LAUNCH_MAINTENANCE_REVISION = 1
+        private const val LAUNCH_MAINTENANCE_REVISION = 2
         // Adaptive estimators must be sampled by semantic event type before LIMIT.
         // Otherwise high-volume maintenance/UI instrumentation crowds actual
         // learning observations out of a fixed recent window.

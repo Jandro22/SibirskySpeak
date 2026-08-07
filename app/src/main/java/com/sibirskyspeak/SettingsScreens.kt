@@ -64,6 +64,7 @@ import com.sibirskyspeak.data.SettingsStore
 import com.sibirskyspeak.learning.GoalVerdict
 import com.sibirskyspeak.learning.PlacementTest
 import com.sibirskyspeak.review.ReviewUiState
+import com.sibirskyspeak.review.LeechItem
 import com.sibirskyspeak.review.TemporarySessionMode
 import kotlin.math.roundToInt
 
@@ -73,8 +74,54 @@ import kotlin.math.roundToInt
 
 internal enum class SettingsArea(val label: String, val summary: String) {
     STUDY("Study", "Pace, placement, and reminders"),
+    REPAIR("Repair", "Difficult and parked cards"),
     READER("Reader", "Text size, new texts, and deck search"),
     DATA("Data", "Import, export, and backups")
+}
+
+@Composable
+private fun RepairSettingsPanel(
+    state: ReviewUiState,
+    onLoadLeeches: () -> Unit,
+    onReleaseLeech: (LeechItem) -> Unit,
+    onSaveLeechEdit: (LeechItem, String?, String?, String?, String?) -> Unit
+) {
+    var editingLeech by remember { mutableStateOf<LeechItem?>(null) }
+    val problemCards = state.sessionPlan?.problemCards.orEmpty()
+    val leechCount = state.dashboardStats?.leechCount ?: state.leeches.size
+    LaunchedEffect(Unit) { onLoadLeeches() }
+
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        ProblemCardAuditPanel(state.sessionPlan)
+        if (problemCards.isEmpty()) {
+            SectionCard {
+                Text("Cards needing repair", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "No repeatedly missed active cards need attention right now.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        if (leechCount > 0) {
+            LeechCard(
+                leeches = state.leeches,
+                leechCount = leechCount,
+                onRelease = onReleaseLeech,
+                onEdit = { editingLeech = it }
+            )
+        }
+    }
+    editingLeech?.let { item ->
+        EditCardDialog(
+            note = item.note,
+            onDismiss = { editingLeech = null },
+            onSave = { translation, example, exampleTranslation, mnemonic ->
+                onSaveLeechEdit(item, translation, example, exampleTranslation, mnemonic)
+                editingLeech = null
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -119,6 +166,9 @@ internal fun ImportExportPanel(
     onOnlineGlossLookup: (Boolean) -> Unit,
     onSearch: (String) -> Unit,
     onSpeakRussian: (String) -> Unit,
+    onLoadLeeches: () -> Unit,
+    onReleaseLeech: (LeechItem) -> Unit,
+    onSaveLeechEdit: (LeechItem, String?, String?, String?, String?) -> Unit,
     onDebugStartCardType: (com.sibirskyspeak.data.CardType) -> Unit
 ) {
     val context = LocalContext.current
@@ -408,6 +458,12 @@ internal fun ImportExportPanel(
                             }
                         }
                     }
+                    SettingsArea.REPAIR -> RepairSettingsPanel(
+                        state = state,
+                        onLoadLeeches = onLoadLeeches,
+                        onReleaseLeech = onReleaseLeech,
+                        onSaveLeechEdit = onSaveLeechEdit
+                    )
                     SettingsArea.READER -> {
                         SectionCard {
                             Text("Reader", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)

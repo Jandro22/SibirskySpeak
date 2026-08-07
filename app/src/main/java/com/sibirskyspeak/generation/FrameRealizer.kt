@@ -4,6 +4,7 @@ import com.sibirskyspeak.data.ContentFrame
 import com.sibirskyspeak.morph.MorphologyEngine
 import org.json.JSONArray
 import kotlin.random.Random
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * A single slot in a curated clause template. Mirrors the schema authored in
@@ -66,9 +67,13 @@ private data class ChosenLemma(
  * item memory" principle).
  */
 class FrameRealizer(private val morph: MorphologyEngine) {
+    // Frames are immutable bundled content, but the same frame is realized many
+    // times while a 40-card plan is assembled and again when the queue is refreshed.
+    // Parsing slots once removes repeated JSON work from the on-device hot path.
+    private val slotsCache = ConcurrentHashMap<String, List<FrameSlot>>()
 
     fun realize(frame: ContentFrame, inventory: FrameInventory, epochDay: Long, cardId: Long): RealizedFrame? {
-        val slots = parseSlots(frame.slotsJson)
+        val slots = slotsCache[frame.id] ?: parseSlots(frame.slotsJson).also { slotsCache[frame.id] = it }
         val seed = frame.id.hashCode().toLong() * 1_000_003L xor (epochDay * 31 + cardId)
         val rng = Random(seed)
         val chosen = HashMap<String, ChosenLemma>()

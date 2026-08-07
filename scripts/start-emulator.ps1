@@ -15,6 +15,12 @@ $Adb = Join-Path $Sdk "platform-tools\adb.exe"
 $env:ANDROID_HOME = $Sdk
 $env:ANDROID_SDK_ROOT = $Sdk
 $env:ANDROID_AVD_HOME = $AvdHome
+# Emulator 36.6.x no longer finds its side-by-side tracing/Qt DLLs reliably
+# when launched from a portable SDK outside the user's global Android install.
+# Put the bundled runtime directories on PATH for this process and the QEMU
+# child it spawns; without this, emulator.exe exits silently with 0xC0000135.
+$EmulatorRoot = Join-Path $Sdk "emulator"
+$env:Path = "$EmulatorRoot;$EmulatorRoot\lib64;$EmulatorRoot\lib64\qt\lib;$env:Path"
 
 if (!(Test-Path (Join-Path $AvdHome "$AvdName.ini"))) {
     & (Join-Path $PSScriptRoot "setup-emulator.ps1") -AvdName $AvdName

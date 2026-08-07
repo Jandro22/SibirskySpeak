@@ -133,7 +133,16 @@ data class ContentDialogue(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "unit_min") val unitMin: Int,
     val function: String,
-    val title: String
+    val title: String,
+    val band: String = "A1",
+    val objective: String = function,
+    val settingsJson: String = "[]",
+    val intention: String = "interact",
+    val register: String = "neutral",
+    val activity: String = "interaction",
+    val informationGap: String = "",
+    val expectedCompletions: Int = 3,
+    val blindTransfer: Boolean = false
 )
 
 /**
@@ -239,7 +248,10 @@ interface ContentDao {
     // Content is immutable learner-independent data. Bump this whenever the
     // bundled corpus is regenerated so createFromAsset + destructive fallback
     // replaces stale installed content.db files without touching AppDatabase.
-    version = 7,
+    // The bundled corpus and dialogue families are immutable content. Bump this
+    // whenever the asset is regenerated so an installed learner receives the
+    // expanded episode family database without touching AppDatabase history.
+    version = 11,
     exportSchema = true
 )
 abstract class ContentDatabase : RoomDatabase() {

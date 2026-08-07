@@ -43,4 +43,31 @@ class CardPedagogyTest {
         assertTrue(independent.prompt.startsWith("Say in Russian:"))
         assertTrue(!independent.prompt.contains(note.russian))
     }
+
+    @Test
+    fun lowMeaningRetentionShiftsMatureSelectionTowardProduction() {
+        val recognition = CardPedagogy.retentionCompensationBias(
+            CardType.RU_TO_MEANING, isNew = false, meaningRetention = 0.48,
+            meaningSampleSize = 116, targetRetention = 0.90
+        )
+        val production = CardPedagogy.retentionCompensationBias(
+            CardType.MEANING_TO_RU, isNew = false, meaningRetention = 0.48,
+            meaningSampleSize = 116, targetRetention = 0.90
+        )
+
+        assertTrue(recognition < 0.0)
+        assertTrue(production > 0.0)
+        assertEquals(0.0, CardPedagogy.retentionCompensationBias(
+            CardType.RU_TO_MEANING, isNew = true, meaningRetention = 0.48,
+            meaningSampleSize = 116, targetRetention = 0.90
+        ), 0.0)
+    }
+
+    @Test
+    fun smallSamplesDoNotChangeTheLearningDiet() {
+        assertEquals(0.0, CardPedagogy.retentionCompensationBias(
+            CardType.MEANING_TO_RU, isNew = false, meaningRetention = 0.25,
+            meaningSampleSize = 4, targetRetention = 0.90
+        ), 0.0)
+    }
 }

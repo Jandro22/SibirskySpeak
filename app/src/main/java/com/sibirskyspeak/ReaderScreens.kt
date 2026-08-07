@@ -87,6 +87,7 @@ import androidx.compose.ui.unit.sp
 import com.sibirskyspeak.data.ReaderRecommendation
 import com.sibirskyspeak.data.ReaderStatus
 import com.sibirskyspeak.data.ReaderToken
+import com.sibirskyspeak.data.RussianForms
 import com.sibirskyspeak.data.WordStatus
 import com.sibirskyspeak.review.ReviewUiState
 
@@ -103,6 +104,7 @@ internal fun ReaderPanel(
     onMarkVisible: (List<String>, WordStatus) -> Unit,
     onProgress: (Int) -> Unit,
     onCheckpointAnswer: (String) -> Unit,
+    onQueueEpisode: () -> Unit,
     onSetGoal: (Long) -> Unit,
     onAddText: () -> Unit,
     onSpeakRussian: (String) -> Unit,
@@ -112,7 +114,7 @@ internal fun ReaderPanel(
     if (selected == null) {
         ReaderBookshelf(state, onOpen, onAddText, onSpeakRussian, onSetGoal, onEditSource)
     } else {
-        ReaderTextScreen(state, selected, onLookup, onClose, onMarkVisible, onProgress, onSpeakRussian, onCheckpointAnswer)
+        ReaderTextScreen(state, selected, onLookup, onClose, onMarkVisible, onProgress, onSpeakRussian, onCheckpointAnswer, onQueueEpisode)
     }
 }
 
@@ -433,7 +435,8 @@ internal fun ReaderTextScreen(
     onMarkVisible: (List<String>, WordStatus) -> Unit,
     onProgress: (Int) -> Unit,
     onSpeakRussian: (String) -> Unit,
-    onCheckpointAnswer: (String) -> Unit
+    onCheckpointAnswer: (String) -> Unit,
+    onQueueEpisode: () -> Unit
 ) {
     val tokenCount = state.readerTokens.size.coerceAtLeast(1)
     val reachedCount = (state.readerProgressIndex + 1).coerceIn(0, state.readerTokens.size)
@@ -515,6 +518,9 @@ internal fun ReaderTextScreen(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+                        if (progress >= 0.6f) {
+                            TextButton(onClick = onQueueEpisode) { Text("Turn into episode") }
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -668,7 +674,11 @@ internal fun ReaderTextScreen(
                                 onClick = {
                                     onProgress(index)
                                     onLookup(token.surface)
-                                    onSpeakRussian(token.stressForm ?: token.surface)
+                                    // Speak the form that was actually read. A matched
+                                    // lemma's stressed headword may be мой while the
+                                    // learner tapped моя; pronouncing the lemma here
+                                    // teaches the wrong sound/form correspondence.
+                                    onSpeakRussian(token.surface)
                                 }
                             )
                         }
@@ -687,10 +697,6 @@ internal fun ReaderTextScreen(
                             )
                         }
                     }
-                }
-                // Leave room so the last lines aren't hidden behind the pinned word card.
-                if (state.selectedToken != null) {
-                    item { Spacer(Modifier.height(260.dp)) }
                 }
             }
         }
@@ -1020,9 +1026,8 @@ internal fun WordDetailCard(
         ) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val spokenHeadword = token.stressForm ?: token.surface
-                    Text(spokenHeadword, modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    IconButton(onClick = { onSpeakRussian(spokenHeadword) }) {
+                    Text(token.surface, modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    IconButton(onClick = { onSpeakRussian(token.surface) }) {
                         Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Hear word", modifier = Modifier.size(20.dp))
                     }
                     CurrentWordStatusPill(token.status)
@@ -1036,8 +1041,17 @@ internal fun WordDetailCard(
                         )
                     }
                 }
+                token.lemma?.takeIf { RussianForms.normalize(it) != token.normalized }?.let { lemma ->
+                    Text(
+                        "Form of $lemma",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
                 val gloss = token.translation?.takeIf { it != "lookup pending" }
                 if (gloss == null) {
+                    Spacer(Modifier.height(8.dp))
                     Text(
                         "This word is saved, but it needs a meaning before it can enter practice.",
                         style = MaterialTheme.typography.bodyMedium,
@@ -1063,7 +1077,19 @@ internal fun WordDetailCard(
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("Save meaning & start learning") }
                 } else {
-                    Text(gloss, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                    Spacer(Modifier.height(8.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+                    ) {
+                        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("MEANING", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                            Text(gloss, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
                 token.parse?.let {
                     Spacer(Modifier.height(2.dp))
@@ -1095,7 +1121,7 @@ internal fun WordDetailCard(
         Spacer(Modifier.height(14.dp))
         Text("Word status", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(
-            "Use Learning for words you want to practise. Unknown reader words need a meaning first. Known counts toward coverage and stops practice; Ignore hides names or noise.",
+            "Word status is shared everywhere. Learning allows episodes and card practice; unknown words need a meaning first. Known counts toward reading coverage and retires the word from episodes and cards. Ignore hides names or noise everywhere.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

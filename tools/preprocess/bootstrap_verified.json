@@ -393,8 +393,7 @@
       "lookup": "другой",
       "pos": "adjective",
       "matched_glosses": [
-        "other, another, different",
-        "else, next, second"
+        "other, another, different, next, else, second (representing a different instance or of a different type/nature)"
       ]
     },
     "155a08c520bf1e322fb2f9fa16bf81eb3eb6be8d64ada9e08f9aafabe502913f": {
@@ -1505,7 +1504,7 @@
       "matched_glosses": [
         "head",
         "mind; brains",
-        "head; chief; master"
+        "loaf"
       ]
     },
     "77bbe098370d5529a022c6aa30658d27b89ccc4a79fd317e389f0c2ffafc04fb": {
@@ -12837,7 +12836,7 @@
       "matched_glosses": [
         "light blue, sky blue, azure (contrasts with си́ний (sínij, “dark blue, indigo”))",
         "ideal",
-        "gay, homosexual (mostly related to male homosexuals, i.e. not lesbian)"
+        "cyan (e.g. in the CMYK color model)"
       ]
     },
     "2ccf2c864b46d44e9261a0522566818d833d24ed80562e63c821500d5f157829": {
@@ -25254,7 +25253,8 @@
       "lookup": "копейка",
       "pos": "noun",
       "matched_glosses": [
-        "kopek, kopeck; also copeck (one 100th of ruble, the monetary unit of Russia)."
+        "kopek, kopeck; also copeck (one 100th of ruble, the monetary unit of Russia).",
+        "VAZ-2101"
       ]
     },
     "170ebd9592aff744db251c0f929ffb3b15ce1b5aa2e6971a013d1297400cf9a0": {
@@ -28211,7 +28211,7 @@
       "matched_glosses": [
         "to reach, to touch",
         "to take, to go fetch, to take out",
-        "to get, to procure, to obtain"
+        "to get, to procure, to obtain; especially about a product that is rare, or of which there is a shortage"
       ]
     },
     "f04447473bf9f0a629b067881fb0dea25d124660b47fa0af537aa6af27bae9fd": {
@@ -29105,7 +29105,8 @@
       "lookup": "флаг",
       "pos": "noun",
       "matched_glosses": [
-        "flag, banner"
+        "flag, banner",
+        "flag"
       ]
     },
     "1be4d411c6d4dadf83ebf5a60943d1e14755f9d224b717dff4ca9b76694af3f7": {
@@ -32309,7 +32310,7 @@
       "lookup": "барон",
       "pos": "noun",
       "matched_glosses": [
-        "baron"
+        "baron (title of nobility)"
       ]
     },
     "a0eba2b4437adc6b69e14348ca3d4bad43e664f303806eb5963ac75364cd774b": {
@@ -45042,7 +45043,7 @@
       "lookup": "губерния",
       "pos": "noun",
       "matched_glosses": [
-        "province, governorate, gubernia (an administrative subdivision in the Russian empire)"
+        "province, governorate, guberniya (an administrative subdivision in the Russian empire)"
       ]
     },
     "74cae62c2c6bf11d4478a05cc96544b15c497c8054a2b3ec66903a5ba47a11a1": {
@@ -45494,7 +45495,8 @@
       "lookup": "электричка",
       "pos": "noun",
       "matched_glosses": [
-        "(suburban) electric train"
+        "(suburban) electric train",
+        "electric car"
       ]
     },
     "634aeb0c0c8655a7b904a2c53cbbf8066cde637129fc5819f992201f5b5721ec": {
@@ -59728,7 +59730,7 @@
       "matched_glosses": [
         "stamp, rubber stamp, impress",
         "die (tool for cutting or shaping material using a press)",
-        "stock phrase"
+        "stock phrase, cliche"
       ]
     },
     "9f1cbaf15007fb33d8f35839da7c1bdd55ce43460da369e872c98c7454f13c9f": {
@@ -70950,7 +70952,8 @@
       "pos": "noun",
       "matched_glosses": [
         "spiral, spire helix",
-        "loop, Lippes loop"
+        "loop, Lippes loop",
+        "light bulb filament"
       ]
     },
     "41bc12e44c62e5ed03fc4b58e6671b92a5ee75b9138600cd6b1e0939ccbb7f9c": {
@@ -80887,7 +80890,8 @@
       "pos": "adjective",
       "matched_glosses": [
         "brain",
-        "cerebral"
+        "cerebral",
+        "a surname, Mozgovoy or Mozgovoi"
       ]
     },
     "3c5700224569d6a2bf3ab2054c2286c8b846d0d9c8bf191c88cb35b0d98fd100": {
@@ -81660,9 +81664,7 @@
       "lookup": "ромашка",
       "pos": "noun",
       "matched_glosses": [
-        "camomile",
-        "oxeye daisy",
-        "mayweed"
+        "camomile, mayweed, Matricaria"
       ]
     },
     "4be627b610834f452e48c906f720411fcea47a8464021212c5ebb2c821ebcc95": {
@@ -82484,7 +82486,7 @@
       "lookup": "влечение",
       "pos": "noun",
       "matched_glosses": [
-        "strong inclination, attraction",
+        "strong inclination, attraction, drive",
         "attraction, pulling toward"
       ]
     },
@@ -84101,7 +84103,7 @@
       "lookup": "коммуна",
       "pos": "noun",
       "matched_glosses": [
-        "commune"
+        "commune (civil administrative unit in many European countries and their former colonies)"
       ]
     },
     "5a0bbc7882f5c3b758dbd39dc4dd6acd4bc4ebe63c1a59ab74a10583781b3fbc": {
@@ -90967,8 +90969,7 @@
       "pos": "noun",
       "matched_glosses": [
         "diesel fuel",
-        "diesel engine",
-        "diesel motor"
+        "diesel engine, diesel motor"
       ]
     },
     "b2c7fc2a44f495c716f5c2b00212739bac2d9aec09c1fe64cf57354134129dd4": {

@@ -35,13 +35,14 @@ $env:JAVA_HOME = "$PWD\.tools\jdk"
 .\gradlew.bat assembleDebug
 ```
 
-### Emulator-driven UI/QA scripts (`scripts/`)
+### Emulator and live-phone UI/QA scripts (`scripts/`)
 
 - `setup-emulator.ps1` — creates the `Sibirsky_Pixel4a_API35` AVD (Google APIs image) under `.tools/android-avd`.
 - `start-emulator.ps1` — boots that AVD (headless by default; `-Visible` for a window), waits for `sys.boot_completed`, and leaves animations enabled so Compose transitions are visible in a screenshot.
 - `review-emulator-ui.ps1` — boots the emulator, installs the current debug APK (`-Install`, `-ResetApp` to clear state), waits for the app body to actually render (not just the splash), and captures a settled `screen.png` + `ui.xml` (uiautomator dump) under `build/emulator-review/<timestamp>/`.
+- `review-phone-episode.ps1` — builds and installs the isolated `com.sibirskyspeak.qa` package on one connected physical phone, waits for the user to unlock it without bypassing keyguard, then walks a complete episode through stable test tags. It captures every distinct UI state, semantics, active episode snapshot, telemetry DB, logs, frame/memory diagnostics, and a browsable `report.html` under `build/phone-review/<timestamp>/`. QA state resets by default while the real learner app is untouched; use `-KeepQaState` for resume testing or `-LearnerApp -NoDrive` for a read-only capture of the installed learner surface.
 
-These are the fastest way to visually verify a Compose UI change end-to-end. For scripted interaction beyond a single screenshot, drive the same emulator with `adb -s emulator-5554 shell input tap/swipe/text` and re-dump `uiautomator dump` to find element bounds — `Modifier.testTag` values are exposed as `resource-id` in that dump (see Testability below), so prefer selecting by tag over scraping visible text.
+These are the fastest way to visually verify a Compose UI change end-to-end. `Modifier.testTag` values are exposed as `resource-id` in uiautomator dumps (see Testability below), so add stable tags for any new episode interaction that the live-phone walker must exercise rather than scraping visible text.
 
 ### Tests
 
@@ -92,12 +93,18 @@ Always run the full rebuild (via `rebuild_all.py`) and `python -m pytest -q tool
 
 ### Two Room databases, different lifecycles
 
-- **`AppDatabase`** (`sibirsky_speak.db`, currently schema v32, `data/AppDatabase.kt`) — the learner's mutable state: `Note`, `Card`, `ReviewLog`, reader progress/bookmarks, telemetry, evidence, curriculum state, and the adaptive-learning model tables (`SkillRating`, `RivalState`, `PaceLog`, etc.). Has a real versioned migration history — adding/changing a Room entity field requires bumping `version`, exporting the schema, and writing a migration, not just editing the entity.
+- **`AppDatabase`** (`sibirsky_speak.db`, currently schema v34, `data/AppDatabase.kt`) — the learner's mutable state. The primary tutor persists `KnowledgeComponent`, `CapabilityEvidence`, and `CapabilityProgress`; legacy cards/review logs, reader progress/bookmarks, telemetry, and the older adaptive-model tables remain for history preservation and secondary tools. Has a real versioned migration history — adding/changing a Room entity field requires bumping `version`, exporting the schema, and writing a migration, not just editing the entity.
 - **`ContentDatabase`** (`content.db`, `data/ContentDatabase.kt`) — read-only, `createFromAsset("tatoeba.db")`. Holds Tatoeba example sentences, lemma index, collocations, and semantic neighbors used to enrich lesson cards (word family, "useful chunks", cognate detection). Never migrated in place — schema changes here mean regenerating and reshipping the asset.
 
-### Note → Card is one-to-many
+### Knowledge components, not exercise formats, are the primary memory model
 
-A `Note` is one vocabulary/grammar item (its Russian form, translation, examples, declension JSON, etc.). Each `Note` can have several `Card` rows, one per `CardType` (`RU_TO_MEANING`, `CASE_FILL`, `ADJ_AGREE`, `CLOZE`, `SPEAK`, `LESSON`, …), each independently FSRS-scheduled. `ReviewPrompt.kt`'s `buildPrompt(card, note, ...)` is the single place that turns a `(Card, Note)` pair into what the review screen actually renders — the `when (card.cardType)` there is the map of every drill type to its prompt-construction logic.
+`KnowledgeComponent` stores durable meaning/form/sound/construction memory independently of the exercise used to observe it. `CapabilityEvidence` records the exact episode task, outcome, modality, cue/support level, and evidence weight; its `(episodeId, taskId, componentKey)` identity makes crash/retry writes idempotent. `CapabilityProgress` expresses route progress as a can-do outcome. Assisted tiles advance memory conservatively but never set `certifiedAt`; route advancement requires repeated successful transfer rather than screen completion.
+
+`AdaptiveEpisodePolicyEngine` classifies the next short episode as acquisition, retrieval, repair, or transfer from component retrievability, lapse density, recent outcomes, and response latency. It also supplies the 3–5 minute task budget, weakest modality, component ranking, and the multi-modality coverage gate used by route advancement. `CommunicativeEpisodeRepository` chooses the can-do goal, injects a due item from an earlier studied capability, targets authored confusable pairs, composes the coherent episode, and schedules its components. Transfer episodes end with an optional on-device `PRODUCTION_PROBE`: certification requires successful unsupported probes in two distinct episodes plus the normal mastery gate. `RussianSpeechRecognizer` checks whether the Russian offline model is installed and asks Android to provision it when the platform reports it downloadable. The keyboard-free assisted fallback is recorded as supported transfer evidence and can never certify; speech audio and transcripts are not persisted. A missed response is reinserted only after intervening tasks through `DelayedRepairPlanner`; do not replace that spacing with immediate answer copying. `TutorViewModel` owns the primary UI and persists an active episode checkpoint separately from the legacy card-session checkpoint. `LearnerDataLifecycle` is the narrow bootstrap/recovery/checkpoint boundary and refreshes the full-state backup after primary tutor use; the tutor must not call the legacy session orchestrator directly.
+
+### Note → Card is one-to-many (legacy/secondary practice)
+
+A `Note` is one vocabulary/grammar item. Each `Note` can still have several independently FSRS-scheduled `Card` rows used by the secondary Practice tools and retained learner history. `ReviewPrompt.kt` remains the renderer for that legacy path. Do not add a new primary learning behavior by minting another card type; add or reuse a component and an episode task whose evidence weight honestly reflects the support supplied.
 
 ### Teach-before-test grammar gating is derived state, not a table
 
@@ -107,15 +114,21 @@ Concept progression is **not** a separate Room table. A grammar concept counts a
 
 0 = hand-authored A1→C1 spine + promoted high-frequency band (~5k notes, teach-before-test, controlled vocabulary); 1 = general reading-matrix vocabulary (function words / coverage fuel, vocab-only, no generated morphology drills — gated by the `"matrix"` tag, not tier); 2 = the original formal/political-register domain, with its grammar drills still gated behind tier-0 lesson concepts. New cards are introduced in tier order via `CardDao.getNewCardsOrdered`.
 
-### Three cooperating "brains"
+### Primary tutor plus retained secondary engine
+
+- **`data/AdaptiveEpisodePolicy.kt` + `data/CommunicativeEpisodeRepository.kt` + `data/CommunicativeLearning.kt`** — the primary learning architecture: adaptive acquisition/retrieval/repair/transfer policy, can-do route selection, cross-capability interleaving, confusable contrasts, delayed repair, component-level forgetting/scheduling, modality-correct evidence, support weighting, independent speech-production certification, multi-modality transfer gates, idempotency, and episode telemetry.
+- **`TutorScreens.kt`** — the primary product surface: one Continue action and an episode sequence. Russian response construction is keyboard-independent. Listening never prints its transcript before answering. An active episode is resumable after process/activity loss.
+- **`LearningRepository.kt` + `ReviewViewModel.kt`** — retained for bootstrap/backup compatibility and the secondary Practice/Reader/Grammar/Settings tools. New primary features must not expand these files.
+
+The older secondary engine still contains three cooperating subsystems:
 
 - **`scheduler/`** — `FsrsScheduler` is pure per-card interval math (FSRS-6-style). Takes a `weightsProvider: () -> DoubleArray` (not a fixed array) so an on-device weight refit applies without reconstructing the scheduler. `FsrsWeightFitter` re-estimates initial-stability and decay weights from the learner's own `ReviewLog` history.
 - **`learning/`** — session/pace-level intelligence: `PaceController` and `LearnerSnapshot` derive continuous adaptive load from capacity, willingness, fatigue, return context, and card demand; `WorldModel` estimates per-skill ability and success; `Rival`/`TrueSkill` provide the simulated opponent and match rating shown on session-complete, independent of FSRS scheduling.
 - **`data/LearningRepository.kt`** (~5.5k lines) — the orchestrator. Builds the daily session plan, decides which cards are due/blocked/new, wires the scheduler and pace/world models together, and is the only place that talks to the DAOs for review-flow purposes. Most feature work touches this file.
 
-### UI: single-Activity Compose, one big ViewModel
+### UI: single-Activity Compose, primary tutor plus secondary tools
 
-`MainActivity.kt` hosts one `ReviewScreen` composable; screens (`DashboardScreens.kt`, `StudyScreens.kt`, `PracticeScreens.kt`, `ReaderScreens.kt`, `SettingsScreens.kt`, `ReferenceScreens.kt`, `LabScreens.kt`, `OnboardingScreen.kt`, plus shared pieces in `CommonComponents.kt`) are all driven by one `ReviewViewModel` (~3k lines) exposing a single `StateFlow<ReviewUiState>`. There's no navigation library — screen switching is `AnimatedContent` keyed on a `SessionStep` enum plus a local `studyActive` boolean in `MainActivity`. Below that, there are two top-level layout branches: the open-text reader (its own bounded-height `Column`, since the reader screen virtualizes tokens in a `LazyColumn` that can't live inside the other branch's `verticalScroll`), and everything else, which shares one scrollable `Column` whose `rememberScrollState()` is scoped with `key(pageKey)` (derived from the active tab or the current card's id) so switching cards/tabs can't leak a stale scroll offset into the next screen. Both branches invoke the same hoisted `achievementOverlay` lambda at their top so the achievement toast pushes content down in either layout instead of floating over it.
+`MainActivity.kt` launches `TutorScreen`/`TutorViewModel` by default. Its only primary action is Continue; the tools button opens the retained `ReviewScreen` for Practice, Reader, Grammar reference, and Settings. The secondary screen is still driven by `ReviewViewModel` and its `SessionStep` navigation. Keep primary state in `TutorUiState`; do not route new tutor behavior through `ReviewUiState`.
 
 Session-mutating ViewModel actions (rate, suspend, mark-known, the debug card-type jump, …) follow the same shape: `viewModelScope.launch { runCatching { repository.xxx(...) }.onSuccess { ... }.onFailure { mutableState.value = mutableState.value.copy(statusMessage = it.message ?: "...") } }`. Match this pattern for new one-off actions instead of inventing a new error-handling style.
 

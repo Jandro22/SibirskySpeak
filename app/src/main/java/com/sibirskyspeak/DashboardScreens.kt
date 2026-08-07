@@ -111,6 +111,7 @@ import kotlinx.coroutines.delay
 internal fun DashboardPanel(
     state: ReviewUiState,
     onStart: () -> Unit,
+    onLogCompanionExposure: (String, Int) -> Unit = { _, _ -> },
     onLoadLeeches: () -> Unit = {},
     onReleaseLeech: (LeechItem) -> Unit = {},
     onSaveLeechEdit: (LeechItem, String?, String?, String?, String?) -> Unit = { _, _, _, _, _ -> },
@@ -173,6 +174,7 @@ internal fun DashboardPanel(
             }
         }
         FluencyForecastCard(state.fluencyForecast, state.goalStatus)
+        CompanionExposureCard(state.companionExposureMinutes, onLogCompanionExposure)
         if (state.showGoalOffTrackPrompt) {
             GoalOffTrackDialog(
                 onRaiseCommitment = onDismissGoalOffTrackPrompt,
@@ -434,6 +436,67 @@ internal fun ExitTicketRoom(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+private fun CompanionExposureCard(
+    minutesByKind: Map<String, Int>,
+    onLog: (String, Int) -> Unit
+) {
+    val totalMinutes = minutesByKind.values.sum()
+    val totalHours = totalMinutes / 60f
+    val targetHours = 500f
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Russian beyond episodes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${String.format(Locale.US, "%.1f", totalHours)} of 450-550 hours",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Text("500 h target", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            }
+            AppLinearProgressIndicator(
+                progress = { (totalHours / targetHours).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(50))
+            )
+            Text(
+                "Log extensive reading, listening, writing, and real conversation. These hours support transfer but never certify mastery by themselves.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    "reading" to "Read",
+                    "listening" to "Listen",
+                    "writing" to "Write",
+                    "conversation" to "Converse"
+                ).forEach { (kind, label) ->
+                    AssistChip(
+                        onClick = { onLog(kind, 30) },
+                        label = { Text("+$label 30m") },
+                        leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) }
+                    )
+                }
+            }
+            val detail = listOf("reading", "listening", "writing", "conversation")
+                .joinToString("  •  ") { kind ->
+                    "${kind.replaceFirstChar { it.uppercase() }} ${(minutesByKind[kind] ?: 0) / 60}h"
+                }
+            Text(detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

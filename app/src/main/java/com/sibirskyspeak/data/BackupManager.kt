@@ -263,7 +263,8 @@ class BackupManager(context: Context) {
         val values = JSONObject()
         prefs.all.toSortedMap().forEach { (key, value) ->
             if (key == "backup_tree_uri" || key == "last_backup_at" ||
-                key == "plan_skeleton_card_ids" || key.startsWith("reader_progress_")) return@forEach
+                key == "plan_skeleton_card_ids" || key == "session_snapshot_v1" ||
+                key == "episode_snapshot_v1" || key.startsWith("reader_progress_")) return@forEach
             val row = JSONObject()
             when (value) {
                 is String -> row.put("type", "string").put("value", value)

@@ -1161,6 +1161,9 @@ interface TelemetryDao {
 
     @Query("SELECT COUNT(*) FROM telemetry_events WHERE eventType = :eventType AND timestamp >= :since")
     suspend fun countByTypeSince(eventType: String, since: Long): Int
+
+    @Query("SELECT COUNT(*) FROM telemetry_events WHERE eventType = :eventType AND sessionId = :sessionId")
+    suspend fun countByTypeAndSession(eventType: String, sessionId: String): Int
 }
 
 @Dao

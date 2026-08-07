@@ -45,7 +45,7 @@ class DialogueEngineTest {
         val engine = DialogueEngine(dialogue, nodes)
 
         var guard = 0
-        while (!engine.isComplete() && guard < 20) {
+        while (!engine.isComplete() && guard < 100) {
             val turn = engine.current()
             if (turn.speaker == "learner") {
                 val evaluation = engine.submit(turn.acceptable.first())
@@ -70,5 +70,23 @@ class DialogueEngineTest {
         assertEquals(AnswerMatch.WRONG, evaluation.match)
         assertFalse(evaluation.accepted)
         assertEquals("a rejected answer must not advance the dialogue", before, engine.current().nodeId)
+    }
+
+    @Test fun equivalentStressVariantsAdvanceAlongTheSameSourcedArc() {
+        val (dialogue, nodes) = loadShippedDialogue() ?: return
+        fun atFirstLearner(): DialogueEngine = DialogueEngine(dialogue, nodes).also { engine ->
+            while (engine.current().speaker != "learner" && !engine.isComplete()) engine.advance()
+        }
+        val first = atFirstLearner()
+        val alternatives = first.current().acceptable
+        assertTrue(alternatives.size >= 2)
+        first.submit(alternatives.first())
+        val firstConsequence = first.current().nodeId
+
+        val second = atFirstLearner()
+        second.submit(alternatives.last())
+        val secondConsequence = second.current().nodeId
+
+        assertEquals("equivalent written variants should follow the same sourced arc", firstConsequence, secondConsequence)
     }
 }

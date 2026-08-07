@@ -68,6 +68,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -312,7 +313,10 @@ internal fun SectionCard(
         modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
-            containerColor = if (emphasis) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f) else MaterialTheme.colorScheme.surface
+            // Emphasis cards carry primary learning content (including reader
+            // definitions); transparency lets the busy content behind them bleed
+            // through and materially lowers text contrast.
+            containerColor = if (emphasis) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
         ),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.24f)),
         elevation = CardDefaults.cardElevation(defaultElevation = if (emphasis) 3.dp else 1.dp)
@@ -419,7 +423,8 @@ internal fun LetterTileBank(
     cardId: Long,
     hint: String,
     onChange: (String) -> Unit,
-    resetKey: Any? = null
+    resetKey: Any? = null,
+    enabled: Boolean = true
 ) {
     val haptics = LocalHapticFeedback.current
     // Strip the combining stress mark so it never becomes its own phantom tile;
@@ -478,7 +483,7 @@ internal fun LetterTileBank(
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // Assembled-answer slot.
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.ANSWER_TILE_ASSEMBLED),
             shape = MaterialTheme.shapes.small,
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
@@ -501,8 +506,9 @@ internal fun LetterTileBank(
                     Text(
                         "⌫",
                         modifier = Modifier
+                            .testTag(TestTags.ANSWER_TILE_CLEAR)
                             .clip(PillShape)
-                            .clickable {
+                            .clickable(enabled = enabled) {
                                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 emit(selected.dropLast(1))
                             }
@@ -518,6 +524,8 @@ internal fun LetterTileBank(
                 AnswerTile(
                     label = tile,
                     used = index in selected,
+                    enabled = enabled,
+                    modifier = Modifier.testTag("${TestTags.ANSWER_TILE_PREFIX}_$index"),
                     onClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         emit(selected + index)
@@ -552,21 +560,27 @@ internal fun sentenceTileWords(expected: String): List<String> =
         .toList()
 
 @Composable
-internal fun AnswerTile(label: String, used: Boolean, onClick: () -> Unit) {
+internal fun AnswerTile(
+    label: String,
+    used: Boolean,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.9f else 1f, spring(stiffness = Spring.StiffnessHigh), label = "tile-scale")
     val container by animateColorAsState(
-        if (used) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f) else MaterialTheme.colorScheme.primaryContainer,
+        if (used || !enabled) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f) else MaterialTheme.colorScheme.primaryContainer,
         label = "tile-color"
     )
     Surface(
-        modifier = Modifier
+        modifier = modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(MaterialTheme.shapes.small)
-            .clickable(interactionSource = interaction, indication = null, enabled = !used, onClick = onClick),
+            .clickable(interactionSource = interaction, indication = null, enabled = enabled && !used, onClick = onClick),
         color = container,
-        contentColor = if (used) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f) else MaterialTheme.colorScheme.onPrimaryContainer,
+        contentColor = if (used || !enabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f) else MaterialTheme.colorScheme.onPrimaryContainer,
         shape = MaterialTheme.shapes.small,
         tonalElevation = if (used) 0.dp else 2.dp
     ) {

@@ -43,6 +43,13 @@ class SimHarnessTest {
     private val organicGrowthTypes = CardType.entries - setOf(
         CardType.VERB_FORM, CardType.ASPECT_SELECT, CardType.CONCEPT_DRILL, CardType.TRANSFORM,
         CardType.CASE_FILL, CardType.PHONOLOGY_MINIMAL_PAIR, CardType.STRESS_MARK,
+        // Productive sentence/listening variants now wait for component-level
+        // meaning/form readiness and valid sentence realization. This legacy fake
+        // repository has neither the new component store nor a sentence bank, so
+        // organic card-format breadth is not an architectural gate for the primary
+        // communicative tutor. Their deterministic prompt paths remain covered by
+        // LearningRepositoryTest and ReviewPromptTest.
+        CardType.DICTATION, CardType.SENTENCE_BUILD,
         // These require sentence-bank/morphology realizations that this fake
         // content DAO intentionally does not provide. Their valid prompt paths
         // are covered by deterministic repository/prompt tests.

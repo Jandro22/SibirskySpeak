@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -22,6 +23,18 @@ class BackupManagerInstrumentedTest {
             })
         }
         assertTrue(manager.read().orEmpty().contains("\"lemma\":\"дом\""))
+    }
+
+    @Test fun fullStateMetadataExcludesDatabaseIdBoundSessionCheckpoints() {
+        context.getSharedPreferences("sibirsky_settings", Context.MODE_PRIVATE).edit()
+            .putString("session_snapshot_v1", "legacy-card-ids")
+            .putString("episode_snapshot_v1", "component-note-ids")
+            .putInt("daily_goal", 12)
+            .commit()
+        val enriched = BackupManager(context).enrichFullState("{}")
+        assertFalse(enriched.contains("session_snapshot_v1"))
+        assertFalse(enriched.contains("episode_snapshot_v1"))
+        assertTrue(enriched.contains("daily_goal"))
     }
 
     @Test fun revokedSafGrantCannotInvalidateSuccessfulLocalBackup() {

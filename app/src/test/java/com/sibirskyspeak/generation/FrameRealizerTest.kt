@@ -4,6 +4,7 @@ import com.sibirskyspeak.data.ContentDao
 import com.sibirskyspeak.data.ContentFrame
 import com.sibirskyspeak.data.MorphAnalysisRow
 import com.sibirskyspeak.data.ParadigmForm
+import com.sibirskyspeak.data.RussianForms
 import com.sibirskyspeak.morph.MorphologyEngine
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -141,6 +142,11 @@ class FrameRealizerTest {
             }
             assertTrue("expected most frames to vary across days, only $varied/${frames.size} did", varied >= frames.size * 7 / 10)
         }
+    }
+
+    @Test fun morphologyNormalizationRecomposesCyrillicShortI() {
+        assertEquals("край", MorphologyEngine.normalize("край"))
+        assertEquals("край", RussianForms.normalize("край"))
     }
 
     @Test fun englishTemplateUsesMeaningsInsteadOfRussianSurfaceForms() {

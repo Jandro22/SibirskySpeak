@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoStories
-import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Flag
@@ -68,8 +67,8 @@ import androidx.compose.runtime.key
 @Composable
 internal fun PracticeScreen(
     state: ReviewUiState,
-    onStart: () -> Unit,
-    onStartMicro: () -> Unit = {}
+    onContinueTutor: () -> Unit,
+    onStartCardPractice: () -> Unit
 ) {
     // Narrowed to the two fields these panels actually use, instead of passing the
     // whole ReviewUiState down five times: state also carries the active review
@@ -79,11 +78,33 @@ internal fun PracticeScreen(
     val dailyPlan = state.dailyPlan
     val sessionPlan = state.sessionPlan
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        DailyPlanPanel(dailyPlan, sessionPlan, onStart, onStartMicro)
+        ContinueEpisodesCard(onContinueTutor)
+        DailyPlanPanel(dailyPlan, sessionPlan, onStartCardPractice)
         PracticeFocusPanel(dailyPlan, sessionPlan)
         UnitMasteryPanel(sessionPlan)
-        ProblemCardAuditPanel(sessionPlan)
-        ReadingSuggestion(sessionPlan, onStart)
+        ReadingSuggestion(sessionPlan, onStartCardPractice)
+    }
+}
+
+@Composable
+private fun ContinueEpisodesCard(onContinueTutor: () -> Unit) {
+    SectionCard {
+        Text("PRIMARY LEARNING", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+        Text("Continue your episodes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(
+            "Episodes are the guided curriculum. These tools are optional support for extra cards, reading, and settings.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(10.dp))
+        Button(
+            onClick = onContinueTutor,
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.TOOLS_CONTINUE_EPISODES)
+        ) {
+            Icon(Icons.Filled.School, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Continue episodes", fontWeight = FontWeight.SemiBold)
+        }
     }
 }
 
@@ -247,8 +268,7 @@ private fun curriculumUnitLabel(
 internal fun DailyPlanPanel(
     dailyPlan: DailyPlan?,
     sessionPlan: SessionPlan?,
-    onStart: () -> Unit,
-    onStartMicro: () -> Unit = {}
+    onStart: () -> Unit
 ) {
     val plan = dailyPlan ?: return
     val prompts = sessionPlan?.reviewQueue.orEmpty()
@@ -274,16 +294,16 @@ internal fun DailyPlanPanel(
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    "YOUR NEXT SESSION",
+                    "OPTIONAL CARD PRACTICE",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.72f),
                     fontWeight = FontWeight.Bold
                 )
-                Text("Study", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                Text("Extra review cards", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
                 Text(
                     when {
                         (plan.triageMode || plan.overdueBacklog) && sessionSize > 0 -> "Older material comes first today; new material is paused."
-                        sessionSize > 0 -> "Your session is generated from memory, energy, and recent accuracy."
+                        sessionSize > 0 -> "Use this for extra retrieval outside the episode curriculum."
                         reader != null -> "All caught up. Read the recommended text for fresh exposure."
                         else -> "You're caught up for now. Manage imported material from Settings."
                     },
@@ -337,22 +357,7 @@ internal fun DailyPlanPanel(
             ) {
                 Icon(if (sessionSize > 0) Icons.Filled.PlayArrow else Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(if (sessionSize > 0) "Study" else "Read", fontWeight = FontWeight.SemiBold)
-            }
-            if (sessionSize > 0) {
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = onStartMicro,
-                    modifier = Modifier.fillMaxWidth().testTag(TestTags.PRACTICE_SHORT_SESSION),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    ),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.55f))
-                ) {
-                    Icon(Icons.Filled.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.practice_short_session))
-                }
+                Text(if (sessionSize > 0) "Review cards" else "Read", fontWeight = FontWeight.SemiBold)
             }
         }
         if (backlog > sessionSize && sessionSize > 0) {

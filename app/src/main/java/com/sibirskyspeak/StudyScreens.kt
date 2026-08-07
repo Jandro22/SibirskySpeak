@@ -124,8 +124,10 @@ import com.sibirskyspeak.review.selectBestSpeechHypothesis
 import com.sibirskyspeak.audio.AnswerSoundEffects
 import com.sibirskyspeak.data.Note
 import com.sibirskyspeak.data.CardType
+import com.sibirskyspeak.review.shouldAutoCommitMiss
 import com.sibirskyspeak.data.Rating
 import com.sibirskyspeak.data.GamificationStats
+import com.sibirskyspeak.review.AnswerMatch
 import com.sibirskyspeak.review.AnswerMode
 import com.sibirskyspeak.review.ReviewPrompt
 import com.sibirskyspeak.review.ReviewUiState
@@ -819,6 +821,13 @@ internal fun ReviewContent(
     // only recomposes this quiz card, not the whole screen — see ReviewViewModel.
     val typedAnswer by typedAnswerFlow.collectAsStateWithLifecycle()
     val correctionAnswer by correctionAnswerFlow.collectAsStateWithLifecycle()
+    // The inline button is the normal phone path. Hide the keyboard there too,
+    // so feedback and the pinned grading controls are visible immediately.
+    val keyboard = LocalSoftwareKeyboardController.current
+    val revealAnswer = {
+        keyboard?.hide()
+        onReveal()
+    }
     // Every deterministic Russian response uses tiles. This includes NOVEL_PRODUCE:
     // its realized sentence is a single scored target, and whole-word assembly still
     // tests ordering/inflection without requiring a Russian software keyboard.
@@ -1029,7 +1038,7 @@ internal fun ReviewContent(
                             onChange = onAnswerChanged,
                             // The keyboard's Done key should never turn an
                             // accidental empty submission into an FSRS lapse.
-                            onDone = { if (typedAnswer.isNotBlank()) onReveal() }
+                            onDone = { if (typedAnswer.isNotBlank()) revealAnswer() }
                         )
                     }
                 }
@@ -1044,16 +1053,8 @@ internal fun ReviewContent(
             val hasAnswer = typedAnswer.isNotBlank()
             PrimaryPracticeButton(
                 hasAnswer = hasAnswer,
-                blankMeansMiss = prompt.card.cardType in setOf(
-                    CardType.MEANING_TO_RU,
-                    CardType.CLOZE,
-                    CardType.CASE_FILL,
-                    CardType.ADJ_AGREE,
-                    CardType.VERB_FORM,
-                    CardType.DICTATION,
-                    CardType.SENTENCE_BUILD
-                ),
-                onClick = onReveal,
+                blankMeansMiss = shouldAutoCommitMiss(prompt),
+                onClick = revealAnswer,
                 modifier = Modifier.fillMaxWidth().testTag(TestTags.ANSWER_SHOW),
                 compact = compact
             )
@@ -1075,7 +1076,8 @@ internal fun SpeakingAnswerInput(
     recognized: String,
     onRecognized: (String) -> Unit,
     onRecognition: (String, Float?) -> Unit,
-    onRecognitionStatus: (String) -> Unit
+    onRecognitionStatus: (String) -> Unit,
+    allowSelfCheck: Boolean = true
 ) {
     val context = LocalContext.current
     val recognitionAvailable = remember { RussianSpeechRecognizer.isAvailable(context) }
@@ -1086,11 +1088,17 @@ internal fun SpeakingAnswerInput(
     // next to the transcript, not fed into evaluation, since ASR confidence reflects
     // the recognizer's certainty about the transcript, not pronunciation accuracy.
     var recognizedConfidence by rememberSaveable(cardId) { mutableStateOf<Float?>(null) }
+    var startAfterPermission by remember(cardId) { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
-            helperText = "Microphone ready. Tap the mic and say the Russian aloud."
+            helperText = "Microphone ready. Starting…"
+            startAfterPermission = true
         } else {
-            helperText = "Microphone permission is needed for speaking practice."
+            helperText = if (allowSelfCheck) {
+                "Microphone permission is needed for recognition. You can still self-check below."
+            } else {
+                "Microphone permission is needed for independent evidence. Use the tile fallback below."
+            }
             onRecognitionStatus("permission_denied")
         }
     }
@@ -1147,14 +1155,30 @@ internal fun SpeakingAnswerInput(
             onEndOfSpeech = {
                 phase = SpeechPhase.PROCESSING
                 helperText = "Processing speech..."
+            },
+            onPreparation = { message ->
+                phase = SpeechPhase.STARTING
+                helperText = message
+                onRecognitionStatus("model_preparation")
             }
         )
+    }
+
+    LaunchedEffect(startAfterPermission) {
+        if (startAfterPermission) {
+            startAfterPermission = false
+            startListening()
+        }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (!recognitionAvailable) {
             Text(
-                "Speech recognition is not available on this device. Say the Russian aloud, then use the self-check below.",
+                if (allowSelfCheck) {
+                    "Speech recognition is not available on this device. Say the Russian aloud, then use the self-check below."
+                } else {
+                    "Offline speech recognition is not available on this device. Use the keyboard-free tile fallback below."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1191,11 +1215,13 @@ internal fun SpeakingAnswerInput(
         // absent (or when the learner prefers not to grant microphone access).
         // This path records a deliberate self-check and leaves the final rating
         // to the learner instead of fabricating an ASR transcript or score.
-        OutlinedButton(
-            onClick = { onRecognized(SPEECH_SELF_CHECK_MARKER) },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("I said it aloud · self-check")
+        if (allowSelfCheck) {
+            OutlinedButton(
+                onClick = { onRecognized(SPEECH_SELF_CHECK_MARKER) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("I said it aloud · self-check")
+            }
         }
         if (recognized.isNotBlank() && recognized != SPEECH_SELF_CHECK_MARKER) {
             Surface(
@@ -1503,6 +1529,24 @@ internal fun RevealPanel(
     }
     Column(verticalArrangement = Arrangement.spacedBy(if (compact) 7.dp else 12.dp)) {
         ResultBanner(state, prompt, onSpeak, compact)
+        // English recognition accepts legitimate synonyms, so its matcher is
+        // advisory. State the honest default after a mismatch without turning a
+        // valid paraphrase into an automatic lapse.
+        if (prompt.answerMode == AnswerMode.ENGLISH && state.answerMatch == AnswerMatch.WRONG && !state.autoRatedAgain) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                contentColor = MaterialTheme.colorScheme.onErrorContainer
+            ) {
+                Text(
+                    "Didn't retrieve it? Again is recommended. Use Hard, Good, or Easy only if your wording meant the same thing.",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = if (compact) 7.dp else 9.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
         prompt.explanation?.let {
             Surface(
                 modifier = Modifier.fillMaxWidth(),

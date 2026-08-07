@@ -16,6 +16,8 @@ internal class FakeSettingsStore : SettingsStore {
     override var reminderHour: Int = SettingsStore.DEFAULT_REMINDER_HOUR
     override var readerFontScale: Float = 1.0f
     override var lastBackupAt: Long = 0L
+    override var backupDataVersion: Int = 0
+    override var readerFormIndexVersion: Int = 0
     override var backupTreeUri: String = ""
     override var automaticPublicBackupEnabled: Boolean = true
     override var onlineGlossLookupEnabled: Boolean = true
@@ -40,6 +42,8 @@ internal class FakeSettingsStore : SettingsStore {
     override var goalLastVelocityWordsKnown: Int = 0
     override var lastStablePaceWordsPerDay: Double = 0.0
     override var sessionSnapshotJson: String = ""
+    override var episodeSnapshotJson: String = ""
+    override var pendingReaderEpisodeTextId: Long = -1L
     override var onboardingCompleted: Boolean = false
     override var launchMaintenanceToken: String = ""
     override var lastMicroReadingAttemptDay: Long = Long.MIN_VALUE

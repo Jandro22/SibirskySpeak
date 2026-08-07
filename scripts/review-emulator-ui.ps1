@@ -39,7 +39,7 @@ $launchStarted = Get-Date
 # Include both first-run onboarding and post-onboarding surfaces. Matching only
 # dashboard/study copy made clean-install reviews falsely time out while the
 # rendered onboarding screen was already visible.
-$bodyPattern = "Start with a useful first session|Your first session|I know some Russian|Today's Focus|Curriculum mastery|Practice actions completed|Daily goal|Study settings|Reader library|New vocabulary|Make the adjective agree|Choose the right Russian form|Translate this Russian word|onboarding_beginner"
+$bodyPattern = "Learn Russian by using it|Continue your Russian|tutor_onboarding_start|tutor_continue|Practice actions completed|Study settings|Reader library|Make the adjective agree|Choose the right Russian form|Translate this Russian word"
 $deadline = (Get-Date).AddSeconds(45)
 do {
     Start-Sleep -Seconds 2

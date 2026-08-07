@@ -14,6 +14,26 @@ class PlatformAudioPolicyTest {
     }
 
     @Test
+    fun russianModelPolicyDistinguishesReadyDownloadableAndUnsupportedLocales() {
+        assertEquals(
+            RussianModelState.INSTALLED,
+            russianModelState(installed = listOf("en-US", "ru-RU"), pending = emptyList(), downloadable = emptyList())
+        )
+        assertEquals(
+            RussianModelState.PENDING,
+            russianModelState(installed = emptyList(), pending = listOf("ru_RU"), downloadable = listOf("ru-RU"))
+        )
+        assertEquals(
+            RussianModelState.DOWNLOADABLE,
+            russianModelState(installed = emptyList(), pending = emptyList(), downloadable = listOf("ru", "de-DE"))
+        )
+        assertEquals(
+            RussianModelState.UNSUPPORTED,
+            russianModelState(installed = listOf("en-US"), pending = emptyList(), downloadable = listOf("de-DE"))
+        )
+    }
+
+    @Test
     fun ttsNormalizationDropsGlossesAndPreservesRussianText() {
         assertEquals("Привет мир!", normalizeRussianSpeech("Приве́т мир! hello"))
         assertTrue(normalizeRussianSpeech("hello world").isEmpty())

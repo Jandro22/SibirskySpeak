@@ -6,6 +6,7 @@ import com.sibirskyspeak.data.AppDatabase
 import com.sibirskyspeak.data.AssetBootstrap
 import com.sibirskyspeak.data.BackupManager
 import com.sibirskyspeak.data.CardDao
+import com.sibirskyspeak.data.CommunicativeLearningDao
 import com.sibirskyspeak.data.CheckpointResultDao
 import com.sibirskyspeak.data.ConfusablePairDao
 import com.sibirskyspeak.data.ConfusionEventDao
@@ -77,6 +78,7 @@ object AppModule {
     @Provides fun provideWeeklyReportDao(db: AppDatabase): WeeklyReportDao = db.weeklyReportDao()
     @Provides fun provideCheckpointResultDao(db: AppDatabase): CheckpointResultDao = db.checkpointResultDao()
     @Provides fun provideCurriculumStateDao(db: AppDatabase): CurriculumStateDao = db.curriculumStateDao()
+    @Provides fun provideCommunicativeLearningDao(db: AppDatabase): CommunicativeLearningDao = db.communicativeLearningDao()
     @Provides fun provideContentDao(db: ContentDatabase): ContentDao = db.contentDao()
     @Provides @Singleton fun provideMorphologyEngine(dao: ContentDao): MorphologyEngine = MorphologyEngine(dao)
 
@@ -131,6 +133,7 @@ object AppModule {
         confusionEventDao: ConfusionEventDao,
         checkpointResultDao: CheckpointResultDao,
         curriculumStateDao: CurriculumStateDao,
+        communicativeLearningDao: CommunicativeLearningDao,
         contentDao: ContentDao,
         morphologyEngine: MorphologyEngine,
         frameRealizer: FrameRealizer,
@@ -157,6 +160,7 @@ object AppModule {
         confusionEventDao = confusionEventDao,
         checkpointResultDao = checkpointResultDao,
         curriculumStateDao = curriculumStateDao,
+        communicativeLearningDao = communicativeLearningDao,
         contentDao = contentDao,
         settingsStore = settings,
         morphologyEngine = morphologyEngine,
